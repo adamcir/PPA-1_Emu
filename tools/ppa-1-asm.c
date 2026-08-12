@@ -1,0 +1,1013 @@
+/****************************************************************/
+/* PPA-1 Assembler                                              */
+/* (c) 2026 Adam Cír (Adava), Adava Software, Adava Development */
+/****************************************************************/
+
+#include <stdio.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <errno.h>
+
+#define MAX_SOURCE_LINES 8192
+#define MAX_LINE_LEN     1024
+#define MAX_SYMBOLS      1024
+#define MAX_NAME_LEN     64
+#define MEM_SIZE         0x10000
+
+typedef struct {
+    char name[MAX_NAME_LEN];
+    uint16_t value;
+    bool is_const;
+} Symbol;
+
+typedef struct {
+    char *text;
+    int number;
+} SourceLine;
+
+typedef struct {
+    SourceLine lines[MAX_SOURCE_LINES];
+    size_t line_count;
+
+    Symbol symbols[MAX_SYMBOLS];
+    size_t symbol_count;
+
+    uint8_t output[MEM_SIZE];
+    uint32_t pc;
+    uint32_t highest;
+    bool wrote_anything;
+} Assembler;
+
+typedef enum {
+    OT_NONE,
+    OT_REG,
+    OT_IMM,
+    OT_ADDR,
+    OT_VALUE
+} OperandType;
+
+typedef struct {
+    OperandType type;
+    char text[MAX_LINE_LEN];
+} Operand;
+
+static void fatal_line(int line, const char *msg) {
+    fprintf(stderr, "Error on line %d: %s\n", line, msg);
+    exit(1);
+}
+
+static void fatal_linef(int line, const char *fmt, const char *arg) {
+    fprintf(stderr, "Error on line %d: ", line);
+    fprintf(stderr, fmt, arg);
+    fputc('\n', stderr);
+    exit(1);
+}
+
+static char *ltrim(char *s) {
+    while (*s && isspace((unsigned char)*s)) s++;
+    return s;
+}
+
+static void rtrim(char *s) {
+    size_t n = strlen(s);
+    while (n > 0 && isspace((unsigned char)s[n - 1])) {
+        s[--n] = '\0';
+    }
+}
+
+static char *trim(char *s) {
+    s = ltrim(s);
+    rtrim(s);
+    return s;
+}
+
+static void strtoupper(char *s) {
+    for (; *s; s++) *s = (char)toupper((unsigned char)*s);
+}
+
+static int stricmp_ascii(const char *a, const char *b) {
+    while (*a && *b) {
+        int ca = toupper((unsigned char)*a);
+        int cb = toupper((unsigned char)*b);
+        if (ca != cb) return ca - cb;
+        a++;
+        b++;
+    }
+    return toupper((unsigned char)*a) - toupper((unsigned char)*b);
+}
+
+static bool valid_symbol_name(const char *s) {
+    if (!s[0]) return false;
+    if (!(isalpha((unsigned char)s[0]) || s[0] == '_')) return false;
+
+    for (size_t i = 1; s[i]; i++) {
+        if (!(isalnum((unsigned char)s[i]) || s[i] == '_')) return false;
+    }
+    return true;
+}
+
+static void strip_comment(char *s) {
+    bool in_quote = false;
+
+    for (size_t i = 0; s[i]; i++) {
+        if (s[i] == '"' && (i == 0 || s[i - 1] != '\\')) {
+            in_quote = !in_quote;
+            continue;
+        }
+
+        if (!in_quote && s[i] == ';') {
+            s[i] = '\0';
+            return;
+        }
+
+        if (!in_quote && s[i] == '/' && s[i + 1] == '/') {
+            s[i] = '\0';
+            return;
+        }
+    }
+}
+
+static Symbol *find_symbol(Assembler *a, const char *name) {
+    for (size_t i = 0; i < a->symbol_count; i++) {
+        if (stricmp_ascii(a->symbols[i].name, name) == 0) {
+            return &a->symbols[i];
+        }
+    }
+    return NULL;
+}
+
+static void add_symbol(Assembler *a, const char *name, uint16_t value, bool is_const, int line) {
+    if (!valid_symbol_name(name)) {
+        fatal_linef(line, "invalid symbol name '%s'", name);
+    }
+
+    if (find_symbol(a, name)) {
+        fatal_linef(line, "duplicate symbol '%s'", name);
+    }
+
+    if (a->symbol_count >= MAX_SYMBOLS) {
+        fatal_line(line, "too many symbols");
+    }
+
+    Symbol *s = &a->symbols[a->symbol_count++];
+    snprintf(s->name, sizeof(s->name), "%s", name);
+    s->value = value;
+    s->is_const = is_const;
+}
+
+static bool valid_digits_for_base(const char *s, int base) {
+    if (!s || !*s) return false;
+
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+
+        if (base == 2) {
+            if (c != '0' && c != '1') return false;
+        } else if (base == 10) {
+            if (c < '0' || c > '9') return false;
+        } else if (base == 16) {
+            /*
+             * PPA-1 numeric syntax is intentionally case-sensitive:
+             *   A-F = hexadecimal digits
+             *   d   = decimal suffix
+             *   h   = hexadecimal suffix
+             *
+             * Lowercase a-f are therefore not accepted as hexadecimal
+             * digits. This avoids ambiguity such as 0D vs 0d.
+             */
+            if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'))) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static uint32_t parse_number_literal(const char *text, bool *ok) {
+    char buf[MAX_LINE_LEN];
+    snprintf(buf, sizeof(buf), "%s", text);
+    char *s = trim(buf);
+
+    if (!*s) {
+        *ok = false;
+        return 0;
+    }
+
+    int base = 16;
+    size_t len = strlen(s);
+
+    /*
+     * Suffixes are case-sensitive on purpose.
+     * Only lowercase 'd' means decimal and only lowercase 'h' means
+     * hexadecimal. Uppercase A-F always remain hexadecimal digits.
+     */
+    if (len > 1 && s[len - 1] == 'd') {
+        s[len - 1] = '\0';
+        base = 10;
+    } else if (len > 1 && s[len - 1] == 'h') {
+        s[len - 1] = '\0';
+        base = 16;
+    } else if (strncmp(s, "0x", 2) == 0 || strncmp(s, "0X", 2) == 0) {
+        s += 2;
+        base = 16;
+    } else if (strncmp(s, "0b", 2) == 0 || strncmp(s, "0B", 2) == 0) {
+        s += 2;
+        base = 2;
+    } else if (s[0] == '%') {
+        s++;
+        base = 2;
+    } else {
+        /* Bare PPA-1 numbers are hexadecimal by default. */
+        base = 16;
+    }
+
+    if (!valid_digits_for_base(s, base)) {
+        *ok = false;
+        return 0;
+    }
+
+    errno = 0;
+    char *end = NULL;
+    unsigned long v = strtoul(s, &end, base);
+
+    if (errno != 0 || !end || *end != '\0') {
+        *ok = false;
+        return 0;
+    }
+
+    *ok = true;
+    return (uint32_t)v;
+}
+
+static uint16_t eval_expr(Assembler *a, const char *expr, int line, bool allow_undefined, bool *defined) {
+    char buf[MAX_LINE_LEN];
+    snprintf(buf, sizeof(buf), "%s", expr);
+    char *s = trim(buf);
+
+    if (*s == '#') s++;
+    if (*s == '$') s++;
+    s = trim(s);
+
+    char *op = NULL;
+    for (char *p = s + 1; *p; p++) {
+        if (*p == '+' || *p == '-') {
+            op = p;
+            break;
+        }
+    }
+
+    char lhs[MAX_LINE_LEN];
+    char rhs[MAX_LINE_LEN] = {0};
+    char operation = 0;
+
+    if (op) {
+        operation = *op;
+        *op = '\0';
+        snprintf(lhs, sizeof(lhs), "%s", trim(s));
+        snprintf(rhs, sizeof(rhs), "%s", trim(op + 1));
+    } else {
+        snprintf(lhs, sizeof(lhs), "%s", s);
+    }
+
+    uint32_t base_value = 0;
+    bool num_ok = false;
+    base_value = parse_number_literal(lhs, &num_ok);
+
+    if (!num_ok) {
+        Symbol *sym = find_symbol(a, lhs);
+        if (!sym) {
+            if (allow_undefined) {
+                *defined = false;
+                return 0;
+            }
+            fatal_linef(line, "unknown symbol '%s'", lhs);
+        }
+        base_value = sym->value;
+    }
+
+    if (operation) {
+        bool off_ok = false;
+        uint32_t off = parse_number_literal(rhs, &off_ok);
+        if (!off_ok) {
+            Symbol *sym = find_symbol(a, rhs);
+            if (!sym) {
+                if (allow_undefined) {
+                    *defined = false;
+                    return 0;
+                }
+                fatal_linef(line, "unknown symbol '%s'", rhs);
+            }
+            off = sym->value;
+        }
+
+        if (operation == '+') base_value += off;
+        else base_value -= off;
+    }
+
+    if (base_value > 0xFFFFu) {
+        fatal_line(line, "value does not fit in 16 bits");
+    }
+
+    *defined = true;
+    return (uint16_t)base_value;
+}
+
+static int parse_reg(const char *text) {
+    if (stricmp_ascii(text, "A") == 0) return 0x0;
+    if (stricmp_ascii(text, "B") == 0) return 0x1;
+    if (stricmp_ascii(text, "C") == 0) return 0x2;
+    if (stricmp_ascii(text, "D") == 0) return 0x3;
+    return -1;
+}
+
+static Operand classify_operand(const char *text) {
+    Operand o;
+    memset(&o, 0, sizeof(o));
+
+    snprintf(o.text, sizeof(o.text), "%s", text);
+    char *t = trim(o.text);
+
+    if (!*t) {
+        o.type = OT_NONE;
+    } else if (parse_reg(t) >= 0) {
+        o.type = OT_REG;
+    } else if (*t == '#') {
+        o.type = OT_IMM;
+    } else if (*t == '$') {
+        o.type = OT_ADDR;
+    } else {
+        o.type = OT_VALUE;
+    }
+
+    return o;
+}
+
+static int split_operands(char *s, Operand out[8]) {
+    int count = 0;
+    bool in_quote = false;
+    char *start = s;
+
+    for (char *p = s;; p++) {
+        if (*p == '"' && (p == s || p[-1] != '\\')) in_quote = !in_quote;
+
+        if ((!in_quote && *p == ',') || *p == '\0') {
+            char saved = *p;
+            *p = '\0';
+
+            char *part = trim(start);
+            if (*part) {
+                if (count >= 8) return -1;
+                out[count++] = classify_operand(part);
+            }
+
+            if (saved == '\0') break;
+            start = p + 1;
+        }
+    }
+
+    return count;
+}
+
+static void emit8(Assembler *a, uint8_t v, int line) {
+    if (a->pc >= MEM_SIZE) fatal_line(line, "output exceeds 64 KiB");
+
+    a->output[a->pc++] = v;
+    if (!a->wrote_anything || a->pc > a->highest) a->highest = a->pc;
+    a->wrote_anything = true;
+}
+
+static void emit16be(Assembler *a, uint16_t v, int line) {
+    emit8(a, (uint8_t)(v >> 8), line);
+    emit8(a, (uint8_t)(v & 0xFF), line);
+}
+
+static void advance_pc(Assembler *a, uint32_t count, int line) {
+    if ((uint32_t)a->pc + count > MEM_SIZE) {
+        fatal_line(line, "program exceeds 64 KiB");
+    }
+    a->pc += count;
+}
+
+static uint8_t get_u8_expr(Assembler *a, const char *text, int line, bool allow_undefined) {
+    bool defined = false;
+    uint16_t v = eval_expr(a, text, line, allow_undefined, &defined);
+    if (!defined && allow_undefined) return 0;
+    if (v > 0xFF) fatal_line(line, "8-bit value out of range");
+    return (uint8_t)v;
+}
+
+static uint16_t get_u16_expr(Assembler *a, const char *text, int line, bool allow_undefined) {
+    bool defined = false;
+    uint16_t v = eval_expr(a, text, line, allow_undefined, &defined);
+    return v;
+}
+
+static int instruction_size(const char *mnemonic, Operand ops[], int n, int line) {
+    if (stricmp_ascii(mnemonic, "NOP") == 0 || stricmp_ascii(mnemonic, "HLT") == 0) {
+        if (n != 0) fatal_line(line, "instruction takes no operands");
+        return 1;
+    }
+
+    if (stricmp_ascii(mnemonic, "MOV") == 0) {
+        if (n != 2 || ops[0].type != OT_REG) fatal_line(line, "MOV requires destination register and source");
+        if (ops[1].type == OT_REG) return 2;
+        if (ops[1].type == OT_IMM || ops[1].type == OT_VALUE) return 3;
+        fatal_line(line, "invalid MOV operands");
+    }
+
+    if (stricmp_ascii(mnemonic, "LDA") == 0 || stricmp_ascii(mnemonic, "STA") == 0) {
+        if (n != 1 || (ops[0].type != OT_ADDR && ops[0].type != OT_VALUE)) {
+            fatal_line(line, "LDA/STA requires one address");
+        }
+        return 3;
+    }
+
+    if (stricmp_ascii(mnemonic, "PUSH") == 0 || stricmp_ascii(mnemonic, "POP") == 0 ||
+        stricmp_ascii(mnemonic, "NOT") == 0 || stricmp_ascii(mnemonic, "ROR") == 0 ||
+        stricmp_ascii(mnemonic, "ROL") == 0 || stricmp_ascii(mnemonic, "SHR") == 0 ||
+        stricmp_ascii(mnemonic, "SHL") == 0 || stricmp_ascii(mnemonic, "INC") == 0 ||
+        stricmp_ascii(mnemonic, "DEC") == 0) {
+        if (n != 1 || ops[0].type != OT_REG) fatal_line(line, "instruction requires one register");
+        return 2;
+    }
+
+    if (stricmp_ascii(mnemonic, "ADD") == 0 || stricmp_ascii(mnemonic, "SUB") == 0 ||
+        stricmp_ascii(mnemonic, "AND") == 0 || stricmp_ascii(mnemonic, "OR") == 0 ||
+        stricmp_ascii(mnemonic, "XOR") == 0) {
+        if (n != 2 || ops[0].type != OT_REG) fatal_line(line, "ALU instruction requires destination register and source");
+        if (ops[1].type == OT_REG) return 2;
+        if (ops[1].type == OT_IMM || ops[1].type == OT_VALUE) return 3;
+        fatal_line(line, "invalid ALU operands");
+    }
+
+    if (stricmp_ascii(mnemonic, "CMP") == 0) {
+        if (n == 1) {
+            if (ops[0].type == OT_REG) return 2;
+            if (ops[0].type == OT_IMM || ops[0].type == OT_VALUE) return 2;
+            if (ops[0].type == OT_ADDR) return 3;
+        }
+
+        if (n == 2 && ops[0].type == OT_REG) {
+            if (ops[1].type == OT_REG) return 2;
+            if (ops[1].type == OT_IMM || ops[1].type == OT_VALUE) return 3;
+            if (ops[1].type == OT_ADDR) return 4;
+        }
+
+        fatal_line(line, "invalid CMP operands");
+    }
+
+    if (stricmp_ascii(mnemonic, "JMP") == 0 || stricmp_ascii(mnemonic, "JC") == 0 ||
+        stricmp_ascii(mnemonic, "JNC") == 0 || stricmp_ascii(mnemonic, "JZ") == 0 ||
+        stricmp_ascii(mnemonic, "JNZ") == 0) {
+        if (n != 1) fatal_line(line, "jump requires one address or label");
+        return 3;
+    }
+
+    fatal_linef(line, "unknown instruction '%s'", mnemonic);
+    return 0;
+}
+
+static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[], int n, int line) {
+    if (stricmp_ascii(mnemonic, "NOP") == 0) {
+        emit8(a, 0x00, line);
+        return;
+    }
+
+    if (stricmp_ascii(mnemonic, "HLT") == 0) {
+        emit8(a, 0x01, line);
+        return;
+    }
+
+    if (stricmp_ascii(mnemonic, "MOV") == 0) {
+        int dst = parse_reg(ops[0].text);
+
+        if (ops[1].type == OT_REG) {
+            int src = parse_reg(ops[1].text);
+            emit8(a, 0x02, line);
+            emit8(a, (uint8_t)((dst << 4) | src), line);
+        } else {
+            emit8(a, 0x03, line);
+            emit8(a, (uint8_t)dst, line);
+            emit8(a, get_u8_expr(a, ops[1].text, line, false), line);
+        }
+        return;
+    }
+
+    if (stricmp_ascii(mnemonic, "LDA") == 0) {
+        emit8(a, 0x04, line);
+        emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+        return;
+    }
+
+    if (stricmp_ascii(mnemonic, "STA") == 0) {
+        emit8(a, 0x05, line);
+        emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+        return;
+    }
+
+    if (stricmp_ascii(mnemonic, "PUSH") == 0 || stricmp_ascii(mnemonic, "POP") == 0) {
+        emit8(a, stricmp_ascii(mnemonic, "PUSH") == 0 ? 0x06 : 0x07, line);
+        emit8(a, (uint8_t)parse_reg(ops[0].text), line);
+        return;
+    }
+
+    struct Pair {
+        const char *name;
+        uint8_t rr;
+        uint8_t ri;
+    };
+
+    static const struct Pair pairs[] = {
+        {"ADD", 0x08, 0x09},
+        {"SUB", 0x0A, 0x0B},
+        {"AND", 0x0C, 0x0D},
+        {"OR",  0x0E, 0x0F},
+        {"XOR", 0x10, 0x11}
+    };
+
+    for (size_t i = 0; i < sizeof(pairs) / sizeof(pairs[0]); i++) {
+        if (stricmp_ascii(mnemonic, pairs[i].name) == 0) {
+            int r1 = parse_reg(ops[0].text);
+
+            if (ops[1].type == OT_REG) {
+                int r2 = parse_reg(ops[1].text);
+                emit8(a, pairs[i].rr, line);
+                emit8(a, (uint8_t)((r1 << 4) | r2), line);
+            } else {
+                emit8(a, pairs[i].ri, line);
+                emit8(a, (uint8_t)r1, line);
+                emit8(a, get_u8_expr(a, ops[1].text, line, false), line);
+            }
+            return;
+        }
+    }
+
+    struct Unary {
+        const char *name;
+        uint8_t opcode;
+    };
+
+    static const struct Unary unary[] = {
+        {"NOT", 0x12},
+        {"ROR", 0x13},
+        {"ROL", 0x14},
+        {"SHR", 0x15},
+        {"SHL", 0x16},
+        {"INC", 0x17},
+        {"DEC", 0x18}
+    };
+
+    for (size_t i = 0; i < sizeof(unary) / sizeof(unary[0]); i++) {
+        if (stricmp_ascii(mnemonic, unary[i].name) == 0) {
+            emit8(a, unary[i].opcode, line);
+            emit8(a, (uint8_t)parse_reg(ops[0].text), line);
+            return;
+        }
+    }
+
+    if (stricmp_ascii(mnemonic, "CMP") == 0) {
+        if (n == 1) {
+            if (ops[0].type == OT_REG) {
+                emit8(a, 0x19, line);
+                emit8(a, (uint8_t)parse_reg(ops[0].text), line);
+            } else if (ops[0].type == OT_ADDR) {
+                emit8(a, 0x1D, line);
+                emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+            } else {
+                emit8(a, 0x1B, line);
+                emit8(a, get_u8_expr(a, ops[0].text, line, false), line);
+            }
+            return;
+        }
+
+        if (n == 2) {
+            int r1 = parse_reg(ops[0].text);
+
+            if (ops[1].type == OT_REG) {
+                int r2 = parse_reg(ops[1].text);
+                emit8(a, 0x1A, line);
+                emit8(a, (uint8_t)((r1 << 4) | r2), line);
+            } else if (ops[1].type == OT_ADDR) {
+                emit8(a, 0x1E, line);
+                emit8(a, (uint8_t)r1, line);
+                emit16be(a, get_u16_expr(a, ops[1].text, line, false), line);
+            } else {
+                emit8(a, 0x1C, line);
+                emit8(a, (uint8_t)r1, line);
+                emit8(a, get_u8_expr(a, ops[1].text, line, false), line);
+            }
+            return;
+        }
+    }
+
+    struct Jump {
+        const char *name;
+        uint8_t opcode;
+    };
+
+    static const struct Jump jumps[] = {
+        {"JMP", 0x1F},
+        {"JC",  0x20},
+        {"JNC", 0x21},
+        {"JZ",  0x22},
+        {"JNZ", 0x23}
+    };
+
+    for (size_t i = 0; i < sizeof(jumps) / sizeof(jumps[0]); i++) {
+        if (stricmp_ascii(mnemonic, jumps[i].name) == 0) {
+            emit8(a, jumps[i].opcode, line);
+            emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+            return;
+        }
+    }
+
+    fatal_linef(line, "cannot encode instruction '%s'", mnemonic);
+}
+
+static int parse_string_literal(const char *text, uint8_t *out, size_t out_cap, int line) {
+    char buf[MAX_LINE_LEN];
+    snprintf(buf, sizeof(buf), "%s", text);
+    char *s = trim(buf);
+
+    if (*s != '"') fatal_line(line, "string must start with a quote");
+    s++;
+
+    int count = 0;
+    bool closed = false;
+
+    while (*s) {
+        if (*s == '"') {
+            s++;
+            closed = true;
+            break;
+        }
+
+        unsigned char ch;
+
+        if (*s == '\\') {
+            s++;
+            if (!*s) fatal_line(line, "unfinished escape sequence");
+
+            switch (*s) {
+                case 'n': ch = '\n'; break;
+                case 'r': ch = '\r'; break;
+                case 't': ch = '\t'; break;
+                case '0': ch = '\0'; break;
+                case '\\': ch = '\\'; break;
+                case '"': ch = '"'; break;
+                default: ch = (unsigned char)*s; break;
+            }
+        } else {
+            ch = (unsigned char)*s;
+        }
+
+        if ((size_t)count >= out_cap) fatal_line(line, "string is too long");
+        out[count++] = ch;
+        s++;
+    }
+
+    if (!closed) fatal_line(line, "unterminated string literal");
+    if (*trim(s)) fatal_line(line, "unexpected text after string literal");
+
+    return count;
+}
+
+static void handle_directive(Assembler *a, char *line, int line_no, int pass) {
+    char *p = line;
+    char *space = p;
+
+    while (*space && !isspace((unsigned char)*space)) space++;
+
+    char directive[64];
+    size_t dlen = (size_t)(space - p);
+    if (dlen >= sizeof(directive)) fatal_line(line_no, "directive name is too long");
+
+    memcpy(directive, p, dlen);
+    directive[dlen] = '\0';
+    strtoupper(directive);
+
+    char *args = trim(space);
+
+    if (strcmp(directive, ".ORG") == 0) {
+        if (!*args) fatal_line(line_no, ".org requires an address");
+
+        bool defined = false;
+        uint16_t addr = eval_expr(a, args, line_no, pass == 1, &defined);
+
+        if (pass == 1 && !defined) {
+            fatal_line(line_no, ".org cannot use a forward label");
+        }
+
+        a->pc = (uint32_t)addr;
+        if (pass == 2 && a->wrote_anything && a->pc < a->highest) {
+            /* Overwriting with .org is allowed, matching ROM-style assembly. */
+        }
+        return;
+    }
+
+    if (strcmp(directive, ".BYTE") == 0 || strcmp(directive, "DB") == 0) {
+        Operand ops[8];
+        int n = split_operands(args, ops);
+        if (n <= 0) fatal_line(line_no, ".byte requires at least one value");
+
+        if (pass == 1) {
+            advance_pc(a, (uint16_t)n, line_no);
+        } else {
+            for (int i = 0; i < n; i++) {
+                emit8(a, get_u8_expr(a, ops[i].text, line_no, false), line_no);
+            }
+        }
+        return;
+    }
+
+    if (strcmp(directive, ".WORD") == 0 || strcmp(directive, "DW") == 0) {
+        Operand ops[8];
+        int n = split_operands(args, ops);
+        if (n <= 0) fatal_line(line_no, ".word requires at least one value");
+
+        if (pass == 1) {
+            advance_pc(a, (uint16_t)(n * 2), line_no);
+        } else {
+            for (int i = 0; i < n; i++) {
+                emit16be(a, get_u16_expr(a, ops[i].text, line_no, false), line_no);
+            }
+        }
+        return;
+    }
+
+    if (strcmp(directive, ".ASCII") == 0 || strcmp(directive, ".ASCIZ") == 0) {
+        uint8_t bytes[MAX_LINE_LEN];
+        int n = parse_string_literal(args, bytes, sizeof(bytes), line_no);
+        int total = n + (strcmp(directive, ".ASCIZ") == 0 ? 1 : 0);
+
+        if (pass == 1) {
+            advance_pc(a, (uint16_t)total, line_no);
+        } else {
+            for (int i = 0; i < n; i++) emit8(a, bytes[i], line_no);
+            if (strcmp(directive, ".ASCIZ") == 0) emit8(a, 0, line_no);
+        }
+        return;
+    }
+
+    fatal_linef(line_no, "unknown directive '%s'", directive);
+}
+
+static bool parse_equ(Assembler *a, char *line, int line_no, int pass) {
+    char tmp[MAX_LINE_LEN];
+    snprintf(tmp, sizeof(tmp), "%s", line);
+
+    char *name = strtok(tmp, " \t,");
+    char *kw = strtok(NULL, " \t,");
+    char *value = strtok(NULL, "");
+
+    if (!name || !kw || !value) return false;
+
+    if (stricmp_ascii(kw, "EQU") != 0) return false;
+
+    if (pass == 1) {
+        bool defined = false;
+        uint16_t v = eval_expr(a, trim(value), line_no, false, &defined);
+        add_symbol(a, name, v, true, line_no);
+    }
+
+    return true;
+}
+
+static char *consume_labels(Assembler *a, char *line, int line_no, int pass) {
+    char *p = trim(line);
+
+    while (*p) {
+        char *colon = strchr(p, ':');
+        if (!colon) break;
+
+        char *ws = p;
+        while (*ws && !isspace((unsigned char)*ws) && *ws != ':') ws++;
+
+        if (ws != colon) break;
+
+        *colon = '\0';
+        char *name = trim(p);
+
+        if (pass == 1) {
+            add_symbol(a, name, (uint16_t)a->pc, false, line_no);
+        }
+
+        p = trim(colon + 1);
+    }
+
+    return p;
+}
+
+static void process_line(Assembler *a, const SourceLine *sl, int pass) {
+    char buf[MAX_LINE_LEN];
+    snprintf(buf, sizeof(buf), "%s", sl->text);
+
+    strip_comment(buf);
+    char *line = trim(buf);
+    if (!*line) return;
+
+    line = consume_labels(a, line, sl->number, pass);
+    if (!*line) return;
+
+    if (parse_equ(a, line, sl->number, pass)) return;
+
+    if (*line == '.') {
+        handle_directive(a, line, sl->number, pass);
+        return;
+    }
+
+    char *p = line;
+    while (*p && !isspace((unsigned char)*p)) p++;
+
+    char mnemonic[64];
+    size_t mlen = (size_t)(p - line);
+    if (mlen >= sizeof(mnemonic)) fatal_line(sl->number, "mnemonic is too long");
+
+    memcpy(mnemonic, line, mlen);
+    mnemonic[mlen] = '\0';
+    strtoupper(mnemonic);
+
+    char *optext = trim(p);
+    Operand ops[8];
+    int n = 0;
+
+    if (*optext) {
+        n = split_operands(optext, ops);
+        if (n < 0) fatal_line(sl->number, "too many operands");
+    }
+
+    int size = instruction_size(mnemonic, ops, n, sl->number);
+
+    if (pass == 1) {
+        advance_pc(a, (uint16_t)size, sl->number);
+    } else {
+        encode_instruction(a, mnemonic, ops, n, sl->number);
+    }
+}
+
+static void load_source(Assembler *a, const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        perror(path);
+        exit(1);
+    }
+
+    char line[MAX_LINE_LEN];
+    int line_no = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        line_no++;
+
+        if (a->line_count >= MAX_SOURCE_LINES) {
+            fprintf(stderr, "Too many source lines\n");
+            fclose(f);
+            exit(1);
+        }
+
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] != '\n' && !feof(f)) {
+            fprintf(stderr, "Line %d is too long\n", line_no);
+            fclose(f);
+            exit(1);
+        }
+
+        char *copy = malloc(len + 1);
+        if (!copy) {
+            fprintf(stderr, "Out of memory\n");
+            fclose(f);
+            exit(1);
+        }
+
+        memcpy(copy, line, len + 1);
+
+        a->lines[a->line_count].text = copy;
+        a->lines[a->line_count].number = line_no;
+        a->line_count++;
+    }
+
+    fclose(f);
+}
+
+static void free_source(Assembler *a) {
+    for (size_t i = 0; i < a->line_count; i++) {
+        free(a->lines[i].text);
+    }
+}
+
+static void pass1(Assembler *a) {
+    a->pc = 0;
+
+    for (size_t i = 0; i < a->line_count; i++) {
+        process_line(a, &a->lines[i], 1);
+    }
+}
+
+static void pass2(Assembler *a) {
+    memset(a->output, 0, sizeof(a->output));
+    a->pc = 0;
+    a->highest = 0;
+    a->wrote_anything = false;
+
+    for (size_t i = 0; i < a->line_count; i++) {
+        process_line(a, &a->lines[i], 2);
+    }
+}
+
+static void write_output(const Assembler *a, const char *path) {
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        perror(path);
+        exit(1);
+    }
+
+    size_t size = a->wrote_anything ? a->highest : 0;
+
+    if (size > 0 && fwrite(a->output, 1, size, f) != size) {
+        perror("fwrite");
+        fclose(f);
+        exit(1);
+    }
+
+    fclose(f);
+    printf("Wrote %zu bytes to %s\n", size, path);
+}
+
+static void print_symbols(const Assembler *a) {
+    if (a->symbol_count == 0) return;
+
+    printf("Symbols:\n");
+    for (size_t i = 0; i < a->symbol_count; i++) {
+        printf("  %-24s = %04X%s\n",
+               a->symbols[i].name,
+               a->symbols[i].value,
+               a->symbols[i].is_const ? " (const)" : "");
+    }
+}
+
+static void usage(const char *prog) {
+    printf("PPA-1 Assembler\n");
+    printf("Usage:\n");
+    printf("  %s input.asm output.bin [--symbols]\n", prog);
+    printf("\n");
+    printf("Number syntax:\n");
+    printf("  0A, FF, 1234       hexadecimal (default; A-F uppercase)\n");
+    printf("  0x0A               hexadecimal\n");
+    printf("  0b1010 or %%1010    binary\n");
+    printf("  10d                 decimal (lowercase d only)\n");
+    printf("  0Ah                 hexadecimal suffix (lowercase h only)\n");
+    printf("\n");
+    printf("Operand syntax:\n");
+    printf("  #0A                 immediate\n");
+    printf("  $1234               address\n");
+    printf("  label                label/address in jumps\n");
+    printf("\n");
+    printf("Directives:\n");
+    printf("  .org $8000\n");
+    printf("  .byte 01, 02, FF\n");
+    printf("  .word 1234, label\n");
+    printf("  .ascii \"text\"\n");
+    printf("  .asciz \"text\"\n");
+    printf("  NAME EQU 0A\n");
+}
+
+int main(int argc, char **argv) {
+    printf("PPA-1 Assembler\n");
+    printf("(c) 2026 Adam Cír (Adava), Adava Software, Adava Development\n");
+
+    if (argc < 3) {
+        usage(argv[0]);
+        return 1;
+    }
+
+    bool show_symbols = false;
+
+    for (int i = 3; i < argc; i++) {
+        if (strcmp(argv[i], "--symbols") == 0) {
+            show_symbols = true;
+        } else {
+            fprintf(stderr, "Unknown option: %s\n", argv[i]);
+            return 1;
+        }
+    }
+
+    Assembler a;
+    memset(&a, 0, sizeof(a));
+
+    load_source(&a, argv[1]);
+    pass1(&a);
+    pass2(&a);
+    write_output(&a, argv[2]);
+
+    if (show_symbols) {
+        print_symbols(&a);
+    }
+
+    free_source(&a);
+    return 0;
+}
