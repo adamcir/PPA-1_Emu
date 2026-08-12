@@ -8,14 +8,20 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 
 #define MAX_SOURCE_LINES 8192
 #define MAX_LINE_LEN     1024
 #define MAX_SYMBOLS      1024
 #define MAX_NAME_LEN     64
 #define MEM_SIZE         0x10000
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 typedef struct {
     char name[MAX_NAME_LEN];
@@ -25,6 +31,7 @@ typedef struct {
 
 typedef struct {
     char *text;
+    char *file;
     int number;
 } SourceLine;
 
@@ -39,6 +46,9 @@ typedef struct {
     uint32_t pc;
     uint32_t highest;
     bool wrote_anything;
+
+    /* Scope used by local labels such as .loop */
+    char current_global[MAX_NAME_LEN];
 } Assembler;
 
 typedef enum {
@@ -54,15 +64,71 @@ typedef struct {
     char text[MAX_LINE_LEN];
 } Operand;
 
+static const SourceLine *g_current_source = NULL;
+
+static int first_nonspace_column(const char *s) {
+    int col = 1;
+    while (*s && isspace((unsigned char)*s)) {
+        s++;
+        col++;
+    }
+    return col;
+}
+
+static int token_column(const char *line, const char *token) {
+    if (!line || !token || !*token) return first_nonspace_column(line ? line : "");
+
+    const char *p = strstr(line, token);
+    if (!p) return first_nonspace_column(line);
+    return (int)(p - line) + 1;
+}
+
+static void print_source_error(const char *kind, int line, int column, const char *msg) {
+    const char *file = (g_current_source && g_current_source->file)
+        ? g_current_source->file
+        : "<input>";
+
+    if (g_current_source && g_current_source->number == line) {
+        fprintf(stderr, "%s:%d:%d: %s: %s\n",
+                file, line, column, kind, msg);
+
+        const char *src = g_current_source->text ? g_current_source->text : "";
+        size_t len = strlen(src);
+        while (len > 0 && (src[len - 1] == '\n' || src[len - 1] == '\r')) len--;
+
+        fprintf(stderr, " %5d | %.*s\n", line, (int)len, src);
+        fprintf(stderr, "       | ");
+        for (int i = 1; i < column; i++) {
+            char c = (i - 1 < (int)len) ? src[i - 1] : ' ';
+            fputc(c == '\t' ? '\t' : ' ', stderr);
+        }
+        fprintf(stderr, "^\n");
+    } else {
+        fprintf(stderr, "%s:%d:%d: %s: %s\n",
+                file, line, column, kind, msg);
+    }
+}
+
 static void fatal_line(int line, const char *msg) {
-    fprintf(stderr, "Error on line %d: %s\n", line, msg);
+    int col = g_current_source ? first_nonspace_column(g_current_source->text) : 1;
+    print_source_error("error", line, col, msg);
     exit(1);
 }
 
 static void fatal_linef(int line, const char *fmt, const char *arg) {
-    fprintf(stderr, "Error on line %d: ", line);
-    fprintf(stderr, fmt, arg);
-    fputc('\n', stderr);
+    char msg[MAX_LINE_LEN * 2];
+    snprintf(msg, sizeof(msg), fmt, arg);
+
+    int col = 1;
+    if (g_current_source) col = token_column(g_current_source->text, arg);
+
+    print_source_error("error", line, col, msg);
+    exit(1);
+}
+
+static void fatal_at_token(int line, const char *token, const char *msg) {
+    int col = g_current_source ? token_column(g_current_source->text, token) : 1;
+    print_source_error("error", line, col, msg);
     exit(1);
 }
 
@@ -104,7 +170,7 @@ static bool valid_symbol_name(const char *s) {
     if (!(isalpha((unsigned char)s[0]) || s[0] == '_')) return false;
 
     for (size_t i = 1; s[i]; i++) {
-        if (!(isalnum((unsigned char)s[i]) || s[i] == '_')) return false;
+        if (!(isalnum((unsigned char)s[i]) || s[i] == '_' || s[i] == '.')) return false;
     }
     return true;
 }
@@ -128,6 +194,26 @@ static void strip_comment(char *s) {
             return;
         }
     }
+}
+
+static bool normalize_symbol_name(Assembler *a, const char *raw,
+                                  char out[MAX_NAME_LEN], int line) {
+    if (!raw || !*raw) return false;
+
+    if (raw[0] == '.') {
+        if (!a->current_global[0]) {
+            fatal_linef(line, "local label '%s' used before any global label", raw);
+        }
+
+        int n = snprintf(out, MAX_NAME_LEN, "%s%s", a->current_global, raw);
+        if (n < 0 || n >= MAX_NAME_LEN) {
+            fatal_line(line, "qualified local label is too long");
+        }
+        return true;
+    }
+
+    snprintf(out, MAX_NAME_LEN, "%s", raw);
+    return true;
 }
 
 static Symbol *find_symbol(Assembler *a, const char *name) {
@@ -189,6 +275,64 @@ static bool valid_digits_for_base(const char *s, int base) {
     return true;
 }
 
+static uint32_t parse_char_literal(const char *s, bool *ok) {
+    *ok = false;
+
+    size_t len = strlen(s);
+    if (len < 3 || s[0] != '\'' || s[len - 1] != '\'') return 0;
+
+    const char *p = s + 1;
+    const char *end = s + len - 1;
+    uint32_t value = 0;
+
+    if (p >= end) return 0;
+
+    if (*p == '\\') {
+        p++;
+        if (p >= end) return 0;
+
+        switch (*p) {
+            case 'n': value = '\n'; p++; break;
+            case 'r': value = '\r'; p++; break;
+            case 't': value = '\t'; p++; break;
+            case '0': value = '\0'; p++; break;
+            case 'b': value = '\b'; p++; break;
+            case 'e': value = 0x1B; p++; break;
+            case '\\': value = '\\'; p++; break;
+            case '\'': value = '\''; p++; break;
+            case '"': value = '"'; p++; break;
+
+            case 'x': {
+                p++;
+                if (end - p != 2) return 0;
+
+                int hi, lo;
+                if (p[0] >= '0' && p[0] <= '9') hi = p[0] - '0';
+                else if (p[0] >= 'A' && p[0] <= 'F') hi = p[0] - 'A' + 10;
+                else return 0;
+
+                if (p[1] >= '0' && p[1] <= '9') lo = p[1] - '0';
+                else if (p[1] >= 'A' && p[1] <= 'F') lo = p[1] - 'A' + 10;
+                else return 0;
+
+                value = (uint32_t)((hi << 4) | lo);
+                p += 2;
+                break;
+            }
+
+            default:
+                return 0;
+        }
+    } else {
+        value = (unsigned char)*p++;
+    }
+
+    if (p != end) return 0;
+
+    *ok = true;
+    return value;
+}
+
 static uint32_t parse_number_literal(const char *text, bool *ok) {
     char buf[MAX_LINE_LEN];
     snprintf(buf, sizeof(buf), "%s", text);
@@ -197,6 +341,10 @@ static uint32_t parse_number_literal(const char *text, bool *ok) {
     if (!*s) {
         *ok = false;
         return 0;
+    }
+
+    if (*s == '\'') {
+        return parse_char_literal(s, ok);
     }
 
     int base = 16;
@@ -280,7 +428,9 @@ static uint16_t eval_expr(Assembler *a, const char *expr, int line, bool allow_u
     base_value = parse_number_literal(lhs, &num_ok);
 
     if (!num_ok) {
-        Symbol *sym = find_symbol(a, lhs);
+        char normalized[MAX_NAME_LEN];
+        normalize_symbol_name(a, lhs, normalized, line);
+        Symbol *sym = find_symbol(a, normalized);
         if (!sym) {
             if (allow_undefined) {
                 *defined = false;
@@ -295,7 +445,9 @@ static uint16_t eval_expr(Assembler *a, const char *expr, int line, bool allow_u
         bool off_ok = false;
         uint32_t off = parse_number_literal(rhs, &off_ok);
         if (!off_ok) {
-            Symbol *sym = find_symbol(a, rhs);
+            char normalized[MAX_NAME_LEN];
+            normalize_symbol_name(a, rhs, normalized, line);
+            Symbol *sym = find_symbol(a, normalized);
             if (!sym) {
                 if (allow_undefined) {
                     *defined = false;
@@ -469,6 +621,16 @@ static int instruction_size(const char *mnemonic, Operand ops[], int n, int line
         return 3;
     }
 
+    if (stricmp_ascii(mnemonic, "CALL") == 0) {
+        if (n != 1) fatal_line(line, "CALL requires one address or label");
+        return 3;
+    }
+
+    if (stricmp_ascii(mnemonic, "RET") == 0) {
+        if (n != 0) fatal_line(line, "RET takes no operands");
+        return 1;
+    }
+
     fatal_linef(line, "unknown instruction '%s'", mnemonic);
     return 0;
 }
@@ -625,6 +787,17 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
             emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
             return;
         }
+    }
+
+    if (stricmp_ascii(mnemonic, "CALL") == 0) {
+        emit8(a, 0x24, line);
+        emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+        return;
+    }
+
+    if (stricmp_ascii(mnemonic, "RET") == 0) {
+        emit8(a, 0x25, line);
+        return;
     }
 
     fatal_linef(line, "cannot encode instruction '%s'", mnemonic);
@@ -794,8 +967,20 @@ static char *consume_labels(Assembler *a, char *line, int line_no, int pass) {
         *colon = '\0';
         char *name = trim(p);
 
+        char normalized[MAX_NAME_LEN];
+
+        if (name[0] == '.') {
+            normalize_symbol_name(a, name, normalized, line_no);
+        } else {
+            if (!valid_symbol_name(name)) {
+                fatal_linef(line_no, "invalid symbol name '%s'", name);
+            }
+            snprintf(normalized, sizeof(normalized), "%s", name);
+            snprintf(a->current_global, sizeof(a->current_global), "%s", name);
+        }
+
         if (pass == 1) {
-            add_symbol(a, name, (uint16_t)a->pc, false, line_no);
+            add_symbol(a, normalized, (uint16_t)a->pc, false, line_no);
         }
 
         p = trim(colon + 1);
@@ -805,6 +990,8 @@ static char *consume_labels(Assembler *a, char *line, int line_no, int pass) {
 }
 
 static void process_line(Assembler *a, const SourceLine *sl, int pass) {
+    g_current_source = sl;
+
     char buf[MAX_LINE_LEN];
     snprintf(buf, sizeof(buf), "%s", sl->text);
 
@@ -839,7 +1026,7 @@ static void process_line(Assembler *a, const SourceLine *sl, int pass) {
 
     if (*optext) {
         n = split_operands(optext, ops);
-        if (n < 0) fatal_line(sl->number, "too many operands");
+        if (n < 0) fatal_at_token(sl->number, optext, "too many operands");
     }
 
     int size = instruction_size(mnemonic, ops, n, sl->number);
@@ -851,10 +1038,70 @@ static void process_line(Assembler *a, const SourceLine *sl, int pass) {
     }
 }
 
-static void load_source(Assembler *a, const char *path) {
+static char *dup_string(const char *s) {
+    size_t n = strlen(s) + 1;
+    char *p = malloc(n);
+    if (!p) {
+        fprintf(stderr, "Out of memory\n");
+        exit(1);
+    }
+    memcpy(p, s, n);
+    return p;
+}
+
+static void dirname_of(const char *path, char out[PATH_MAX]) {
+    snprintf(out, PATH_MAX, "%s", path);
+
+    char *slash = strrchr(out, '/');
+    if (!slash) {
+        snprintf(out, PATH_MAX, ".");
+        return;
+    }
+
+    if (slash == out) {
+        slash[1] = '\0';
+        return;
+    }
+
+    *slash = '\0';
+}
+
+static bool parse_include_directive(const char *line, char out_path[PATH_MAX]) {
+    char tmp[MAX_LINE_LEN];
+    snprintf(tmp, sizeof(tmp), "%s", line);
+
+    strip_comment(tmp);
+    char *s = trim(tmp);
+
+    const char *kw = ".include";
+    size_t kwlen = strlen(kw);
+
+    if (strncasecmp(s, kw, kwlen) != 0) return false;
+    if (s[kwlen] && !isspace((unsigned char)s[kwlen])) return false;
+
+    s = trim(s + kwlen);
+    if (*s != '"') return false;
+    s++;
+
+    char *endq = strchr(s, '"');
+    if (!endq) return false;
+    *endq = '\0';
+
+    if (!*s) return false;
+    snprintf(out_path, PATH_MAX, "%s", s);
+    return true;
+}
+
+static void load_source_recursive(Assembler *a, const char *path, int depth) {
+    if (depth > 32) {
+        fprintf(stderr, "%s: error: include nesting too deep\n", path);
+        exit(1);
+    }
+
     FILE *f = fopen(path, "r");
     if (!f) {
-        perror(path);
+        fprintf(stderr, "%s: error: cannot open source/include file: %s\n",
+                path, strerror(errno));
         exit(1);
     }
 
@@ -864,44 +1111,77 @@ static void load_source(Assembler *a, const char *path) {
     while (fgets(line, sizeof(line), f)) {
         line_no++;
 
-        if (a->line_count >= MAX_SOURCE_LINES) {
-            fprintf(stderr, "Too many source lines\n");
-            fclose(f);
-            exit(1);
-        }
-
         size_t len = strlen(line);
         if (len > 0 && line[len - 1] != '\n' && !feof(f)) {
-            fprintf(stderr, "Line %d is too long\n", line_no);
+            SourceLine temp = { line, (char *)path, line_no };
+            g_current_source = &temp;
+            fatal_line(line_no, "source line is too long");
+        }
+
+        char include_name[PATH_MAX];
+        if (parse_include_directive(line, include_name)) {
+            char dir[PATH_MAX];
+            char resolved[PATH_MAX];
+
+            dirname_of(path, dir);
+
+            if (include_name[0] == '/') {
+                snprintf(resolved, sizeof(resolved), "%s", include_name);
+            } else {
+                int n = snprintf(resolved, sizeof(resolved), "%s/%s", dir, include_name);
+                if (n < 0 || n >= (int)sizeof(resolved)) {
+                    SourceLine temp = { line, (char *)path, line_no };
+                    g_current_source = &temp;
+                    fatal_at_token(line_no, include_name, "include path is too long");
+                }
+            }
+
+            FILE *probe = fopen(resolved, "r");
+            if (!probe) {
+                SourceLine temp = { line, (char *)path, line_no };
+                g_current_source = &temp;
+
+                char msg[MAX_LINE_LEN];
+                snprintf(msg, sizeof(msg),
+                         "cannot open include file '%.800s': %.160s",
+                         include_name, strerror(errno));
+                fatal_at_token(line_no, include_name, msg);
+            }
+            fclose(probe);
+
+            load_source_recursive(a, resolved, depth + 1);
+            continue;
+        }
+
+        if (a->line_count >= MAX_SOURCE_LINES) {
+            fprintf(stderr, "%s:%d: error: too many source lines\n", path, line_no);
             fclose(f);
             exit(1);
         }
 
-        char *copy = malloc(len + 1);
-        if (!copy) {
-            fprintf(stderr, "Out of memory\n");
-            fclose(f);
-            exit(1);
-        }
-
-        memcpy(copy, line, len + 1);
-
-        a->lines[a->line_count].text = copy;
-        a->lines[a->line_count].number = line_no;
-        a->line_count++;
+        SourceLine *sl = &a->lines[a->line_count++];
+        sl->text = dup_string(line);
+        sl->file = dup_string(path);
+        sl->number = line_no;
     }
 
     fclose(f);
 }
 
+static void load_source(Assembler *a, const char *path) {
+    load_source_recursive(a, path, 0);
+}
+
 static void free_source(Assembler *a) {
     for (size_t i = 0; i < a->line_count; i++) {
         free(a->lines[i].text);
+        free(a->lines[i].file);
     }
 }
 
 static void pass1(Assembler *a) {
     a->pc = 0;
+    a->current_global[0] = '\0';
 
     for (size_t i = 0; i < a->line_count; i++) {
         process_line(a, &a->lines[i], 1);
@@ -913,6 +1193,7 @@ static void pass2(Assembler *a) {
     a->pc = 0;
     a->highest = 0;
     a->wrote_anything = false;
+    a->current_global[0] = '\0';
 
     for (size_t i = 0; i < a->line_count; i++) {
         process_line(a, &a->lines[i], 2);
@@ -961,13 +1242,21 @@ static void usage(const char *prog) {
     printf("  0b1010 or %%1010    binary\n");
     printf("  10d                 decimal (lowercase d only)\n");
     printf("  0Ah                 hexadecimal suffix (lowercase h only)\n");
+    printf("  'A', '\\n', '\\x1B' character literals\n");
     printf("\n");
     printf("Operand syntax:\n");
     printf("  #0A                 immediate\n");
+    printf("  #'A'                immediate character\n");
     printf("  $1234               address\n");
-    printf("  label                label/address in jumps\n");
+    printf("  label                label/address in jumps/CALL\n");
+    printf("  .loop                local label under current global label\n");
+    printf("\n");
+    printf("Subroutines:\n");
+    printf("  CALL label           opcode 24, pushes return address in CPU\n");
+    printf("  RET                  opcode 25, returns from subroutine\n");
     printf("\n");
     printf("Directives:\n");
+    printf("  .include \"file.inc\"\n");
     printf("  .org $8000\n");
     printf("  .byte 01, 02, FF\n");
     printf("  .word 1234, label\n");

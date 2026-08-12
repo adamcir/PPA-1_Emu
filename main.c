@@ -1073,6 +1073,83 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
             }
             break;
 
+
+        /*
+         * 0x24 CALL $addr
+         *
+         * Instruction format:
+         *   24 HH LL
+         *
+         * After fetching HH and LL, PC already points to the next
+         * instruction. Store that return address on the 8-bit stack:
+         *   push PC high
+         *   push PC low
+         *
+         * Then jump to HH:LL.
+         */
+        case 0x24:
+            if (cpu->STEP == 1) {
+                /*
+                 * Keep the target in AAR:ABR. push8() uses AR for the
+                 * stack address, so AR cannot safely hold CALL's target.
+                 */
+                cpu->AAR = fetch_program8(cpu, ram, serial);  /* target high */
+                cpu->STEP = 2;
+                return false;
+            }
+
+            if (cpu->STEP == 2) {
+                cpu->ABR = fetch_program8(cpu, ram, serial);  /* target low */
+                cpu->STEP = 3;
+                return false;
+            }
+
+            if (cpu->STEP == 3) {
+                push8(cpu, ram, serial, (uint8_t)(cpu->PC >> 8));
+                cpu->STEP = 4;
+                return false;
+            }
+
+            if (cpu->STEP == 4) {
+                push8(cpu, ram, serial, (uint8_t)(cpu->PC & 0xFF));
+                cpu->STEP = 5;
+                return false;
+            }
+
+            if (cpu->STEP == 5) {
+                cpu->PC = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
+        /*
+         * 0x25 RET
+         *
+         * CALL pushed high then low, therefore RET pops:
+         *   low
+         *   high
+         */
+        case 0x25:
+            if (cpu->STEP == 1) {
+                cpu->ABR = pop8(cpu, ram, serial);   /* low byte */
+                cpu->STEP = 2;
+                return false;
+            }
+
+            if (cpu->STEP == 2) {
+                cpu->AAR = pop8(cpu, ram, serial);   /* high byte */
+                cpu->STEP = 3;
+                return false;
+            }
+
+            if (cpu->STEP == 3) {
+                cpu->PC = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
         default:
             printf("Unknown opcode %02X at %04X\n", cpu->IR, (uint16_t)(cpu->PC - 1));
             cpu->halted = true;
