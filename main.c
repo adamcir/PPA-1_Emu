@@ -57,6 +57,13 @@ typedef struct {
     uint8_t C;
     uint8_t D;
 
+    /* 16-bit index / pointer registers.
+       Register encoding according to PPA-1 table:
+         0x4 = X-HI, 0x5 = X-LO
+         0x6 = Y-HI, 0x7 = Y-LO */
+    uint16_t X;
+    uint16_t Y;
+
     uint8_t IMM;
     uint8_t DST;
     uint8_t STEP;
@@ -368,7 +375,8 @@ static inline uint8_t pop8(CPU *cpu, RAM *ram, Serial *serial) {
 static void dump_regs(const CPU *c) {
     printf(
         "PC=%04X AR=%04X SP=%02X IR=%02X SR=%02X RS=%02X DST=%02X STEP=%02X "
-        "AOS=%02X IMM=%02X AAR=%02X ABR=%02X A=%02X B=%02X C=%02X D=%02X HALT=%d\n",
+        "AOS=%02X IMM=%02X AAR=%02X ABR=%02X A=%02X B=%02X C=%02X D=%02X "
+        "X=%04X Y=%04X HALT=%d\n",
         c->PC,
         c->AR,
         c->SP,
@@ -385,6 +393,8 @@ static void dump_regs(const CPU *c) {
         c->B,
         c->C,
         c->D,
+        c->X,
+        c->Y,
         c->halted ? 1 : 0
     );
 }
@@ -400,25 +410,66 @@ static void dump_mem(const RAM *ram, uint16_t start, uint16_t len) {
 }
 
 static inline bool valid_reg(uint8_t r) {
-    return r <= 0x3;
+    return r <= 0x7;
 }
 
-static uint8_t *selected_reg_ptr(CPU *cpu) {
-    switch (cpu->RS & 0x03) {
-        case 0x0: return &cpu->A;
-        case 0x1: return &cpu->B;
-        case 0x2: return &cpu->C;
-        case 0x3: return &cpu->D;
-        default: return NULL;
+/*
+ * 8-bit operational register encoding:
+ *   0x0 A, 0x1 B, 0x2 C, 0x3 D
+ *   0x4 X-HI, 0x5 X-LO
+ *   0x6 Y-HI, 0x7 Y-LO
+ *
+ * X/Y are stored as uint16_t, therefore their byte halves are accessed
+ * explicitly instead of taking host-endian byte pointers.
+ */
+static inline uint8_t selected_reg_read(CPU *cpu) {
+    switch (cpu->RS) {
+        case 0x0: return cpu->A;
+        case 0x1: return cpu->B;
+        case 0x2: return cpu->C;
+        case 0x3: return cpu->D;
+        case 0x4: return (uint8_t)(cpu->X >> 8);
+        case 0x5: return (uint8_t)(cpu->X & 0xFF);
+        case 0x6: return (uint8_t)(cpu->Y >> 8);
+        case 0x7: return (uint8_t)(cpu->Y & 0xFF);
+        default:  return 0;
     }
 }
 
-static inline uint8_t selected_reg_read(CPU *cpu) {
-    return *selected_reg_ptr(cpu);
+static inline void selected_reg_write(CPU *cpu, uint8_t value) {
+    switch (cpu->RS) {
+        case 0x0: cpu->A = value; break;
+        case 0x1: cpu->B = value; break;
+        case 0x2: cpu->C = value; break;
+        case 0x3: cpu->D = value; break;
+        case 0x4: cpu->X = (uint16_t)(((uint16_t)value << 8) | (cpu->X & 0x00FF)); break;
+        case 0x5: cpu->X = (uint16_t)((cpu->X & 0xFF00) | value); break;
+        case 0x6: cpu->Y = (uint16_t)(((uint16_t)value << 8) | (cpu->Y & 0x00FF)); break;
+        case 0x7: cpu->Y = (uint16_t)((cpu->Y & 0xFF00) | value); break;
+        default: break;
+    }
 }
 
-static inline void selected_reg_write(CPU *cpu, uint8_t value) {
-    *selected_reg_ptr(cpu) = value;
+/* 16-bit pointer selector stored in instruction operand byte.
+   We reuse the code of the corresponding high byte from the register table. */
+static inline bool valid_ptr_reg(uint8_t r) {
+    return r == 0x4 || r == 0x6;
+}
+
+static inline uint16_t selected_ptr_read(const CPU *cpu, uint8_t r) {
+    switch (r) {
+        case 0x4: return cpu->X;
+        case 0x6: return cpu->Y;
+        default:  return 0;
+    }
+}
+
+static inline void selected_ptr_write(CPU *cpu, uint8_t r, uint16_t value) {
+    switch (r) {
+        case 0x4: cpu->X = value; break;
+        case 0x6: cpu->Y = value; break;
+        default: break;
+    }
 }
 
 static bool controller_select_alu(CPU *cpu) {
@@ -1145,6 +1196,132 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
             if (cpu->STEP == 3) {
                 cpu->PC = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
+
+        /*
+         * 0x26 LDA [X/Y]
+         * Operand byte is 0x04 for X or 0x06 for Y.
+         */
+        case 0x26:
+            if (cpu->STEP == 1) {
+                cpu->RS = fetch_program8(cpu, ram, serial);
+                if (!valid_ptr_reg(cpu->RS)) {
+                    cpu->halted = true;
+                    return true;
+                }
+                cpu->STEP = 2;
+                return false;
+            }
+
+            if (cpu->STEP == 2) {
+                cpu->AR = selected_ptr_read(cpu, cpu->RS);
+                cpu->A = bus_read8(ram, serial, cpu->AR);
+                set_Z(cpu, cpu->A);
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
+        /*
+         * 0x27 STA [X/Y]
+         */
+        case 0x27:
+            if (cpu->STEP == 1) {
+                cpu->RS = fetch_program8(cpu, ram, serial);
+                if (!valid_ptr_reg(cpu->RS)) {
+                    cpu->halted = true;
+                    return true;
+                }
+                cpu->STEP = 2;
+                return false;
+            }
+
+            if (cpu->STEP == 2) {
+                cpu->AR = selected_ptr_read(cpu, cpu->RS);
+                bus_write8(ram, serial, cpu->AR, cpu->A);
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
+        /*
+         * 0x28 INC X/Y  (16-bit increment)
+         */
+        case 0x28:
+            if (cpu->STEP == 1) {
+                cpu->RS = fetch_program8(cpu, ram, serial);
+                if (!valid_ptr_reg(cpu->RS)) {
+                    cpu->halted = true;
+                    return true;
+                }
+                cpu->STEP = 2;
+                return false;
+            }
+
+            if (cpu->STEP == 2) {
+                uint16_t old = selected_ptr_read(cpu, cpu->RS);
+                uint16_t value = (uint16_t)(old + 1u);
+                selected_ptr_write(cpu, cpu->RS, value);
+                set_flag(cpu, FL_C, old == 0xFFFF);
+                set_Z(cpu, (uint8_t)((value >> 8) | (value & 0xFF)));
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
+        /*
+         * 0x29 DEC X/Y  (16-bit decrement)
+         */
+        case 0x29:
+            if (cpu->STEP == 1) {
+                cpu->RS = fetch_program8(cpu, ram, serial);
+                if (!valid_ptr_reg(cpu->RS)) {
+                    cpu->halted = true;
+                    return true;
+                }
+                cpu->STEP = 2;
+                return false;
+            }
+
+            if (cpu->STEP == 2) {
+                uint16_t old = selected_ptr_read(cpu, cpu->RS);
+                uint16_t value = (uint16_t)(old - 1u);
+                selected_ptr_write(cpu, cpu->RS, value);
+                set_flag(cpu, FL_C, old == 0x0000);
+                set_Z(cpu, (uint8_t)((value >> 8) | (value & 0xFF)));
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
+        /*
+         * 0x2A LDX $addr
+         * 0x2B LDY $addr
+         *
+         * Load a 16-bit address/value into pointer register X or Y.
+         */
+        case 0x2A:
+        case 0x2B:
+            if (cpu->STEP == 1) {
+                cpu->AAR = fetch_program8(cpu, ram, serial);
+                cpu->STEP = 2;
+                return false;
+            }
+
+            if (cpu->STEP == 2) {
+                cpu->ABR = fetch_program8(cpu, ram, serial);
+                cpu->STEP = 3;
+                return false;
+            }
+
+            if (cpu->STEP == 3) {
+                uint16_t value = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
+                if (cpu->IR == 0x2A) cpu->X = value;
+                else cpu->Y = value;
                 finish_instruction(cpu);
                 return true;
             }

@@ -53,7 +53,9 @@ typedef struct {
 
 typedef enum {
     OT_NONE,
-    OT_REG,
+    OT_REG,       /* 8-bit register: A-D, X-HI/X-LO, Y-HI/Y-LO */
+    OT_REG16,     /* 16-bit pointer register: X or Y */
+    OT_INDIRECT,  /* [X] or [Y] */
     OT_IMM,
     OT_ADDR,
     OT_VALUE
@@ -475,7 +477,30 @@ static int parse_reg(const char *text) {
     if (stricmp_ascii(text, "B") == 0) return 0x1;
     if (stricmp_ascii(text, "C") == 0) return 0x2;
     if (stricmp_ascii(text, "D") == 0) return 0x3;
+    if (stricmp_ascii(text, "X-HI") == 0) return 0x4;
+    if (stricmp_ascii(text, "X-LO") == 0) return 0x5;
+    if (stricmp_ascii(text, "Y-HI") == 0) return 0x6;
+    if (stricmp_ascii(text, "Y-LO") == 0) return 0x7;
     return -1;
+}
+
+/* 16-bit pointer selector: use the code of the high-byte register. */
+static int parse_reg16(const char *text) {
+    if (stricmp_ascii(text, "X") == 0) return 0x4;
+    if (stricmp_ascii(text, "Y") == 0) return 0x6;
+    return -1;
+}
+
+static int parse_indirect_reg(const char *text) {
+    char buf[MAX_LINE_LEN];
+    snprintf(buf, sizeof(buf), "%s", text);
+    char *t = trim(buf);
+    size_t n = strlen(t);
+
+    if (n < 3 || t[0] != '[' || t[n - 1] != ']') return -1;
+    t[n - 1] = '\0';
+    t = trim(t + 1);
+    return parse_reg16(t);
 }
 
 static Operand classify_operand(const char *text) {
@@ -489,6 +514,10 @@ static Operand classify_operand(const char *text) {
         o.type = OT_NONE;
     } else if (parse_reg(t) >= 0) {
         o.type = OT_REG;
+    } else if (parse_reg16(t) >= 0) {
+        o.type = OT_REG16;
+    } else if (parse_indirect_reg(t) >= 0) {
+        o.type = OT_INDIRECT;
     } else if (*t == '#') {
         o.type = OT_IMM;
     } else if (*t == '$') {
@@ -574,10 +603,23 @@ static int instruction_size(const char *mnemonic, Operand ops[], int n, int line
     }
 
     if (stricmp_ascii(mnemonic, "LDA") == 0 || stricmp_ascii(mnemonic, "STA") == 0) {
-        if (n != 1 || (ops[0].type != OT_ADDR && ops[0].type != OT_VALUE)) {
-            fatal_line(line, "LDA/STA requires one address");
+        if (n != 1) fatal_line(line, "LDA/STA requires one address");
+        if (ops[0].type == OT_INDIRECT) return 2;
+        if (ops[0].type == OT_ADDR || ops[0].type == OT_VALUE) return 3;
+        fatal_line(line, "LDA/STA requires $address, label, [X], or [Y]");
+    }
+
+    if (stricmp_ascii(mnemonic, "LDX") == 0 || stricmp_ascii(mnemonic, "LDY") == 0) {
+        if (n != 1 || (ops[0].type != OT_ADDR && ops[0].type != OT_VALUE &&
+                       ops[0].type != OT_IMM)) {
+            fatal_line(line, "LDX/LDY requires one 16-bit address/value");
         }
         return 3;
+    }
+
+    if ((stricmp_ascii(mnemonic, "INC") == 0 || stricmp_ascii(mnemonic, "DEC") == 0) &&
+        n == 1 && ops[0].type == OT_REG16) {
+        return 2;
     }
 
     if (stricmp_ascii(mnemonic, "PUSH") == 0 || stricmp_ascii(mnemonic, "POP") == 0 ||
@@ -585,7 +627,7 @@ static int instruction_size(const char *mnemonic, Operand ops[], int n, int line
         stricmp_ascii(mnemonic, "ROL") == 0 || stricmp_ascii(mnemonic, "SHR") == 0 ||
         stricmp_ascii(mnemonic, "SHL") == 0 || stricmp_ascii(mnemonic, "INC") == 0 ||
         stricmp_ascii(mnemonic, "DEC") == 0) {
-        if (n != 1 || ops[0].type != OT_REG) fatal_line(line, "instruction requires one register");
+        if (n != 1 || ops[0].type != OT_REG) fatal_line(line, "instruction requires one 8-bit register");
         return 2;
     }
 
@@ -662,13 +704,29 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
     }
 
     if (stricmp_ascii(mnemonic, "LDA") == 0) {
-        emit8(a, 0x04, line);
-        emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+        if (ops[0].type == OT_INDIRECT) {
+            emit8(a, 0x26, line);
+            emit8(a, (uint8_t)parse_indirect_reg(ops[0].text), line);
+        } else {
+            emit8(a, 0x04, line);
+            emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+        }
         return;
     }
 
     if (stricmp_ascii(mnemonic, "STA") == 0) {
-        emit8(a, 0x05, line);
+        if (ops[0].type == OT_INDIRECT) {
+            emit8(a, 0x27, line);
+            emit8(a, (uint8_t)parse_indirect_reg(ops[0].text), line);
+        } else {
+            emit8(a, 0x05, line);
+            emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+        }
+        return;
+    }
+
+    if (stricmp_ascii(mnemonic, "LDX") == 0 || stricmp_ascii(mnemonic, "LDY") == 0) {
+        emit8(a, stricmp_ascii(mnemonic, "LDX") == 0 ? 0x2A : 0x2B, line);
         emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
         return;
     }
@@ -708,6 +766,13 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
             }
             return;
         }
+    }
+
+    if ((stricmp_ascii(mnemonic, "INC") == 0 || stricmp_ascii(mnemonic, "DEC") == 0) &&
+        n == 1 && ops[0].type == OT_REG16) {
+        emit8(a, stricmp_ascii(mnemonic, "INC") == 0 ? 0x28 : 0x29, line);
+        emit8(a, (uint8_t)parse_reg16(ops[0].text), line);
+        return;
     }
 
     struct Unary {
@@ -1254,6 +1319,12 @@ static void usage(const char *prog) {
     printf("Subroutines:\n");
     printf("  CALL label           opcode 24, pushes return address in CPU\n");
     printf("  RET                  opcode 25, returns from subroutine\n");
+    printf("  X-HI/X-LO            8-bit halves of X (register codes 04/05)\n");
+    printf("  Y-HI/Y-LO            8-bit halves of Y (register codes 06/07)\n");
+    printf("  LDX addr / LDY addr  load 16-bit pointer register (opcodes 2A/2B)\n");
+    printf("  LDA [X] / LDA [Y]   indirect load through X/Y (opcode 26)\n");
+    printf("  STA [X] / STA [Y]   indirect store through X/Y (opcode 27)\n");
+    printf("  INC X/Y, DEC X/Y    16-bit pointer inc/dec (opcodes 28/29)\n");
     printf("\n");
     printf("Directives:\n");
     printf("  .include \"file.inc\"\n");
