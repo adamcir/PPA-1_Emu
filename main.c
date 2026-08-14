@@ -583,65 +583,65 @@ static inline void selected_ptr_write(CPU *cpu, uint8_t r, uint16_t value) {
 
 static bool controller_select_alu(CPU *cpu) {
     switch (cpu->IR) {
-        case 0x08:
-        case 0x09:
-            cpu->AOS = AOS_ADD;
-            return true;
-
         case 0x0A:
         case 0x0B:
-            cpu->AOS = AOS_SUB;
+            cpu->AOS = AOS_ADD;
             return true;
 
         case 0x0C:
         case 0x0D:
-            cpu->AOS = AOS_AND;
+            cpu->AOS = AOS_SUB;
             return true;
 
         case 0x0E:
         case 0x0F:
-            cpu->AOS = AOS_OR;
+            cpu->AOS = AOS_AND;
             return true;
 
         case 0x10:
         case 0x11:
-            cpu->AOS = AOS_XOR;
+            cpu->AOS = AOS_OR;
             return true;
 
         case 0x12:
-            cpu->AOS = AOS_NOT;
-            return true;
-
         case 0x13:
-            cpu->AOS = AOS_ROR;
+            cpu->AOS = AOS_XOR;
             return true;
 
         case 0x14:
-            cpu->AOS = AOS_ROL;
+            cpu->AOS = AOS_NOT;
             return true;
 
         case 0x15:
-            cpu->AOS = AOS_SHR;
+            cpu->AOS = AOS_ROR;
             return true;
 
         case 0x16:
-            cpu->AOS = AOS_SHL;
+            cpu->AOS = AOS_ROL;
             return true;
 
         case 0x17:
-            cpu->AOS = AOS_INC;
+            cpu->AOS = AOS_SHR;
             return true;
 
         case 0x18:
-            cpu->AOS = AOS_DEC;
+            cpu->AOS = AOS_SHL;
             return true;
 
         case 0x19:
+            cpu->AOS = AOS_INC;
+            return true;
+
         case 0x1A:
+            cpu->AOS = AOS_DEC;
+            return true;
+
         case 0x1B:
         case 0x1C:
         case 0x1D:
         case 0x1E:
+        case 0x1F:
+        case 0x20:
             cpu->AOS = AOS_CMP;
             return true;
 
@@ -756,30 +756,27 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
     }
 
     switch (cpu->IR) {
-        case 0x00:
+        case 0x00: /* NOP */
             finish_instruction(cpu);
             return true;
 
-        case 0x01:
+        case 0x01: /* HLT */
             cpu->halted = true;
             finish_instruction(cpu);
             return true;
 
-        case 0x02:
+        case 0x02: /* MOV DST,SRC */
             if (cpu->STEP == 1) {
                 uint8_t rp = fetch_program8(cpu, memory, serial);
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
-                cpu->RS = (uint8_t)(rp & 0x0F);
-
+                cpu->RS  = (uint8_t)(rp & 0x0F);
                 if (!valid_reg(cpu->DST) || !valid_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->AAR = selected_reg_read(cpu);
                 cpu->RS = cpu->DST;
@@ -790,25 +787,21 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x03:
+        case 0x03: /* MOV DST,#NUM */
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
-
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->IMM = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 cpu->RS = cpu->DST;
                 selected_reg_write(cpu, cpu->IMM);
@@ -818,60 +811,119 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x04:
+        case 0x04: /* LD R1,$ADDR */
             if (cpu->STEP == 1) {
-                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
+                cpu->DST = fetch_program8(cpu, memory, serial);
+                if (!valid_reg(cpu->DST)) {
+                    cpu->halted = true;
+                    return true;
+                }
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
-                cpu->AR |= fetch_program8(cpu, memory, serial);
+                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
-                cpu->A = bus_read8(cpu, memory, serial, cpu->AR);
-                set_Z(cpu, cpu->A);
+                cpu->AR |= fetch_program8(cpu, memory, serial);
+                cpu->STEP = 4;
+                return false;
+            }
+            if (cpu->STEP == 4) {
+                cpu->AAR = bus_read8(cpu, memory, serial, cpu->AR);
+                cpu->RS = cpu->DST;
+                selected_reg_write(cpu, cpu->AAR);
+                set_Z(cpu, cpu->AAR);
                 finish_instruction(cpu);
                 return true;
             }
             break;
 
-        case 0x05:
+        case 0x05: /* LD R1,R2 -- indirect, R2 is X or Y */
             if (cpu->STEP == 1) {
-                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
+                uint8_t rp = fetch_program8(cpu, memory, serial);
+                cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
+                cpu->RS  = (uint8_t)(rp & 0x0F);
+                if (!valid_reg(cpu->DST) || !valid_ptr_reg(cpu->RS)) {
+                    cpu->halted = true;
+                    return true;
+                }
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
-                cpu->AR |= fetch_program8(cpu, memory, serial);
-                cpu->STEP = 3;
-                return false;
-            }
-
-            if (cpu->STEP == 3) {
-                bus_write8(cpu, memory, serial, cpu->AR, cpu->A);
+                uint8_t ptr = cpu->RS;
+                cpu->AR = selected_ptr_read(cpu, ptr);
+                cpu->AAR = bus_read8(cpu, memory, serial, cpu->AR);
+                cpu->RS = cpu->DST;
+                selected_reg_write(cpu, cpu->AAR);
+                set_Z(cpu, cpu->AAR);
                 finish_instruction(cpu);
                 return true;
             }
             break;
 
-        case 0x06:
+        case 0x06: /* ST $ADDR,R1 */
             if (cpu->STEP == 1) {
+                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
+                cpu->STEP = 2;
+                return false;
+            }
+            if (cpu->STEP == 2) {
+                cpu->AR |= fetch_program8(cpu, memory, serial);
+                cpu->STEP = 3;
+                return false;
+            }
+            if (cpu->STEP == 3) {
                 cpu->RS = fetch_program8(cpu, memory, serial);
-
                 if (!valid_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
                 }
+                cpu->STEP = 4;
+                return false;
+            }
+            if (cpu->STEP == 4) {
+                bus_write8(cpu, memory, serial, cpu->AR, selected_reg_read(cpu));
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
 
+        case 0x07: /* ST R1,R2 -- indirect, R1 is X/Y, R2 is source */
+            if (cpu->STEP == 1) {
+                uint8_t rp = fetch_program8(cpu, memory, serial);
+                cpu->DST = (uint8_t)((rp >> 4) & 0x0F); /* pointer */
+                cpu->RS  = (uint8_t)(rp & 0x0F);        /* source */
+                if (!valid_ptr_reg(cpu->DST) || !valid_reg(cpu->RS)) {
+                    cpu->halted = true;
+                    return true;
+                }
                 cpu->STEP = 2;
                 return false;
             }
+            if (cpu->STEP == 2) {
+                uint8_t src = cpu->RS;
+                cpu->AR = selected_ptr_read(cpu, cpu->DST);
+                cpu->RS = src;
+                bus_write8(cpu, memory, serial, cpu->AR, selected_reg_read(cpu));
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
 
+        case 0x08: /* PUSH R1 */
+            if (cpu->STEP == 1) {
+                cpu->RS = fetch_program8(cpu, memory, serial);
+                if (!valid_reg(cpu->RS)) {
+                    cpu->halted = true;
+                    return true;
+                }
+                cpu->STEP = 2;
+                return false;
+            }
             if (cpu->STEP == 2) {
                 push8(cpu, memory, serial, selected_reg_read(cpu));
                 finish_instruction(cpu);
@@ -879,19 +931,16 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x07:
+        case 0x09: /* POP R1 */
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
-
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->AAR = pop8(cpu, memory, serial);
                 cpu->RS = cpu->DST;
@@ -902,38 +951,33 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x08:
-        case 0x0A:
-        case 0x0C:
-        case 0x0E:
-        case 0x10:
+        case 0x0A: /* ADD R,R */
+        case 0x0C: /* SUB R,R */
+        case 0x0E: /* AND R,R */
+        case 0x10: /* OR R,R */
+        case 0x12: /* XOR R,R */
             if (cpu->STEP == 1) {
                 uint8_t rp = fetch_program8(cpu, memory, serial);
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
-                cpu->RS = (uint8_t)(rp & 0x0F);
-
+                cpu->RS  = (uint8_t)(rp & 0x0F);
                 if (!valid_reg(cpu->DST) || !valid_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->ABR = selected_reg_read(cpu);
                 cpu->RS = cpu->DST;
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 cpu->AAR = selected_reg_read(cpu);
                 cpu->STEP = 4;
                 return false;
             }
-
             if (cpu->STEP == 4) {
                 selected_reg_write(cpu, alu_execute(cpu));
                 finish_instruction(cpu);
@@ -941,29 +985,25 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x09:
-        case 0x0B:
-        case 0x0D:
-        case 0x0F:
-        case 0x11:
+        case 0x0B: /* ADD R,#N */
+        case 0x0D: /* SUB R,#N */
+        case 0x0F: /* AND R,#N */
+        case 0x11: /* OR R,#N */
+        case 0x13: /* XOR R,#N */
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
-
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->IMM = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 cpu->RS = cpu->DST;
                 cpu->AAR = selected_reg_read(cpu);
@@ -971,7 +1011,6 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
                 cpu->STEP = 4;
                 return false;
             }
-
             if (cpu->STEP == 4) {
                 selected_reg_write(cpu, alu_execute(cpu));
                 finish_instruction(cpu);
@@ -979,33 +1018,28 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x12:
-        case 0x13:
-        case 0x14:
-        case 0x15:
-        case 0x16:
-        case 0x17:
-        case 0x18:
+        case 0x14: /* NOT */
+        case 0x15: /* ROR */
+        case 0x16: /* ROL */
+        case 0x17: /* SHR */
+        case 0x18: /* SHL */
+        case 0x19: /* INC */
+        case 0x1A: /* DEC */
             if (cpu->STEP == 1) {
-                cpu->DST = fetch_program8(cpu, memory, serial);
-
-                if (!valid_reg(cpu->DST)) {
+                cpu->RS = fetch_program8(cpu, memory, serial);
+                if (!valid_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
-                cpu->RS = cpu->DST;
                 cpu->AAR = selected_reg_read(cpu);
                 cpu->ABR = 0;
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 selected_reg_write(cpu, alu_execute(cpu));
                 finish_instruction(cpu);
@@ -1013,26 +1047,22 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x19:
+        case 0x1B: /* CMP R1 -- compare A with R1 */
             if (cpu->STEP == 1) {
                 cpu->RS = fetch_program8(cpu, memory, serial);
-
                 if (!valid_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->AAR = cpu->A;
                 cpu->ABR = selected_reg_read(cpu);
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 (void)alu_execute(cpu);
                 finish_instruction(cpu);
@@ -1040,34 +1070,29 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x1A:
+        case 0x1C: /* CMP R1,R2 */
             if (cpu->STEP == 1) {
                 uint8_t rp = fetch_program8(cpu, memory, serial);
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
-                cpu->RS = (uint8_t)(rp & 0x0F);
-
+                cpu->RS  = (uint8_t)(rp & 0x0F);
                 if (!valid_reg(cpu->DST) || !valid_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->ABR = selected_reg_read(cpu);
                 cpu->RS = cpu->DST;
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 cpu->AAR = selected_reg_read(cpu);
                 cpu->STEP = 4;
                 return false;
             }
-
             if (cpu->STEP == 4) {
                 (void)alu_execute(cpu);
                 finish_instruction(cpu);
@@ -1075,20 +1100,18 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x1B:
+        case 0x1D: /* CMP #NUM -- compare A with immediate */
             if (cpu->STEP == 1) {
                 cpu->IMM = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->AAR = cpu->A;
                 cpu->ABR = cpu->IMM;
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 (void)alu_execute(cpu);
                 finish_instruction(cpu);
@@ -1096,93 +1119,79 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x1C:
-            if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, memory, serial);
-
-                if (!valid_reg(cpu->RS)) {
-                    cpu->halted = true;
-                    return true;
-                }
-
-                cpu->DST = cpu->RS;
-                cpu->STEP = 2;
-                return false;
-            }
-
-            if (cpu->STEP == 2) {
-                cpu->IMM = fetch_program8(cpu, memory, serial);
-                cpu->STEP = 3;
-                return false;
-            }
-
-            if (cpu->STEP == 3) {
-                cpu->RS = cpu->DST;
-                cpu->AAR = selected_reg_read(cpu);
-                cpu->ABR = cpu->IMM;
-                cpu->STEP = 4;
-                return false;
-            }
-
-            if (cpu->STEP == 4) {
-                (void)alu_execute(cpu);
-                finish_instruction(cpu);
-                return true;
-            }
-            break;
-
-        case 0x1D:
-            if (cpu->STEP == 1) {
-                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
-                cpu->STEP = 2;
-                return false;
-            }
-
-            if (cpu->STEP == 2) {
-                cpu->AR |= fetch_program8(cpu, memory, serial);
-                cpu->STEP = 3;
-                return false;
-            }
-
-            if (cpu->STEP == 3) {
-                cpu->AAR = cpu->A;
-                cpu->ABR = bus_read8(cpu, memory, serial, cpu->AR);
-                cpu->STEP = 4;
-                return false;
-            }
-
-            if (cpu->STEP == 4) {
-                (void)alu_execute(cpu);
-                finish_instruction(cpu);
-                return true;
-            }
-            break;
-
-        case 0x1E:
+        case 0x1E: /* CMP R1,#NUM */
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
-
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
                     return true;
                 }
-
                 cpu->STEP = 2;
                 return false;
             }
+            if (cpu->STEP == 2) {
+                cpu->IMM = fetch_program8(cpu, memory, serial);
+                cpu->STEP = 3;
+                return false;
+            }
+            if (cpu->STEP == 3) {
+                cpu->RS = cpu->DST;
+                cpu->AAR = selected_reg_read(cpu);
+                cpu->ABR = cpu->IMM;
+                cpu->STEP = 4;
+                return false;
+            }
+            if (cpu->STEP == 4) {
+                (void)alu_execute(cpu);
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
 
+        case 0x1F: /* CMP $ADDR -- compare A with memory */
+            if (cpu->STEP == 1) {
+                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
+                cpu->STEP = 2;
+                return false;
+            }
+            if (cpu->STEP == 2) {
+                cpu->AR |= fetch_program8(cpu, memory, serial);
+                cpu->STEP = 3;
+                return false;
+            }
+            if (cpu->STEP == 3) {
+                cpu->AAR = cpu->A;
+                cpu->ABR = bus_read8(cpu, memory, serial, cpu->AR);
+                cpu->STEP = 4;
+                return false;
+            }
+            if (cpu->STEP == 4) {
+                (void)alu_execute(cpu);
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
+        case 0x20: /* CMP R1,$ADDR */
+            if (cpu->STEP == 1) {
+                cpu->DST = fetch_program8(cpu, memory, serial);
+                if (!valid_reg(cpu->DST)) {
+                    cpu->halted = true;
+                    return true;
+                }
+                cpu->STEP = 2;
+                return false;
+            }
             if (cpu->STEP == 2) {
                 cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 cpu->AR |= fetch_program8(cpu, memory, serial);
                 cpu->STEP = 4;
                 return false;
             }
-
             if (cpu->STEP == 4) {
                 cpu->RS = cpu->DST;
                 cpu->AAR = selected_reg_read(cpu);
@@ -1190,7 +1199,6 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
                 cpu->STEP = 5;
                 return false;
             }
-
             if (cpu->STEP == 5) {
                 (void)alu_execute(cpu);
                 finish_instruction(cpu);
@@ -1198,239 +1206,78 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
-        case 0x1F:
-        case 0x20:
-        case 0x21:
-        case 0x22:
-        case 0x23:
+        case 0x21: /* JMP */
+        case 0x22: /* JC */
+        case 0x23: /* JNC */
+        case 0x24: /* JZ */
+        case 0x25: /* JNZ */
             if (cpu->STEP == 1) {
                 cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->AR |= fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
                 bool jump = false;
-
                 switch (cpu->IR) {
-                    case 0x1F: jump = true; break;
-                    case 0x20: jump = (cpu->SR & FL_C) != 0; break;
-                    case 0x21: jump = (cpu->SR & FL_C) == 0; break;
-                    case 0x22: jump = (cpu->SR & FL_Z) != 0; break;
-                    case 0x23: jump = (cpu->SR & FL_Z) == 0; break;
+                    case 0x21: jump = true; break;
+                    case 0x22: jump = (cpu->SR & FL_C) != 0; break;
+                    case 0x23: jump = (cpu->SR & FL_C) == 0; break;
+                    case 0x24: jump = (cpu->SR & FL_Z) != 0; break;
+                    case 0x25: jump = (cpu->SR & FL_Z) == 0; break;
+                    default: break;
                 }
-
                 if (jump) cpu->PC = cpu->AR;
-
                 finish_instruction(cpu);
                 return true;
             }
             break;
 
-
-        /*
-         * 0x24 CALL $addr
-         *
-         * Instruction format:
-         *   24 HH LL
-         *
-         * After fetching HH and LL, PC already points to the next
-         * instruction. Store that return address on the 8-bit stack:
-         *   push PC high
-         *   push PC low
-         *
-         * Then jump to HH:LL.
-         */
-        case 0x24:
-            if (cpu->STEP == 1) {
-                /*
-                 * Keep the target in AAR:ABR. push8() uses AR for the
-                 * stack address, so AR cannot safely hold CALL's target.
-                 */
-                cpu->AAR = fetch_program8(cpu, memory, serial);  /* target high */
-                cpu->STEP = 2;
-                return false;
-            }
-
-            if (cpu->STEP == 2) {
-                cpu->ABR = fetch_program8(cpu, memory, serial);  /* target low */
-                cpu->STEP = 3;
-                return false;
-            }
-
-            if (cpu->STEP == 3) {
-                push8(cpu, memory, serial, (uint8_t)(cpu->PC >> 8));
-                cpu->STEP = 4;
-                return false;
-            }
-
-            if (cpu->STEP == 4) {
-                push8(cpu, memory, serial, (uint8_t)(cpu->PC & 0xFF));
-                cpu->STEP = 5;
-                return false;
-            }
-
-            if (cpu->STEP == 5) {
-                cpu->PC = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
-                finish_instruction(cpu);
-                return true;
-            }
-            break;
-
-        /*
-         * 0x25 RET
-         *
-         * CALL pushed high then low, therefore RET pops:
-         *   low
-         *   high
-         */
-        case 0x25:
-            if (cpu->STEP == 1) {
-                cpu->ABR = pop8(cpu, memory, serial);   /* low byte */
-                cpu->STEP = 2;
-                return false;
-            }
-
-            if (cpu->STEP == 2) {
-                cpu->AAR = pop8(cpu, memory, serial);   /* high byte */
-                cpu->STEP = 3;
-                return false;
-            }
-
-            if (cpu->STEP == 3) {
-                cpu->PC = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
-                finish_instruction(cpu);
-                return true;
-            }
-            break;
-
-
-        /*
-         * 0x26 LDA [X/Y]
-         * Operand byte is 0x04 for X or 0x06 for Y.
-         */
-        case 0x26:
-            if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, memory, serial);
-                if (!valid_ptr_reg(cpu->RS)) {
-                    cpu->halted = true;
-                    return true;
-                }
-                cpu->STEP = 2;
-                return false;
-            }
-
-            if (cpu->STEP == 2) {
-                cpu->AR = selected_ptr_read(cpu, cpu->RS);
-                cpu->A = bus_read8(cpu, memory, serial, cpu->AR);
-                set_Z(cpu, cpu->A);
-                finish_instruction(cpu);
-                return true;
-            }
-            break;
-
-        /*
-         * 0x27 STA [X/Y]
-         */
-        case 0x27:
-            if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, memory, serial);
-                if (!valid_ptr_reg(cpu->RS)) {
-                    cpu->halted = true;
-                    return true;
-                }
-                cpu->STEP = 2;
-                return false;
-            }
-
-            if (cpu->STEP == 2) {
-                cpu->AR = selected_ptr_read(cpu, cpu->RS);
-                bus_write8(cpu, memory, serial, cpu->AR, cpu->A);
-                finish_instruction(cpu);
-                return true;
-            }
-            break;
-
-        /*
-         * 0x28 INC X/Y  (16-bit increment)
-         */
-        case 0x28:
-            if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, memory, serial);
-                if (!valid_ptr_reg(cpu->RS)) {
-                    cpu->halted = true;
-                    return true;
-                }
-                cpu->STEP = 2;
-                return false;
-            }
-
-            if (cpu->STEP == 2) {
-                uint16_t old = selected_ptr_read(cpu, cpu->RS);
-                uint16_t value = (uint16_t)(old + 1u);
-                selected_ptr_write(cpu, cpu->RS, value);
-                set_flag(cpu, FL_C, old == 0xFFFF);
-                set_Z(cpu, (uint8_t)((value >> 8) | (value & 0xFF)));
-                finish_instruction(cpu);
-                return true;
-            }
-            break;
-
-        /*
-         * 0x29 DEC X/Y  (16-bit decrement)
-         */
-        case 0x29:
-            if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, memory, serial);
-                if (!valid_ptr_reg(cpu->RS)) {
-                    cpu->halted = true;
-                    return true;
-                }
-                cpu->STEP = 2;
-                return false;
-            }
-
-            if (cpu->STEP == 2) {
-                uint16_t old = selected_ptr_read(cpu, cpu->RS);
-                uint16_t value = (uint16_t)(old - 1u);
-                selected_ptr_write(cpu, cpu->RS, value);
-                set_flag(cpu, FL_C, old == 0x0000);
-                set_Z(cpu, (uint8_t)((value >> 8) | (value & 0xFF)));
-                finish_instruction(cpu);
-                return true;
-            }
-            break;
-
-        /*
-         * 0x2A LDX $addr
-         * 0x2B LDY $addr
-         *
-         * Load a 16-bit address/value into pointer register X or Y.
-         */
-        case 0x2A:
-        case 0x2B:
+        case 0x26: /* CALL $ADDR */
             if (cpu->STEP == 1) {
                 cpu->AAR = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 2;
                 return false;
             }
-
             if (cpu->STEP == 2) {
                 cpu->ABR = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
-
             if (cpu->STEP == 3) {
-                uint16_t value = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
-                if (cpu->IR == 0x2A) cpu->X = value;
-                else cpu->Y = value;
+                push8(cpu, memory, serial, (uint8_t)(cpu->PC >> 8));
+                cpu->STEP = 4;
+                return false;
+            }
+            if (cpu->STEP == 4) {
+                push8(cpu, memory, serial, (uint8_t)(cpu->PC & 0xFF));
+                cpu->STEP = 5;
+                return false;
+            }
+            if (cpu->STEP == 5) {
+                cpu->PC = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
+
+        case 0x27: /* RET */
+            if (cpu->STEP == 1) {
+                cpu->ABR = pop8(cpu, memory, serial);
+                cpu->STEP = 2;
+                return false;
+            }
+            if (cpu->STEP == 2) {
+                cpu->AAR = pop8(cpu, memory, serial);
+                cpu->STEP = 3;
+                return false;
+            }
+            if (cpu->STEP == 3) {
+                cpu->PC = ((uint16_t)cpu->AAR << 8) | cpu->ABR;
                 finish_instruction(cpu);
                 return true;
             }

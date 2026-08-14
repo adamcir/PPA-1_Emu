@@ -610,24 +610,20 @@ static int instruction_size(const char *mnemonic, Operand ops[], int n, int line
         fatal_line(line, "invalid MOV operands");
     }
 
-    if (stricmp_ascii(mnemonic, "LDA") == 0 || stricmp_ascii(mnemonic, "STA") == 0) {
-        if (n != 1) fatal_line(line, "LDA/STA requires one address");
-        if (ops[0].type == OT_INDIRECT) return 2;
-        if (ops[0].type == OT_ADDR || ops[0].type == OT_VALUE) return 3;
-        fatal_line(line, "LDA/STA requires $address, label, [X], or [Y]");
+    if (stricmp_ascii(mnemonic, "LD") == 0) {
+        if (n != 2 || ops[0].type != OT_REG)
+            fatal_line(line, "LD requires an 8-bit destination register and a memory source");
+        if (ops[1].type == OT_ADDR) return 4;   /* LD R1,$ADDR */
+        if (ops[1].type == OT_REG16) return 2; /* LD R1,X/Y  */
+        fatal_line(line, "LD source must be $address or X/Y");
     }
 
-    if (stricmp_ascii(mnemonic, "LDX") == 0 || stricmp_ascii(mnemonic, "LDY") == 0) {
-        if (n != 1 || (ops[0].type != OT_ADDR && ops[0].type != OT_VALUE &&
-                       ops[0].type != OT_IMM)) {
-            fatal_line(line, "LDX/LDY requires one 16-bit address/value");
-        }
-        return 3;
-    }
-
-    if ((stricmp_ascii(mnemonic, "INC") == 0 || stricmp_ascii(mnemonic, "DEC") == 0) &&
-        n == 1 && ops[0].type == OT_REG16) {
-        return 2;
+    if (stricmp_ascii(mnemonic, "ST") == 0) {
+        if (n != 2 || ops[1].type != OT_REG)
+            fatal_line(line, "ST requires a memory destination and an 8-bit source register");
+        if (ops[0].type == OT_ADDR) return 4;   /* ST $ADDR,R1 */
+        if (ops[0].type == OT_REG16) return 2; /* ST X/Y,R1  */
+        fatal_line(line, "ST destination must be $address or X/Y");
     }
 
     if (stricmp_ascii(mnemonic, "PUSH") == 0 || stricmp_ascii(mnemonic, "POP") == 0 ||
@@ -711,36 +707,38 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
         return;
     }
 
-    if (stricmp_ascii(mnemonic, "LDA") == 0) {
-        if (ops[0].type == OT_INDIRECT) {
-            emit8(a, 0x26, line);
-            emit8(a, (uint8_t)parse_indirect_reg(ops[0].text), line);
-        } else {
+    if (stricmp_ascii(mnemonic, "LD") == 0) {
+        int dst = parse_reg(ops[0].text);
+
+        if (ops[1].type == OT_ADDR) {
             emit8(a, 0x04, line);
-            emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
-        }
-        return;
-    }
-
-    if (stricmp_ascii(mnemonic, "STA") == 0) {
-        if (ops[0].type == OT_INDIRECT) {
-            emit8(a, 0x27, line);
-            emit8(a, (uint8_t)parse_indirect_reg(ops[0].text), line);
+            emit8(a, (uint8_t)dst, line);
+            emit16be(a, get_u16_expr(a, ops[1].text, line, false), line);
         } else {
+            int ptr = parse_reg16(ops[1].text);
             emit8(a, 0x05, line);
-            emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+            emit8(a, (uint8_t)((dst << 4) | ptr), line);
         }
         return;
     }
 
-    if (stricmp_ascii(mnemonic, "LDX") == 0 || stricmp_ascii(mnemonic, "LDY") == 0) {
-        emit8(a, stricmp_ascii(mnemonic, "LDX") == 0 ? 0x2A : 0x2B, line);
-        emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+    if (stricmp_ascii(mnemonic, "ST") == 0) {
+        int src = parse_reg(ops[1].text);
+
+        if (ops[0].type == OT_ADDR) {
+            emit8(a, 0x06, line);
+            emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
+            emit8(a, (uint8_t)src, line);
+        } else {
+            int ptr = parse_reg16(ops[0].text);
+            emit8(a, 0x07, line);
+            emit8(a, (uint8_t)((ptr << 4) | src), line);
+        }
         return;
     }
 
     if (stricmp_ascii(mnemonic, "PUSH") == 0 || stricmp_ascii(mnemonic, "POP") == 0) {
-        emit8(a, stricmp_ascii(mnemonic, "PUSH") == 0 ? 0x06 : 0x07, line);
+        emit8(a, stricmp_ascii(mnemonic, "PUSH") == 0 ? 0x08 : 0x09, line);
         emit8(a, (uint8_t)parse_reg(ops[0].text), line);
         return;
     }
@@ -752,11 +750,11 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
     };
 
     static const struct Pair pairs[] = {
-        {"ADD", 0x08, 0x09},
-        {"SUB", 0x0A, 0x0B},
-        {"AND", 0x0C, 0x0D},
-        {"OR",  0x0E, 0x0F},
-        {"XOR", 0x10, 0x11}
+        {"ADD", 0x0A, 0x0B},
+        {"SUB", 0x0C, 0x0D},
+        {"AND", 0x0E, 0x0F},
+        {"OR",  0x10, 0x11},
+        {"XOR", 0x12, 0x13}
     };
 
     for (size_t i = 0; i < sizeof(pairs) / sizeof(pairs[0]); i++) {
@@ -776,26 +774,19 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
         }
     }
 
-    if ((stricmp_ascii(mnemonic, "INC") == 0 || stricmp_ascii(mnemonic, "DEC") == 0) &&
-        n == 1 && ops[0].type == OT_REG16) {
-        emit8(a, stricmp_ascii(mnemonic, "INC") == 0 ? 0x28 : 0x29, line);
-        emit8(a, (uint8_t)parse_reg16(ops[0].text), line);
-        return;
-    }
-
     struct Unary {
         const char *name;
         uint8_t opcode;
     };
 
     static const struct Unary unary[] = {
-        {"NOT", 0x12},
-        {"ROR", 0x13},
-        {"ROL", 0x14},
-        {"SHR", 0x15},
-        {"SHL", 0x16},
-        {"INC", 0x17},
-        {"DEC", 0x18}
+        {"NOT", 0x14},
+        {"ROR", 0x15},
+        {"ROL", 0x16},
+        {"SHR", 0x17},
+        {"SHL", 0x18},
+        {"INC", 0x19},
+        {"DEC", 0x1A}
     };
 
     for (size_t i = 0; i < sizeof(unary) / sizeof(unary[0]); i++) {
@@ -809,13 +800,13 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
     if (stricmp_ascii(mnemonic, "CMP") == 0) {
         if (n == 1) {
             if (ops[0].type == OT_REG) {
-                emit8(a, 0x19, line);
+                emit8(a, 0x1B, line);
                 emit8(a, (uint8_t)parse_reg(ops[0].text), line);
             } else if (ops[0].type == OT_ADDR) {
-                emit8(a, 0x1D, line);
+                emit8(a, 0x1F, line);
                 emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
             } else {
-                emit8(a, 0x1B, line);
+                emit8(a, 0x1D, line);
                 emit8(a, get_u8_expr(a, ops[0].text, line, false), line);
             }
             return;
@@ -826,14 +817,14 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
 
             if (ops[1].type == OT_REG) {
                 int r2 = parse_reg(ops[1].text);
-                emit8(a, 0x1A, line);
+                emit8(a, 0x1C, line);
                 emit8(a, (uint8_t)((r1 << 4) | r2), line);
             } else if (ops[1].type == OT_ADDR) {
-                emit8(a, 0x1E, line);
+                emit8(a, 0x20, line);
                 emit8(a, (uint8_t)r1, line);
                 emit16be(a, get_u16_expr(a, ops[1].text, line, false), line);
             } else {
-                emit8(a, 0x1C, line);
+                emit8(a, 0x1E, line);
                 emit8(a, (uint8_t)r1, line);
                 emit8(a, get_u8_expr(a, ops[1].text, line, false), line);
             }
@@ -847,11 +838,11 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
     };
 
     static const struct Jump jumps[] = {
-        {"JMP", 0x1F},
-        {"JC",  0x20},
-        {"JNC", 0x21},
-        {"JZ",  0x22},
-        {"JNZ", 0x23}
+        {"JMP", 0x21},
+        {"JC",  0x22},
+        {"JNC", 0x23},
+        {"JZ",  0x24},
+        {"JNZ", 0x25}
     };
 
     for (size_t i = 0; i < sizeof(jumps) / sizeof(jumps[0]); i++) {
@@ -863,13 +854,13 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
     }
 
     if (stricmp_ascii(mnemonic, "CALL") == 0) {
-        emit8(a, 0x24, line);
+        emit8(a, 0x26, line);
         emit16be(a, get_u16_expr(a, ops[0].text, line, false), line);
         return;
     }
 
     if (stricmp_ascii(mnemonic, "RET") == 0) {
-        emit8(a, 0x25, line);
+        emit8(a, 0x27, line);
         return;
     }
 
@@ -1335,17 +1326,19 @@ static void usage(const char *prog) {
     printf("  label                label/address in jumps/CALL\n");
     printf("  .loop                local label under current global label\n");
     printf("\n");
-    printf("Subroutines:\n");
-    printf("  CALL label           opcode 24, pushes return address in CPU\n");
-    printf("  RET                  opcode 25, returns from subroutine\n");
+    printf("Registers and memory:\n");
     printf("  X-HI/X-LO            8-bit halves of X (register codes 04/05)\n");
     printf("  Y-HI/Y-LO            8-bit halves of Y (register codes 06/07)\n");
     printf("  BR-HI/BR-LO          bank register halves (register codes 08/09)\n");
     printf("  SP/SR                controller-only; not valid ASM registers\n");
-    printf("  LDX addr / LDY addr  load 16-bit pointer register (opcodes 2A/2B)\n");
-    printf("  LDA [X] / LDA [Y]   indirect load through X/Y (opcode 26)\n");
-    printf("  STA [X] / STA [Y]   indirect store through X/Y (opcode 27)\n");
-    printf("  INC X/Y, DEC X/Y    16-bit pointer inc/dec (opcodes 28/29)\n");
+    printf("  LD D,$372D           direct load: D <- MEM[BR:372D] (opcode 04)\n");
+    printf("  LD C,X               indirect load: C <- MEM[BR:X] (opcode 05)\n");
+    printf("  ST $4A5F,B           direct store: MEM[BR:4A5F] <- B (opcode 06)\n");
+    printf("  ST Y,C               indirect store: MEM[BR:Y] <- C (opcode 07)\n");
+    printf("\n");
+    printf("Subroutines:\n");
+    printf("  CALL label           opcode 26, pushes return address in CPU\n");
+    printf("  RET                  opcode 27, returns from subroutine\n");
     printf("\n");
     printf("Directives:\n");
     printf("  .include \"file.inc\"\n");
