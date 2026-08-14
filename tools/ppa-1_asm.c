@@ -17,7 +17,9 @@
 #define MAX_LINE_LEN     1024
 #define MAX_SYMBOLS      1024
 #define MAX_NAME_LEN     64
-#define MEM_SIZE         0x10000
+#define BANK_SIZE        0x10000u
+#define ROM_BANK_COUNT   0x40u
+#define ROM_IMAGE_SIZE   (BANK_SIZE * ROM_BANK_COUNT)
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -42,8 +44,9 @@ typedef struct {
     Symbol symbols[MAX_SYMBOLS];
     size_t symbol_count;
 
-    uint8_t output[MEM_SIZE];
-    uint32_t pc;
+    uint8_t output[ROM_IMAGE_SIZE];
+    uint32_t pc;          /* 16-bit address inside current ROM bank */
+    uint16_t bank;        /* 0000-003F */
     uint32_t highest;
     bool wrote_anything;
 
@@ -53,7 +56,7 @@ typedef struct {
 
 typedef enum {
     OT_NONE,
-    OT_REG,       /* 8-bit register: A-D, X-HI/X-LO, Y-HI/Y-LO */
+    OT_REG,       /* 8-bit visible register: A-D, X/Y halves, BR halves */
     OT_REG16,     /* 16-bit pointer register: X or Y */
     OT_INDIRECT,  /* [X] or [Y] */
     OT_IMM,
@@ -481,6 +484,8 @@ static int parse_reg(const char *text) {
     if (stricmp_ascii(text, "X-LO") == 0) return 0x5;
     if (stricmp_ascii(text, "Y-HI") == 0) return 0x6;
     if (stricmp_ascii(text, "Y-LO") == 0) return 0x7;
+    if (stricmp_ascii(text, "BR-HI") == 0) return 0x8;
+    if (stricmp_ascii(text, "BR-LO") == 0) return 0x9;
     return -1;
 }
 
@@ -556,10 +561,13 @@ static int split_operands(char *s, Operand out[8]) {
 }
 
 static void emit8(Assembler *a, uint8_t v, int line) {
-    if (a->pc >= MEM_SIZE) fatal_line(line, "output exceeds 64 KiB");
+    if (a->bank >= ROM_BANK_COUNT) fatal_line(line, "ROM bank out of range (0000-003F)");
+    if (a->pc >= BANK_SIZE) fatal_line(line, "output exceeds 64 KiB ROM bank");
 
-    a->output[a->pc++] = v;
-    if (!a->wrote_anything || a->pc > a->highest) a->highest = a->pc;
+    uint32_t physical = (uint32_t)a->bank * BANK_SIZE + a->pc;
+    a->output[physical] = v;
+    a->pc++;
+    if (!a->wrote_anything || physical + 1 > a->highest) a->highest = physical + 1;
     a->wrote_anything = true;
 }
 
@@ -569,8 +577,8 @@ static void emit16be(Assembler *a, uint16_t v, int line) {
 }
 
 static void advance_pc(Assembler *a, uint32_t count, int line) {
-    if ((uint32_t)a->pc + count > MEM_SIZE) {
-        fatal_line(line, "program exceeds 64 KiB");
+    if (a->pc + count > BANK_SIZE) {
+        fatal_line(line, "program/data exceeds current 64 KiB ROM bank");
     }
     a->pc += count;
 }
@@ -932,6 +940,16 @@ static void handle_directive(Assembler *a, char *line, int line_no, int pass) {
 
     char *args = trim(space);
 
+    if (strcmp(directive, ".BANK") == 0) {
+        if (!*args) fatal_line(line_no, ".bank requires ROM bank 0000-003F");
+        bool defined = false;
+        uint16_t bank = eval_expr(a, args, line_no, pass == 1, &defined);
+        if (pass == 1 && !defined) fatal_line(line_no, ".bank cannot use a forward label");
+        if (bank >= ROM_BANK_COUNT) fatal_line(line_no, "ROM bank must be 0000-003F");
+        a->bank = bank;
+        return;
+    }
+
     if (strcmp(directive, ".ORG") == 0) {
         if (!*args) fatal_line(line_no, ".org requires an address");
 
@@ -1246,6 +1264,7 @@ static void free_source(Assembler *a) {
 
 static void pass1(Assembler *a) {
     a->pc = 0;
+    a->bank = 0;
     a->current_global[0] = '\0';
 
     for (size_t i = 0; i < a->line_count; i++) {
@@ -1254,8 +1273,9 @@ static void pass1(Assembler *a) {
 }
 
 static void pass2(Assembler *a) {
-    memset(a->output, 0, sizeof(a->output));
+    memset(a->output, 0xFF, sizeof(a->output));
     a->pc = 0;
+    a->bank = 0;
     a->highest = 0;
     a->wrote_anything = false;
     a->current_global[0] = '\0';
@@ -1272,16 +1292,15 @@ static void write_output(const Assembler *a, const char *path) {
         exit(1);
     }
 
-    size_t size = a->wrote_anything ? a->highest : 0;
-
-    if (size > 0 && fwrite(a->output, 1, size, f) != size) {
+    size_t size = ROM_IMAGE_SIZE;
+    if (fwrite(a->output, 1, size, f) != size) {
         perror("fwrite");
         fclose(f);
         exit(1);
     }
 
     fclose(f);
-    printf("Wrote %zu bytes to %s\n", size, path);
+    printf("Wrote %zu bytes (64 x 64 KiB ROM banks) to %s\n", size, path);
 }
 
 static void print_symbols(const Assembler *a) {
@@ -1321,6 +1340,8 @@ static void usage(const char *prog) {
     printf("  RET                  opcode 25, returns from subroutine\n");
     printf("  X-HI/X-LO            8-bit halves of X (register codes 04/05)\n");
     printf("  Y-HI/Y-LO            8-bit halves of Y (register codes 06/07)\n");
+    printf("  BR-HI/BR-LO          bank register halves (register codes 08/09)\n");
+    printf("  SP/SR                controller-only; not valid ASM registers\n");
     printf("  LDX addr / LDY addr  load 16-bit pointer register (opcodes 2A/2B)\n");
     printf("  LDA [X] / LDA [Y]   indirect load through X/Y (opcode 26)\n");
     printf("  STA [X] / STA [Y]   indirect store through X/Y (opcode 27)\n");
@@ -1328,12 +1349,14 @@ static void usage(const char *prog) {
     printf("\n");
     printf("Directives:\n");
     printf("  .include \"file.inc\"\n");
+    printf("  .bank 0000          select ROM output bank 0000-003F\n");
     printf("  .org $8000\n");
     printf("  .byte 01, 02, FF\n");
     printf("  .word 1234, label\n");
     printf("  .ascii \"text\"\n");
     printf("  .asciz \"text\"\n");
     printf("  NAME EQU 0A\n");
+    printf("\nOutput is always a complete 4 MiB EEPROM image; unused bytes are FF.\n");
 }
 
 int main(int argc, char **argv) {

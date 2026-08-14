@@ -16,8 +16,20 @@
 #include <errno.h>
 #include <termios.h>
 
-#define MEM_SIZE 0x10000
-#define STACK_PAGE 0xFE00
+#define BANK_SIZE       0x10000u
+#define ROM_BANK_COUNT  0x40u
+#define RAM_BANK_COUNT  0x10u
+#define ROM_SIZE         (ROM_BANK_COUNT * BANK_SIZE)   /* 4 MiB */
+#define RAM_SIZE         (RAM_BANK_COUNT * BANK_SIZE)   /* 1 MiB */
+#define ROM_BANK_FIRST   0x0000u
+#define ROM_BANK_LAST    0x003Fu
+#define RAM_BANK_FIRST   0x0040u
+#define RAM_BANK_LAST    0x004Fu
+#define SYSTEM_BANK      0x0050u
+#define STACK_PAGE       0xFE00u
+#define SYSTEM_IO_START  0xFF00u
+#define SYSTEM_IO_END    0xFF7Fu
+#define SYSTEM_RSVD_START 0xFF80u
 
 #define SERIAL_TX      0xFF00
 #define SERIAL_RX      0xFF01
@@ -63,6 +75,7 @@ typedef struct {
          0x6 = Y-HI, 0x7 = Y-LO */
     uint16_t X;
     uint16_t Y;
+    uint16_t BR;  /* programmer-visible bank register: BR-HI=0x8, BR-LO=0x9 */
 
     uint8_t IMM;
     uint8_t DST;
@@ -82,8 +95,12 @@ typedef struct {
 } CPU;
 
 typedef struct {
-    uint8_t mem[MEM_SIZE];
-} RAM;
+    uint8_t rom[ROM_SIZE];
+    uint8_t ram[RAM_SIZE];
+    uint8_t stack[0x100];
+    uint8_t reserved[0x80];
+    FILE *rom_file;
+} Memory;
 
 typedef struct {
     bool enabled;
@@ -104,16 +121,54 @@ static inline void set_Z(CPU *cpu, uint8_t v) {
     set_flag(cpu, FL_Z, v == 0);
 }
 
-static int load_rom(RAM *ram, const char *path, uint16_t base) {
-    FILE *f = fopen(path, "rb");
+static int load_rom(Memory *memory, const char *path, uint16_t base) {
+    memset(memory->rom, 0xFF, sizeof(memory->rom));
+    memset(memory->ram, 0x00, sizeof(memory->ram));
+    memset(memory->stack, 0x00, sizeof(memory->stack));
+    memset(memory->reserved, 0xFF, sizeof(memory->reserved));
+
+    FILE *f = fopen(path, "r+b");
     if (!f) {
         perror("fopen");
         return 0;
     }
 
-    size_t n = fread(ram->mem + base, 1, MEM_SIZE - base, f);
-    fclose(f);
+    if (fseek(f, 0, SEEK_END) != 0) {
+        perror("fseek");
+        fclose(f);
+        return 0;
+    }
+    long file_size = ftell(f);
+    if (file_size < 0) {
+        perror("ftell");
+        fclose(f);
+        return 0;
+    }
+    if ((unsigned long)file_size > ROM_SIZE) {
+        fprintf(stderr, "ROM image is larger than 4 MiB (%ld bytes)\n", file_size);
+        fclose(f);
+        return 0;
+    }
+    rewind(f);
+
+    size_t offset = (size_t)base;
+    size_t max_read = ROM_SIZE - offset;
+    size_t n = fread(memory->rom + offset, 1, max_read, f);
+    if (ferror(f)) {
+        perror("fread");
+        fclose(f);
+        return 0;
+    }
+
+    memory->rom_file = f;
     return (int)n;
+}
+
+static void persist_rom_byte(Memory *memory, uint32_t physical, uint8_t value) {
+    if (!memory->rom_file || physical >= ROM_SIZE) return;
+    if (fseek(memory->rom_file, (long)physical, SEEK_SET) != 0) return;
+    if (fputc(value, memory->rom_file) == EOF) return;
+    fflush(memory->rom_file);
 }
 
 static void serial_poll_rx(Serial *serial) {
@@ -276,36 +331,43 @@ static void serial_close(Serial *serial) {
     serial->enabled = false;
 }
 
-static uint8_t bus_read8(RAM *ram, Serial *serial, uint16_t addr) {
-    if (serial && serial->enabled) {
-        serial_poll_rx(serial);
+static uint8_t system_read8(Memory *memory, Serial *serial, uint16_t addr) {
+    if (addr >= STACK_PAGE && addr <= 0xFEFFu) {
+        return memory->stack[addr & 0x00FFu];
+    }
 
+    if (addr >= SYSTEM_IO_START && addr <= SYSTEM_IO_END) {
+        if (serial && serial->enabled) serial_poll_rx(serial);
         switch (addr) {
-            case SERIAL_TX:
-                return 0;
-
+            case SERIAL_TX: return 0;
             case SERIAL_RX: {
+                if (!serial || !serial->enabled) return 0;
                 uint8_t v = serial->rx;
                 serial->status &= (uint8_t)~SERIAL_ST_RX_READY;
                 return v;
             }
-
-            case SERIAL_STATUS:
-                return serial->status;
-
-            case SERIAL_CONTROL:
-                return serial->control;
-
-            default:
-                break;
+            case SERIAL_STATUS: return (serial && serial->enabled) ? serial->status : 0;
+            case SERIAL_CONTROL: return (serial && serial->enabled) ? serial->control : 0;
+            default: return 0;
         }
     }
 
-    return ram->mem[addr];
+    if (addr >= SYSTEM_RSVD_START) {
+        return memory->reserved[addr - SYSTEM_RSVD_START];
+    }
+
+    /* Unused portion of the SYSTEM bank. */
+    return 0xFF;
 }
 
-static void bus_write8(RAM *ram, Serial *serial, uint16_t addr, uint8_t v) {
-    if (serial && serial->enabled) {
+static void system_write8(Memory *memory, Serial *serial, uint16_t addr, uint8_t v) {
+    if (addr >= STACK_PAGE && addr <= 0xFEFFu) {
+        memory->stack[addr & 0x00FFu] = v;
+        return;
+    }
+
+    if (addr >= SYSTEM_IO_START && addr <= SYSTEM_IO_END) {
+        if (!serial || !serial->enabled) return;
         switch (addr) {
             case SERIAL_TX:
                 if ((serial->control & (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) ==
@@ -318,40 +380,78 @@ static void bus_write8(RAM *ram, Serial *serial, uint16_t addr, uint8_t v) {
                     serial->status |= SERIAL_ST_TX_READY;
                 }
                 return;
-
             case SERIAL_RX:
                 return;
-
             case SERIAL_STATUS:
                 serial->status &= (uint8_t)~(v & SERIAL_ST_RX_OVERRUN);
                 return;
-
             case SERIAL_CONTROL:
                 serial->control = v;
                 if (v & SERIAL_CTL_RESET) {
                     serial->control &= (uint8_t)~SERIAL_CTL_RESET;
                     serial_reset(serial);
+                } else if ((serial->control & (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) ==
+                           (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) {
+                    serial->status |= SERIAL_ST_TX_READY;
                 } else {
-                    if ((serial->control & (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) ==
-                        (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) {
-                        serial->status |= SERIAL_ST_TX_READY;
-                    } else {
-                        serial->status &= (uint8_t)~SERIAL_ST_TX_READY;
-                    }
+                    serial->status &= (uint8_t)~SERIAL_ST_TX_READY;
                 }
                 return;
-
             default:
-                if (addr >= 0xFF00) return;
-                break;
+                return;
         }
     }
 
-    ram->mem[addr] = v;
+    /* RESERVED and the unused SYSTEM area ignore writes. */
 }
 
-static inline uint8_t fetch_program8(CPU *cpu, RAM *ram, Serial *serial) {
-    uint8_t v = bus_read8(ram, serial, cpu->PC);
+/*
+ * BR selects the data-memory bank:
+ *   0000-003F = 64 EEPROM/ROM banks (4 MiB total)
+ *   0040-004F = 16 RAM banks       (1 MiB total)
+ *   0050      = SYSTEM bank (stack, serial, reserved)
+ *
+ * Instruction fetch deliberately comes from EEPROM bank 0000.  This keeps
+ * execution stable while BR is changed to access RAM, I/O, or another ROM
+ * data bank.  BR is therefore a data-bank register in this implementation.
+ */
+static uint8_t bus_read8(CPU *cpu, Memory *memory, Serial *serial, uint16_t addr) {
+    uint16_t bank = cpu->BR;
+    if (bank <= ROM_BANK_LAST) {
+        uint32_t physical = (uint32_t)bank * BANK_SIZE + addr;
+        return memory->rom[physical];
+    }
+    if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
+        uint32_t physical = (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + addr;
+        return memory->ram[physical];
+    }
+    if (bank == SYSTEM_BANK) {
+        return system_read8(memory, serial, addr);
+    }
+    return 0xFF;
+}
+
+static void bus_write8(CPU *cpu, Memory *memory, Serial *serial, uint16_t addr, uint8_t v) {
+    uint16_t bank = cpu->BR;
+    if (bank <= ROM_BANK_LAST) {
+        uint32_t physical = (uint32_t)bank * BANK_SIZE + addr;
+        memory->rom[physical] = v;      /* EEPROM is writable */
+        persist_rom_byte(memory, physical, v);
+        return;
+    }
+    if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
+        uint32_t physical = (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + addr;
+        memory->ram[physical] = v;
+        return;
+    }
+    if (bank == SYSTEM_BANK) {
+        system_write8(memory, serial, addr, v);
+    }
+}
+
+static inline uint8_t fetch_program8(CPU *cpu, Memory *memory, Serial *serial) {
+    (void)serial;
+    uint8_t v = memory->rom[cpu->PC];  /* program fetch = ROM bank 0000 */
     cpu->PC++;
     return v;
 }
@@ -360,23 +460,27 @@ static inline uint16_t stack_addr(const CPU *cpu) {
     return (uint16_t)(STACK_PAGE | cpu->SP);
 }
 
-static inline void push8(CPU *cpu, RAM *ram, Serial *serial, uint8_t v) {
+/* Stack is controller-owned: PUSH/POP/CALL/RET always access SYSTEM stack,
+   independently of programmer-visible BR. */
+static inline void push8(CPU *cpu, Memory *memory, Serial *serial, uint8_t v) {
+    (void)serial;
     cpu->AR = stack_addr(cpu);
-    bus_write8(ram, serial, cpu->AR, v);
+    memory->stack[cpu->SP] = v;
     cpu->SP--;
 }
 
-static inline uint8_t pop8(CPU *cpu, RAM *ram, Serial *serial) {
+static inline uint8_t pop8(CPU *cpu, Memory *memory, Serial *serial) {
+    (void)serial;
     cpu->SP++;
     cpu->AR = stack_addr(cpu);
-    return bus_read8(ram, serial, cpu->AR);
+    return memory->stack[cpu->SP];
 }
 
 static void dump_regs(const CPU *c) {
     printf(
         "PC=%04X AR=%04X SP=%02X IR=%02X SR=%02X RS=%02X DST=%02X STEP=%02X "
         "AOS=%02X IMM=%02X AAR=%02X ABR=%02X A=%02X B=%02X C=%02X D=%02X "
-        "X=%04X Y=%04X HALT=%d\n",
+        "X=%04X Y=%04X BR=%04X HALT=%d\n",
         c->PC,
         c->AR,
         c->SP,
@@ -395,22 +499,22 @@ static void dump_regs(const CPU *c) {
         c->D,
         c->X,
         c->Y,
+        c->BR,
         c->halted ? 1 : 0
     );
 }
 
-static void dump_mem(const RAM *ram, uint16_t start, uint16_t len) {
+static void dump_mem(CPU *cpu, Memory *memory, Serial *serial, uint16_t start, uint16_t len) {
     for (uint16_t i = 0; i < len; i++) {
         if ((i % 16) == 0) printf("%04X: ", (uint16_t)(start + i));
-        printf("%02X ", ram->mem[(uint16_t)(start + i)]);
+        printf("%02X ", bus_read8(cpu, memory, serial, (uint16_t)(start + i)));
         if ((i % 16) == 15) printf("\n");
     }
-
     if ((len % 16) != 0) printf("\n");
 }
 
 static inline bool valid_reg(uint8_t r) {
-    return r <= 0x7;
+    return r <= 0x9;
 }
 
 /*
@@ -418,6 +522,7 @@ static inline bool valid_reg(uint8_t r) {
  *   0x0 A, 0x1 B, 0x2 C, 0x3 D
  *   0x4 X-HI, 0x5 X-LO
  *   0x6 Y-HI, 0x7 Y-LO
+ *   0x8 BR-HI, 0x9 BR-LO
  *
  * X/Y are stored as uint16_t, therefore their byte halves are accessed
  * explicitly instead of taking host-endian byte pointers.
@@ -432,6 +537,8 @@ static inline uint8_t selected_reg_read(CPU *cpu) {
         case 0x5: return (uint8_t)(cpu->X & 0xFF);
         case 0x6: return (uint8_t)(cpu->Y >> 8);
         case 0x7: return (uint8_t)(cpu->Y & 0xFF);
+        case 0x8: return (uint8_t)(cpu->BR >> 8);
+        case 0x9: return (uint8_t)(cpu->BR & 0xFF);
         default:  return 0;
     }
 }
@@ -446,6 +553,8 @@ static inline void selected_reg_write(CPU *cpu, uint8_t value) {
         case 0x5: cpu->X = (uint16_t)((cpu->X & 0xFF00) | value); break;
         case 0x6: cpu->Y = (uint16_t)(((uint16_t)value << 8) | (cpu->Y & 0x00FF)); break;
         case 0x7: cpu->Y = (uint16_t)((cpu->Y & 0xFF00) | value); break;
+        case 0x8: cpu->BR = (uint16_t)(((uint16_t)value << 8) | (cpu->BR & 0x00FF)); break;
+        case 0x9: cpu->BR = (uint16_t)((cpu->BR & 0xFF00) | value); break;
         default: break;
     }
 }
@@ -636,11 +745,11 @@ static inline void finish_instruction(CPU *cpu) {
     cpu->STEP = 0;
 }
 
-static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
+static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
     if (cpu->halted) return true;
 
     if (cpu->STEP == 0) {
-        cpu->IR = fetch_program8(cpu, ram, serial);
+        cpu->IR = fetch_program8(cpu, memory, serial);
         controller_select_alu(cpu);
         cpu->STEP = 1;
         return false;
@@ -658,7 +767,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x02:
             if (cpu->STEP == 1) {
-                uint8_t rp = fetch_program8(cpu, ram, serial);
+                uint8_t rp = fetch_program8(cpu, memory, serial);
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
                 cpu->RS = (uint8_t)(rp & 0x0F);
 
@@ -683,7 +792,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x03:
             if (cpu->STEP == 1) {
-                cpu->DST = fetch_program8(cpu, ram, serial);
+                cpu->DST = fetch_program8(cpu, memory, serial);
 
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
@@ -695,7 +804,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
             }
 
             if (cpu->STEP == 2) {
-                cpu->IMM = fetch_program8(cpu, ram, serial);
+                cpu->IMM = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
@@ -711,19 +820,19 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x04:
             if (cpu->STEP == 1) {
-                cpu->AR = (uint16_t)fetch_program8(cpu, ram, serial) << 8;
+                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
                 cpu->STEP = 2;
                 return false;
             }
 
             if (cpu->STEP == 2) {
-                cpu->AR |= fetch_program8(cpu, ram, serial);
+                cpu->AR |= fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
 
             if (cpu->STEP == 3) {
-                cpu->A = bus_read8(ram, serial, cpu->AR);
+                cpu->A = bus_read8(cpu, memory, serial, cpu->AR);
                 set_Z(cpu, cpu->A);
                 finish_instruction(cpu);
                 return true;
@@ -732,19 +841,19 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x05:
             if (cpu->STEP == 1) {
-                cpu->AR = (uint16_t)fetch_program8(cpu, ram, serial) << 8;
+                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
                 cpu->STEP = 2;
                 return false;
             }
 
             if (cpu->STEP == 2) {
-                cpu->AR |= fetch_program8(cpu, ram, serial);
+                cpu->AR |= fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
 
             if (cpu->STEP == 3) {
-                bus_write8(ram, serial, cpu->AR, cpu->A);
+                bus_write8(cpu, memory, serial, cpu->AR, cpu->A);
                 finish_instruction(cpu);
                 return true;
             }
@@ -752,7 +861,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x06:
             if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, ram, serial);
+                cpu->RS = fetch_program8(cpu, memory, serial);
 
                 if (!valid_reg(cpu->RS)) {
                     cpu->halted = true;
@@ -764,7 +873,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
             }
 
             if (cpu->STEP == 2) {
-                push8(cpu, ram, serial, selected_reg_read(cpu));
+                push8(cpu, memory, serial, selected_reg_read(cpu));
                 finish_instruction(cpu);
                 return true;
             }
@@ -772,7 +881,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x07:
             if (cpu->STEP == 1) {
-                cpu->DST = fetch_program8(cpu, ram, serial);
+                cpu->DST = fetch_program8(cpu, memory, serial);
 
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
@@ -784,7 +893,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
             }
 
             if (cpu->STEP == 2) {
-                cpu->AAR = pop8(cpu, ram, serial);
+                cpu->AAR = pop8(cpu, memory, serial);
                 cpu->RS = cpu->DST;
                 selected_reg_write(cpu, cpu->AAR);
                 set_Z(cpu, cpu->AAR);
@@ -799,7 +908,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
         case 0x0E:
         case 0x10:
             if (cpu->STEP == 1) {
-                uint8_t rp = fetch_program8(cpu, ram, serial);
+                uint8_t rp = fetch_program8(cpu, memory, serial);
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
                 cpu->RS = (uint8_t)(rp & 0x0F);
 
@@ -838,7 +947,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
         case 0x0F:
         case 0x11:
             if (cpu->STEP == 1) {
-                cpu->DST = fetch_program8(cpu, ram, serial);
+                cpu->DST = fetch_program8(cpu, memory, serial);
 
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
@@ -850,7 +959,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
             }
 
             if (cpu->STEP == 2) {
-                cpu->IMM = fetch_program8(cpu, ram, serial);
+                cpu->IMM = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
@@ -878,7 +987,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
         case 0x17:
         case 0x18:
             if (cpu->STEP == 1) {
-                cpu->DST = fetch_program8(cpu, ram, serial);
+                cpu->DST = fetch_program8(cpu, memory, serial);
 
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
@@ -906,7 +1015,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x19:
             if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, ram, serial);
+                cpu->RS = fetch_program8(cpu, memory, serial);
 
                 if (!valid_reg(cpu->RS)) {
                     cpu->halted = true;
@@ -933,7 +1042,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x1A:
             if (cpu->STEP == 1) {
-                uint8_t rp = fetch_program8(cpu, ram, serial);
+                uint8_t rp = fetch_program8(cpu, memory, serial);
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
                 cpu->RS = (uint8_t)(rp & 0x0F);
 
@@ -968,7 +1077,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x1B:
             if (cpu->STEP == 1) {
-                cpu->IMM = fetch_program8(cpu, ram, serial);
+                cpu->IMM = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 2;
                 return false;
             }
@@ -989,7 +1098,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x1C:
             if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, ram, serial);
+                cpu->RS = fetch_program8(cpu, memory, serial);
 
                 if (!valid_reg(cpu->RS)) {
                     cpu->halted = true;
@@ -1002,7 +1111,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
             }
 
             if (cpu->STEP == 2) {
-                cpu->IMM = fetch_program8(cpu, ram, serial);
+                cpu->IMM = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
@@ -1024,20 +1133,20 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x1D:
             if (cpu->STEP == 1) {
-                cpu->AR = (uint16_t)fetch_program8(cpu, ram, serial) << 8;
+                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
                 cpu->STEP = 2;
                 return false;
             }
 
             if (cpu->STEP == 2) {
-                cpu->AR |= fetch_program8(cpu, ram, serial);
+                cpu->AR |= fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
 
             if (cpu->STEP == 3) {
                 cpu->AAR = cpu->A;
-                cpu->ABR = bus_read8(ram, serial, cpu->AR);
+                cpu->ABR = bus_read8(cpu, memory, serial, cpu->AR);
                 cpu->STEP = 4;
                 return false;
             }
@@ -1051,7 +1160,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
         case 0x1E:
             if (cpu->STEP == 1) {
-                cpu->DST = fetch_program8(cpu, ram, serial);
+                cpu->DST = fetch_program8(cpu, memory, serial);
 
                 if (!valid_reg(cpu->DST)) {
                     cpu->halted = true;
@@ -1063,13 +1172,13 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
             }
 
             if (cpu->STEP == 2) {
-                cpu->AR = (uint16_t)fetch_program8(cpu, ram, serial) << 8;
+                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
                 cpu->STEP = 3;
                 return false;
             }
 
             if (cpu->STEP == 3) {
-                cpu->AR |= fetch_program8(cpu, ram, serial);
+                cpu->AR |= fetch_program8(cpu, memory, serial);
                 cpu->STEP = 4;
                 return false;
             }
@@ -1077,7 +1186,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
             if (cpu->STEP == 4) {
                 cpu->RS = cpu->DST;
                 cpu->AAR = selected_reg_read(cpu);
-                cpu->ABR = bus_read8(ram, serial, cpu->AR);
+                cpu->ABR = bus_read8(cpu, memory, serial, cpu->AR);
                 cpu->STEP = 5;
                 return false;
             }
@@ -1095,13 +1204,13 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
         case 0x22:
         case 0x23:
             if (cpu->STEP == 1) {
-                cpu->AR = (uint16_t)fetch_program8(cpu, ram, serial) << 8;
+                cpu->AR = (uint16_t)fetch_program8(cpu, memory, serial) << 8;
                 cpu->STEP = 2;
                 return false;
             }
 
             if (cpu->STEP == 2) {
-                cpu->AR |= fetch_program8(cpu, ram, serial);
+                cpu->AR |= fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
@@ -1144,25 +1253,25 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
                  * Keep the target in AAR:ABR. push8() uses AR for the
                  * stack address, so AR cannot safely hold CALL's target.
                  */
-                cpu->AAR = fetch_program8(cpu, ram, serial);  /* target high */
+                cpu->AAR = fetch_program8(cpu, memory, serial);  /* target high */
                 cpu->STEP = 2;
                 return false;
             }
 
             if (cpu->STEP == 2) {
-                cpu->ABR = fetch_program8(cpu, ram, serial);  /* target low */
+                cpu->ABR = fetch_program8(cpu, memory, serial);  /* target low */
                 cpu->STEP = 3;
                 return false;
             }
 
             if (cpu->STEP == 3) {
-                push8(cpu, ram, serial, (uint8_t)(cpu->PC >> 8));
+                push8(cpu, memory, serial, (uint8_t)(cpu->PC >> 8));
                 cpu->STEP = 4;
                 return false;
             }
 
             if (cpu->STEP == 4) {
-                push8(cpu, ram, serial, (uint8_t)(cpu->PC & 0xFF));
+                push8(cpu, memory, serial, (uint8_t)(cpu->PC & 0xFF));
                 cpu->STEP = 5;
                 return false;
             }
@@ -1183,13 +1292,13 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
          */
         case 0x25:
             if (cpu->STEP == 1) {
-                cpu->ABR = pop8(cpu, ram, serial);   /* low byte */
+                cpu->ABR = pop8(cpu, memory, serial);   /* low byte */
                 cpu->STEP = 2;
                 return false;
             }
 
             if (cpu->STEP == 2) {
-                cpu->AAR = pop8(cpu, ram, serial);   /* high byte */
+                cpu->AAR = pop8(cpu, memory, serial);   /* high byte */
                 cpu->STEP = 3;
                 return false;
             }
@@ -1208,7 +1317,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
          */
         case 0x26:
             if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, ram, serial);
+                cpu->RS = fetch_program8(cpu, memory, serial);
                 if (!valid_ptr_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
@@ -1219,7 +1328,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
             if (cpu->STEP == 2) {
                 cpu->AR = selected_ptr_read(cpu, cpu->RS);
-                cpu->A = bus_read8(ram, serial, cpu->AR);
+                cpu->A = bus_read8(cpu, memory, serial, cpu->AR);
                 set_Z(cpu, cpu->A);
                 finish_instruction(cpu);
                 return true;
@@ -1231,7 +1340,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
          */
         case 0x27:
             if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, ram, serial);
+                cpu->RS = fetch_program8(cpu, memory, serial);
                 if (!valid_ptr_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
@@ -1242,7 +1351,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
 
             if (cpu->STEP == 2) {
                 cpu->AR = selected_ptr_read(cpu, cpu->RS);
-                bus_write8(ram, serial, cpu->AR, cpu->A);
+                bus_write8(cpu, memory, serial, cpu->AR, cpu->A);
                 finish_instruction(cpu);
                 return true;
             }
@@ -1253,7 +1362,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
          */
         case 0x28:
             if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, ram, serial);
+                cpu->RS = fetch_program8(cpu, memory, serial);
                 if (!valid_ptr_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
@@ -1278,7 +1387,7 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
          */
         case 0x29:
             if (cpu->STEP == 1) {
-                cpu->RS = fetch_program8(cpu, ram, serial);
+                cpu->RS = fetch_program8(cpu, memory, serial);
                 if (!valid_ptr_reg(cpu->RS)) {
                     cpu->halted = true;
                     return true;
@@ -1307,13 +1416,13 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
         case 0x2A:
         case 0x2B:
             if (cpu->STEP == 1) {
-                cpu->AAR = fetch_program8(cpu, ram, serial);
+                cpu->AAR = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 2;
                 return false;
             }
 
             if (cpu->STEP == 2) {
-                cpu->ABR = fetch_program8(cpu, ram, serial);
+                cpu->ABR = fetch_program8(cpu, memory, serial);
                 cpu->STEP = 3;
                 return false;
             }
@@ -1338,13 +1447,13 @@ static bool cpu_microstep(CPU *cpu, RAM *ram, Serial *serial) {
     return true;
 }
 
-static int cpu_execute_instruction(CPU *cpu, RAM *ram, Serial *serial) {
+static int cpu_execute_instruction(CPU *cpu, Memory *memory, Serial *serial) {
     if (cpu->halted) return 0;
 
     bool complete = false;
 
     while (!complete && !cpu->halted) {
-        complete = cpu_microstep(cpu, ram, serial);
+        complete = cpu_microstep(cpu, memory, serial);
     }
 
     return 1;
@@ -1356,7 +1465,7 @@ static void usage(const char *prog) {
     printf("\n");
     printf("Without --steps, execution continues until HLT or Ctrl+C.\n");
     printf("--steps limits the number of complete CPU instructions, not microsteps.\n");
-    printf("--tty creates a pseudo-terminal connected to SERIAL at FF00-FF03.\n");
+    printf("--tty creates a pseudo-terminal for SYSTEM bank 0050, SERIAL FF00-FF03.\n");
 }
 
 static uint32_t parse_hex(const char *s) {
@@ -1375,7 +1484,7 @@ int main(int argc, char **argv) {
     const char *rom_path = argv[1];
 
     CPU cpu = {0};
-    RAM ram = {0};
+    Memory memory = {0};
     Serial serial = {0};
     serial.master_fd = -1;
     serial.slave_fd = -1;
@@ -1383,6 +1492,8 @@ int main(int argc, char **argv) {
     uint16_t base = 0x0000;
     cpu.PC = 0x0000;
     cpu.SP = 0xFF;
+    cpu.BR = 0x0000;
+    memory.rom_file = NULL;
 
     long long steps = -1;
     bool do_dump = false;
@@ -1424,19 +1535,19 @@ int main(int argc, char **argv) {
         }
     }
 
-    int loaded = load_rom(&ram, rom_path, base);
+    int loaded = load_rom(&memory, rom_path, base);
     if (!loaded) {
         printf("Failed to load ROM.\n");
         return 1;
     }
 
-    printf("Loaded %d bytes at base %04X\n", loaded, base);
+    printf("Loaded %d EEPROM bytes (ROM bank 0000 program fetch, BR=%04X)\n", loaded, cpu.BR);
 
     long long instruction_count = 0;
 
     while (!cpu.halted && (steps < 0 || instruction_count < steps)) {
         dump_regs(&cpu);
-        cpu_execute_instruction(&cpu, &ram, &serial);
+        cpu_execute_instruction(&cpu, &memory, &serial);
         instruction_count++;
     }
 
@@ -1444,7 +1555,7 @@ int main(int argc, char **argv) {
 
     if (do_dump) {
         printf("\nMemory dump:\n");
-        dump_mem(&ram, dump_start, dump_len);
+        dump_mem(&cpu, &memory, &serial, dump_start, dump_len);
     }
 
     if (tty_enabled) {
@@ -1452,5 +1563,6 @@ int main(int argc, char **argv) {
     }
 
     serial_close(&serial);
+    if (memory.rom_file) fclose(memory.rom_file);
     return 0;
 }
