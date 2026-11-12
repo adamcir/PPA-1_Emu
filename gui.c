@@ -1933,19 +1933,16 @@ int ppa_gui_run_panel(const char *initial_rom,
                           data_source_index, 2,
                           data_source_tick_labels, true);
 
-        bool register_output_enabled = data_source_index == 1;
         draw_text_center(renderer, panel_fonts.label,
                          (SDL_FRect){1015, 346, 160, 18},
-                         register_output_enabled
-                             ? COL_WHITE
-                             : COL_GRAY,
+                         COL_WHITE,
                          "REGISTER SELECT");
         draw_labeled_knob(renderer, &panel_fonts,
                           register_cx, register_cy,
                           register_radius,
                           register_index, register_count,
                           register_labels,
-                          register_output_enabled);
+                          true);
 
         /* Hardware programming and execution controls. */
         draw_text(renderer, panel_fonts.section, 646, 520,
