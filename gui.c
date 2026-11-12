@@ -704,7 +704,7 @@ static bool open_terminal(TerminalWindow *term,
     term->window = SDL_CreateWindow(
         "PPA-1 UART Terminal",
         680, 380,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+        SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!term->window) return false;
 
     term->renderer = SDL_CreateRenderer(term->window, NULL);
@@ -715,7 +715,6 @@ static bool open_terminal(TerminalWindow *term,
     }
 
     SDL_SetRenderVSync(term->renderer, 1);
-    SDL_SetWindowMinimumSize(term->window, 360, 220);
     SDL_StartTextInput(term->window);
 
     if (backend->set_terminal_enabled) {
