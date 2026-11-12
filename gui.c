@@ -329,7 +329,7 @@ static void draw_knob(SDL_Renderer *r, PanelFonts *fonts,
     fill_circle(r, cx, cy, radius - 7);
 
     float t = count > 1 ? (float)index / (float)(count - 1) : 0.0f;
-    float angle = (225.0f - t * 270.0f) * (float)M_PI / 180.0f;
+    float angle = (225.0f - t * 270.0f) * 3.14159265358979323846f / 180.0f;
     float px = cx + cosf(angle) * radius * 0.62f;
     float py = cy - sinf(angle) * radius * 0.62f;
 
@@ -793,7 +793,7 @@ int ppa_gui_run_panel(const char *initial_rom,
             (SDL_Color){34, 17, 16, 255});
         draw_text_center(renderer, fonts.badge, badge,
                          (SDL_Color){245, 232, 195, 255}, "A-1");
-        draw_text_center(renderer, fonts.badge,
+        draw_text_center(renderer, fonts.section,
             (SDL_FRect){1040, 117, 190, 27},
             (SDL_Color){224, 216, 191, 255}, "Adava Electronics");
 
