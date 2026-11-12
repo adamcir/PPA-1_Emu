@@ -32,6 +32,9 @@ typedef enum {
     AUX_LOG
 } AuxKind;
 
+#define TERM_LINES 128
+#define TERM_COLS 96
+
 typedef enum {
     BTN_NONE = 0,
     BTN_LOAD_ADDR,
@@ -52,6 +55,14 @@ typedef struct {
     SDL_Renderer *renderer;
     AuxKind kind;
 } AuxWindow;
+
+typedef struct {
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    char lines[TERM_LINES][TERM_COLS + 1];
+    int line;
+    int col;
+} TerminalWindow;
 
 typedef struct {
     bool auto_run;
@@ -409,6 +420,154 @@ static void read_log_tail(char lines[][160], int *line_count, int max_lines) {
         }
     }
     *line_count = count;
+}
+
+static void terminal_new_line(TerminalWindow *term) {
+    if (!term) return;
+
+    term->line++;
+    term->col = 0;
+
+    if (term->line >= TERM_LINES) {
+        memmove(term->lines[0], term->lines[1],
+                sizeof(term->lines[0]) * (TERM_LINES - 1));
+        term->line = TERM_LINES - 1;
+    }
+
+    memset(term->lines[term->line], 0, sizeof(term->lines[term->line]));
+}
+
+static void terminal_put_byte(TerminalWindow *term, uint8_t value) {
+    if (!term) return;
+
+    if (value == '\r') {
+        term->col = 0;
+        return;
+    }
+    if (value == '\n') {
+        terminal_new_line(term);
+        return;
+    }
+    if (value == '\b' || value == 0x7F) {
+        if (term->col > 0) {
+            term->col--;
+            term->lines[term->line][term->col] = '\0';
+        }
+        return;
+    }
+    if (value == '\t') {
+        int spaces = 4 - (term->col % 4);
+        while (spaces-- > 0) terminal_put_byte(term, ' ');
+        return;
+    }
+    if (value < 0x20) return;
+
+    if (term->col >= TERM_COLS) terminal_new_line(term);
+
+    term->lines[term->line][term->col++] = (char)value;
+    term->lines[term->line][term->col] = '\0';
+}
+
+static bool open_terminal(TerminalWindow *term,
+                          const PPA1GuiBackend *backend)
+{
+    if (!term || !backend) return false;
+
+    if (term->window) {
+        SDL_RaiseWindow(term->window);
+        return true;
+    }
+
+    term->window = SDL_CreateWindow(
+        "PPA-1 UART Terminal",
+        680, 380,
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (!term->window) return false;
+
+    term->renderer = SDL_CreateRenderer(term->window, NULL);
+    if (!term->renderer) {
+        SDL_DestroyWindow(term->window);
+        memset(term, 0, sizeof(*term));
+        return false;
+    }
+
+    SDL_SetRenderVSync(term->renderer, 1);
+    SDL_SetWindowMinimumSize(term->window, 360, 220);
+    SDL_StartTextInput(term->window);
+
+    if (backend->set_terminal_enabled) {
+        backend->set_terminal_enabled(backend->ctx, true);
+    }
+    return true;
+}
+
+static void close_terminal(TerminalWindow *term,
+                           const PPA1GuiBackend *backend)
+{
+    if (!term) return;
+
+    if (term->window) SDL_StopTextInput(term->window);
+
+    if (backend && backend->set_terminal_enabled) {
+        backend->set_terminal_enabled(backend->ctx, false);
+    }
+
+    if (term->renderer) SDL_DestroyRenderer(term->renderer);
+    if (term->window) SDL_DestroyWindow(term->window);
+    memset(term, 0, sizeof(*term));
+}
+
+static void update_terminal(TerminalWindow *term,
+                            const PPA1GuiBackend *backend)
+{
+    if (!term || !term->window || !backend || !backend->terminal_read_tx) return;
+
+    uint8_t buf[256];
+    size_t n;
+    do {
+        n = backend->terminal_read_tx(backend->ctx, buf, sizeof(buf));
+        for (size_t i = 0; i < n; i++) {
+            terminal_put_byte(term, buf[i]);
+        }
+    } while (n == sizeof(buf));
+}
+
+static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
+                          const PPA1GuiBackend *backend)
+{
+    if (!term || !term->renderer || !fonts) return;
+
+    update_terminal(term, backend);
+
+    int w = 680, h = 380;
+    SDL_GetCurrentRenderOutputSize(term->renderer, &w, &h);
+
+    SDL_SetRenderDrawColor(term->renderer, 10, 14, 13, 255);
+    SDL_RenderClear(term->renderer);
+
+    draw_text(term->renderer, fonts->label, 14, 10,
+              (SDL_Color){140, 224, 171, 255},
+              "PPA-1 UART TERMINAL  FF00 TX / FF01 RX");
+
+    SDL_SetRenderDrawColor(term->renderer, 45, 72, 58, 255);
+    SDL_RenderLine(term->renderer, 14, 34, (float)w - 14.0f, 34);
+
+    int visible = (h - 58) / 18;
+    if (visible < 1) visible = 1;
+    if (visible > TERM_LINES) visible = TERM_LINES;
+
+    int start = term->line - visible + 1;
+    if (start < 0) start = 0;
+
+    float y = 44.0f;
+    for (int line = start; line <= term->line && line < TERM_LINES; line++) {
+        draw_text(term->renderer, fonts->small, 14, y,
+                  (SDL_Color){201, 230, 208, 255},
+                  term->lines[line]);
+        y += 18.0f;
+    }
+
+    SDL_RenderPresent(term->renderer);
 }
 
 static void destroy_aux(AuxWindow *aux) {
