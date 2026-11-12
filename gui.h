@@ -2,7 +2,7 @@
 #define PPA1_GUI_H
 
 #include <stdbool.h>
-#include <stddef.h>
+#include <stdint.h>
 
 typedef struct {
     bool requested;
@@ -10,17 +10,34 @@ typedef struct {
 } PPA1GuiState;
 
 typedef struct {
-    char rom_path[1024];
-    bool tty_enabled;
-} PPA1GuiLaunchOptions;
+    void *ctx;
+
+    bool (*load_rom)(void *ctx, const char *path);
+    void (*set_power)(void *ctx, bool on);
+    void (*set_running)(void *ctx, bool running);
+    void (*reset)(void *ctx);
+    void (*step_instruction)(void *ctx);
+    void (*step_micro)(void *ctx);
+    void (*tick)(void *ctx, int instruction_budget);
+
+    bool (*is_loaded)(void *ctx);
+    bool (*is_powered)(void *ctx);
+    bool (*is_running)(void *ctx);
+    bool (*is_halted)(void *ctx);
+
+    uint16_t (*address_bus)(void *ctx);
+    uint8_t (*data_bus)(void *ctx);
+} PPA1GuiBackend;
 
 void ppa_gui_init_state(PPA1GuiState *state, bool no_gui);
 void ppa_gui_log_mode(const PPA1GuiState *state);
 
 /*
- * Opens the SDL3 launcher. Returns true when the user pressed Start.
- * initial_rom may be NULL. The selected settings are written to options.
+ * Persistent graphical front panel. The panel owns the SDL event loop while
+ * the backend callbacks operate the emulator core.
  */
-bool ppa_gui_run_launcher(const char *initial_rom, PPA1GuiLaunchOptions *options);
+int ppa_gui_run_panel(const char *initial_rom,
+                      bool initial_tty_enabled,
+                      const PPA1GuiBackend *backend);
 
 #endif
