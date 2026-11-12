@@ -1429,16 +1429,17 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_SetRenderScale(
             renderer, panel_render_scale, panel_render_scale);
         g_text_pixel_scale = panel_render_scale;
-        SDL_SetRenderDrawColor(renderer, 17, 19, 19, 255);
+        SDL_SetRenderDrawColor(
+            renderer, COL_BLACK.r, COL_BLACK.g, COL_BLACK.b, 255);
         SDL_RenderClear(renderer);
 
         SDL_FRect face = {10, 8, 1260, 742};
         draw_bevel_panel(renderer, face,
             prefs.high_contrast
-                ? (SDL_Color){45, 47, 46, 255}
-                : (SDL_Color){37, 39, 38, 255},
-            (SDL_Color){122, 123, 115, 255},
-            (SDL_Color){10, 11, 11, 255});
+                ? COL_GRAY
+                : COL_DARK_GRAY,
+            COL_LIGHT_GRAY,
+            COL_BLACK);
 
         draw_screw(renderer, 24, 22);
         draw_screw(renderer, 1256, 22);
@@ -1446,24 +1447,27 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_screw(renderer, 1256, 736);
 
         /* One continuous metal panel: only engraved separator lines, no modular cards. */
-        SDL_FRect title_rect = {46, 26, 972, 52};
+        SDL_FRect title_rect = {46, 27, 940, 50};
         draw_text_fit(renderer, panel_fonts.title, title_rect,
-                      (SDL_Color){239, 231, 204, 255},
+                      COL_WHITE,
                       "PROGRAMBLE PROCESSOR");
 
-        SDL_FRect badge = {1040, 24, 186, 62};
+        SDL_FRect badge = {1036, 20, 194, 82};
         draw_bevel_panel(renderer, badge,
-            (SDL_Color){91, 38, 30, 255},
-            (SDL_Color){218, 202, 160, 255},
-            (SDL_Color){34, 17, 16, 255});
-        draw_text_center(renderer, panel_fonts.badge, badge,
-                         (SDL_Color){245, 232, 195, 255}, "A-1");
-        draw_text_center(renderer, panel_fonts.section,
-            (SDL_FRect){1035, 88, 196, 26},
-            (SDL_Color){224, 216, 191, 255}, "Adava Electronics");
+            COL_RED,
+            COL_LIGHT_GRAY,
+            COL_BLACK);
+        draw_text_center(renderer, panel_fonts.badge,
+            (SDL_FRect){1040, 25, 186, 46},
+            COL_WHITE, "A-1");
+        draw_text_center(renderer, panel_fonts.small,
+            (SDL_FRect){1040, 72, 186, 22},
+            COL_WHITE, "Adava Electronics");
 
-        SDL_SetRenderDrawColor(renderer, 178, 168, 134, 255);
-        SDL_RenderLine(renderer, 46, 104, 1228, 104);
+        SDL_SetRenderDrawColor(
+            renderer, COL_LIGHT_GRAY.r, COL_LIGHT_GRAY.g,
+            COL_LIGHT_GRAY.b, 255);
+        SDL_RenderLine(renderer, 46, 112, 1228, 112);
         SDL_RenderLine(renderer, 620, 132, 620, 565);
         SDL_RenderLine(renderer, 46, 350, 592, 350);
         SDL_RenderLine(renderer, 646, 300, 1228, 300);
@@ -1471,9 +1475,9 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         /* Left upper: bus lamps. */
         draw_text(renderer, panel_fonts.section, 52, 126,
-                  (SDL_Color){229, 221, 194, 255}, "BUS INDICATORS");
+                  COL_WHITE, "BUS INDICATORS");
         draw_text(renderer, panel_fonts.label, 54, 163,
-                  (SDL_Color){212, 207, 185, 255}, "ADDRESS BUS  A0-A15");
+                  COL_LIGHT_GRAY, "ADDRESS BUS  A0-A15");
 
         for (int i = 0; i < 16; i++) {
             char label[2] = {"0123456789ABCDEF"[i], 0};
@@ -1481,41 +1485,41 @@ int ppa_gui_run_panel(const char *initial_rom,
                 (powered && ((address >> i) & 1u));
             draw_led(renderer, &panel_fonts,
                      58.0f + i * 31.0f, 190.0f, label, bit,
-                     (SDL_Color){235, 154, 37, 255});
+                     COL_ORANGE);
         }
 
         draw_text(renderer, panel_fonts.label, 54, 257,
-                  (SDL_Color){212, 207, 185, 255}, "DATA BUS  D0-D7");
+                  COL_LIGHT_GRAY, "DATA BUS  D0-D7");
         for (int i = 0; i < 8; i++) {
             char label[2] = {(char)('0' + i), 0};
             bool bit = prefs.lamp_test ||
                 (powered && ((data >> i) & 1u));
             draw_led(renderer, &panel_fonts,
                      58.0f + i * 49.0f, 284.0f, label, bit,
-                     (SDL_Color){38, 207, 190, 255});
+                     COL_BLUE);
         }
 
         draw_text(renderer, panel_fonts.label, 452, 257,
-                  (SDL_Color){212, 207, 185, 255}, "CPU");
+                  COL_LIGHT_GRAY, "CPU");
         draw_led(renderer, &panel_fonts, 448, 284, "RDY",
                  prefs.lamp_test || (loaded && powered && !halted),
-                 (SDL_Color){72, 220, 89, 255});
+                 COL_GREEN);
         draw_led(renderer, &panel_fonts, 493, 284, "RUN",
                  prefs.lamp_test || (powered && running),
-                 (SDL_Color){72, 220, 89, 255});
+                 COL_GREEN);
         draw_led(renderer, &panel_fonts, 538, 284, "HLT",
                  prefs.lamp_test || (loaded && halted),
-                 (SDL_Color){222, 58, 43, 255});
+                 COL_RED);
 
         /* Right upper: system status, no separate box. */
         draw_text(renderer, panel_fonts.section, 646, 126,
-                  (SDL_Color){229, 221, 194, 255}, "SYSTEM STATUS");
+                  COL_WHITE, "SYSTEM STATUS");
 
         const char *sys_labels[] = {"POWER", "RUN", "HALT", "ERROR", "CLOCK", "MEMORY", "I/O"};
         SDL_Color sys_colors[] = {
-            {72,220,89,255}, {72,220,89,255}, {222,58,43,255},
-            {222,58,43,255}, {235,154,37,255}, {72,220,89,255},
-            {38,207,190,255}
+            COL_GREEN, COL_GREEN, COL_RED,
+            COL_RED, COL_ORANGE, COL_GREEN,
+            COL_BLUE
         };
         bool sys_on[] = {
             powered,
@@ -1536,9 +1540,9 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         /* Lower left: manual switch register. */
         draw_text(renderer, panel_fonts.section, 52, 371,
-                  (SDL_Color){229, 221, 194, 255}, "FRONT PANEL INPUT");
+                  COL_WHITE, "FRONT PANEL INPUT");
         draw_text(renderer, panel_fonts.label, 54, 407,
-                  (SDL_Color){212, 207, 185, 255},
+                  COL_LIGHT_GRAY,
                   "DATA D0-D7 / ADDRESS A0-A15");
         for (int i = 0; i < 16; i++) {
             char label[2] = {"0123456789ABCDEF"[i], 0};
@@ -1547,41 +1551,31 @@ int ppa_gui_run_panel(const char *initial_rom,
         }
         /* Physical clock and DATA display selectors. */
         draw_text(renderer, panel_fonts.section, 646, 321,
-                  (SDL_Color){229, 221, 194, 255}, "DISPLAY & CLOCK");
+                  COL_WHITE, "DISPLAY & CLOCK");
 
         draw_text_center(renderer, panel_fonts.label,
-                         (SDL_FRect){660, 344, 120, 18},
-                         (SDL_Color){212, 207, 185, 255},
-                         "CLOCK");
+                         (SDL_FRect){660, 346, 120, 18},
+                         COL_WHITE, "CLOCK");
         draw_labeled_knob(renderer, &panel_fonts,
                           clock_cx, clock_cy, clock_radius,
                           clock_index, clock_count,
                           clock_tick_labels, true);
-        draw_text_center(renderer, panel_fonts.small,
-                         (SDL_FRect){665, 474, 110, 16},
-                         (SDL_Color){215, 210, 191, 255},
-                         clock_values[clock_index]);
 
         draw_text_center(renderer, panel_fonts.label,
-                         (SDL_FRect){840, 344, 130, 18},
-                         (SDL_Color){212, 207, 185, 255},
-                         "DATA OUTPUT");
+                         (SDL_FRect){838, 346, 134, 18},
+                         COL_WHITE, "DATA OUTPUT");
         draw_labeled_knob(renderer, &panel_fonts,
                           data_source_cx, data_source_cy,
                           data_source_radius,
                           data_source_index, 2,
                           data_source_tick_labels, true);
-        draw_text_center(renderer, panel_fonts.small,
-                         (SDL_FRect){845, 474, 120, 16},
-                         (SDL_Color){215, 210, 191, 255},
-                         data_source_labels[data_source_index]);
 
         bool register_output_enabled = data_source_index == 1;
         draw_text_center(renderer, panel_fonts.label,
-                         (SDL_FRect){1025, 344, 150, 18},
+                         (SDL_FRect){1015, 346, 160, 18},
                          register_output_enabled
-                             ? (SDL_Color){212, 207, 185, 255}
-                             : (SDL_Color){111, 109, 101, 255},
+                             ? COL_WHITE
+                             : COL_GRAY,
                          "REGISTER SELECT");
         draw_labeled_knob(renderer, &panel_fonts,
                           register_cx, register_cy,
@@ -1589,55 +1583,49 @@ int ppa_gui_run_panel(const char *initial_rom,
                           register_index, register_count,
                           register_labels,
                           register_output_enabled);
-        draw_text_center(renderer, panel_fonts.small,
-                         (SDL_FRect){1040, 474, 120, 16},
-                         register_output_enabled
-                             ? (SDL_Color){215, 210, 191, 255}
-                             : (SDL_Color){108, 107, 101, 255},
-                         register_labels[register_index]);
 
         /* Hardware programming and execution controls. */
         draw_text(renderer, panel_fonts.section, 646, 520,
-                  (SDL_Color){229, 221, 194, 255}, "PROGRAMMING & CONTROL");
+                  COL_WHITE, "PROGRAMMING & CONTROL");
 
         draw_push_button(renderer, &panel_fonts, fp_load_addr, "LOAD ADDR",
-                         (SDL_Color){126, 91, 38, 255}, false,
+                         COL_ORANGE, false,
                          button_pressed(pressed_button, BTN_LOAD_ADDR, pressed_until));
         draw_push_button(renderer, &panel_fonts, fp_addr_dec, "ADDR -",
-                         (SDL_Color){99, 96, 86, 255}, false,
+                         COL_GRAY, false,
                          button_pressed(pressed_button, BTN_ADDR_DEC, pressed_until));
         draw_push_button(renderer, &panel_fonts, fp_addr_inc, "ADDR +",
-                         (SDL_Color){99, 96, 86, 255}, false,
+                         COL_GRAY, false,
                          button_pressed(pressed_button, BTN_ADDR_INC, pressed_until));
         draw_push_button(renderer, &panel_fonts, fp_exam, "EXAM",
-                         (SDL_Color){99, 96, 86, 255}, false,
+                         COL_GRAY, false,
                          button_pressed(pressed_button, BTN_EXAM, pressed_until));
         draw_push_button(renderer, &panel_fonts, fp_dep, "DEPOSIT",
-                         (SDL_Color){99, 96, 86, 255}, false,
+                         COL_GRAY, false,
                          button_pressed(pressed_button, BTN_DEPOSIT, pressed_until));
         draw_push_button(renderer, &panel_fonts, fp_start, "START",
-                         (SDL_Color){41, 112, 55, 255}, powered && running,
+                         COL_GREEN, powered && running,
                          button_pressed(pressed_button, BTN_START, pressed_until));
 
         draw_push_button(renderer, &panel_fonts, op_cont, "CONT",
-                         (SDL_Color){41, 112, 55, 255}, powered && running,
+                         COL_GREEN, powered && running,
                          button_pressed(pressed_button, BTN_CONT, pressed_until));
         draw_push_button(renderer, &panel_fonts, op_stop, "STOP",
-                         (SDL_Color){135, 45, 39, 255}, powered && !running,
+                         COL_RED, powered && !running,
                          button_pressed(pressed_button, BTN_STOP, pressed_until));
         draw_push_button(renderer, &panel_fonts, op_step, "STEP",
-                         (SDL_Color){99, 96, 86, 255}, false,
+                         COL_GRAY, false,
                          button_pressed(pressed_button, BTN_STEP, pressed_until));
         draw_push_button(renderer, &panel_fonts, op_ustep, "MICRO",
-                         (SDL_Color){99, 96, 86, 255}, false,
+                         COL_GRAY, false,
                          button_pressed(pressed_button, BTN_MICRO, pressed_until));
         draw_push_button(renderer, &panel_fonts, op_reset, "RESET",
-                         (SDL_Color){99, 96, 86, 255}, false,
+                         COL_GRAY, false,
                          button_pressed(pressed_button, BTN_RESET, pressed_until));
 
         /* PWR remains part of the same physical plate. */
         draw_text(renderer, panel_fonts.label, 1188, 520,
-                  (SDL_Color){219, 212, 190, 255}, "PWR");
+                  COL_WHITE, "PWR");
         SDL_SetRenderDrawColor(renderer, 18, 18, 17, 255);
         SDL_RenderFillRect(renderer, &power_btn);
         SDL_SetRenderDrawColor(renderer, 136, 91, 53, 255);
@@ -1654,7 +1642,7 @@ int ppa_gui_run_panel(const char *initial_rom,
             powered ? 31 : 27, 255);
         SDL_RenderFillRect(renderer, &rocker);
         draw_text_center(renderer, panel_fonts.label, rocker,
-                         (SDL_Color){244, 231, 205, 255},
+                         COL_WHITE,
                          powered ? "I" : "O");
 
         /* Composite the fixed panel into the actual resizable window. */
