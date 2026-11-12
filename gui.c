@@ -811,11 +811,15 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
     }
 
     aux->kind = kind;
-    aux->window = SDL_CreateWindow(title, w, h,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-    if (!aux->window) return;
 
-    SDL_SetWindowMinimumSize(aux->window, w, h);
+    /*
+     * Auxiliary windows use a deliberately fixed layout.  Do not make them
+     * resizable: stretching these windows creates empty space and can make
+     * separators/text look misplaced.
+     */
+    aux->window = SDL_CreateWindow(title, w, h,
+        SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (!aux->window) return;
 
     aux->renderer = SDL_CreateRenderer(aux->window, NULL);
     if (!aux->renderer) {
@@ -907,7 +911,8 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         char lines[16][160];
         int count = 0;
         read_log_tail(lines, &count, 16);
-        float y = 60.0f;
+        /* Keep log text below the header separator at y=64. */
+        float y = 80.0f;
         for (int i = 0; i < count; i++, y += 20.0f) {
             draw_text(r, fonts->small, 24, y, muted, lines[i]);
         }
