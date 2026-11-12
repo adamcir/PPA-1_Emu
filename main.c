@@ -1789,6 +1789,12 @@ static uint8_t gui_backend_data_bus(void *ctx) {
     return g->cpu->ABR;
 }
 
+static uint8_t gui_backend_status_register(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->powered || !g->cpu) return 0;
+    return g->cpu->SR;
+}
+
 static uint8_t gui_backend_register_value(void *ctx, int selector) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->powered || !g->cpu) return 0;
@@ -1924,6 +1930,7 @@ int main(int argc, char **argv) {
             .is_halted = gui_backend_is_halted,
             .address_bus = gui_backend_address_bus,
             .data_bus = gui_backend_data_bus,
+            .status_register = gui_backend_status_register,
             .register_value = gui_backend_register_value
         };
 
