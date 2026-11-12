@@ -588,15 +588,15 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_FRect menu_help = {346, 5, 72, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
-    SDL_FRect op_run   = {640, 590, 70, 42};
-    SDL_FRect op_stop  = {718, 590, 70, 42};
-    SDL_FRect op_step  = {796, 590, 74, 42};
-    SDL_FRect op_ustep = {878, 590, 88, 42};
-    SDL_FRect op_reset = {974, 590, 76, 42};
-    SDL_FRect op_exam  = {1058, 590, 84, 42};
-    SDL_FRect op_dep   = {1150, 590, 82, 42};
+    SDL_FRect op_run   = {640, 590, 64, 42};
+    SDL_FRect op_stop  = {710, 590, 64, 42};
+    SDL_FRect op_step  = {780, 590, 64, 42};
+    SDL_FRect op_ustep = {850, 590, 74, 42};
+    SDL_FRect op_reset = {930, 590, 66, 42};
+    SDL_FRect op_exam  = {1002, 590, 78, 42};
+    SDL_FRect op_dep   = {1086, 590, 78, 42};
 
-    SDL_FRect load_btn = {1015, 645, 155, 38};
+    SDL_FRect load_btn = {1009, 645, 155, 38};
     SDL_FRect power_btn = {1185, 642, 48, 82};
 
     const float clock_cx = 748.0f, clock_cy = 408.0f, clock_radius = 36.0f;
