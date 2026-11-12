@@ -430,8 +430,14 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                   prefs->lamp_test ? "Lamp test: ON" : "Lamp test: OFF");
         draw_text(r, fonts->small, 24, 156, muted,
                   prefs->auto_run ? "Auto RUN after LOAD: ON" : "Auto RUN after LOAD: OFF");
-        draw_text(r, fonts->small, 24, 184, muted,
-                  prefs->tty_requested ? "External PTY request: ON" : "External PTY request: OFF");
+        char pty_line[256];
+        if (backend->is_tty_enabled && backend->is_tty_enabled(backend->ctx)) {
+            snprintf(pty_line, sizeof(pty_line), "External PTY: ON   %s",
+                     backend->tty_name ? backend->tty_name(backend->ctx) : "");
+        } else {
+            snprintf(pty_line, sizeof(pty_line), "External PTY: OFF");
+        }
+        draw_text(r, fonts->small, 24, 184, muted, pty_line);
         draw_text(r, fonts->small, 24, 230, muted,
                   "Click each line to toggle the setting.");
     } else if (aux->kind == AUX_VIEW) {
@@ -536,6 +542,24 @@ int ppa_gui_run_panel(const char *initial_rom,
     }
 
     SDL_SetRenderVSync(renderer, 1);
+    SDL_SetWindowMinimumSize(window, 480, 320);
+
+    SDL_Texture *panel_texture = SDL_CreateTexture(
+        renderer,
+        SDL_PIXELFORMAT_RGBA8888,
+        SDL_TEXTUREACCESS_TARGET,
+        PANEL_W, PANEL_H);
+    if (!panel_texture) {
+        ppa_log_printf("GUI: failed to create panel render target: %s\n", SDL_GetError());
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        close_fonts(&fonts);
+        TTF_Quit();
+        SDL_Quit();
+        return 1;
+    }
+    SDL_SetTextureScaleMode(panel_texture, SDL_SCALEMODE_LINEAR);
+
     Uint32 main_window_id = SDL_GetWindowID(window);
 
     FileDialogState file_state = {0};
@@ -552,8 +576,15 @@ int ppa_gui_run_panel(const char *initial_rom,
         .auto_run = false,
         .lamp_test = false,
         .high_contrast = false,
-        .tty_requested = initial_tty_enabled
+        .tty_requested = false
     };
+
+    if (initial_tty_enabled && backend->set_tty_enabled) {
+        backend->set_tty_enabled(backend->ctx, true);
+    }
+    if (backend->is_tty_enabled) {
+        prefs.tty_requested = backend->is_tty_enabled(backend->ctx);
+    }
 
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
@@ -628,7 +659,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         float scale_x = (float)rw / (float)PANEL_W;
         float scale_y = available_h / (float)PANEL_H;
         float panel_scale = scale_x < scale_y ? scale_x : scale_y;
-        if (panel_scale < 0.10f) panel_scale = 0.10f;
+        if (panel_scale < 0.01f) panel_scale = 0.01f;
 
         float panel_screen_w = (float)PANEL_W * panel_scale;
         float panel_screen_h = (float)PANEL_H * panel_scale;
@@ -805,7 +836,16 @@ int ppa_gui_run_panel(const char *initial_rom,
                     if (y >= 90 && y < 118) prefs.high_contrast = !prefs.high_contrast;
                     else if (y >= 118 && y < 146) prefs.lamp_test = !prefs.lamp_test;
                     else if (y >= 146 && y < 174) prefs.auto_run = !prefs.auto_run;
-                    else if (y >= 174 && y < 206) prefs.tty_requested = !prefs.tty_requested;
+                    else if (y >= 174 && y < 206) {
+                        bool desired = !(backend->is_tty_enabled &&
+                                         backend->is_tty_enabled(backend->ctx));
+                        if (backend->set_tty_enabled &&
+                            backend->set_tty_enabled(backend->ctx, desired)) {
+                            prefs.tty_requested = backend->is_tty_enabled
+                                ? backend->is_tty_enabled(backend->ctx)
+                                : desired;
+                        }
+                    }
                 }
             }
         }
@@ -839,31 +879,12 @@ int ppa_gui_run_panel(const char *initial_rom,
         Uint16 address = backend->address_bus(backend->ctx);
         Uint8 data = backend->data_bus(backend->ctx);
 
-        /* Entire output background. */
+        /* Render the complete hardware panel at its immutable design size. */
+        SDL_SetRenderTarget(renderer, panel_texture);
         SDL_SetRenderViewport(renderer, NULL);
         SDL_SetRenderScale(renderer, 1.0f, 1.0f);
         SDL_SetRenderDrawColor(renderer, 17, 19, 19, 255);
         SDL_RenderClear(renderer);
-
-        /* Dynamic top application bar: it always uses the actual output width. */
-        SDL_FRect menu_bar = {0, 0, (float)rw, menu_h};
-        SDL_SetRenderDrawColor(renderer, 34, 36, 36, 255);
-        SDL_RenderFillRect(renderer, &menu_bar);
-        draw_menu_button(renderer, &fonts, menu_open, "OPEN");
-        draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
-        draw_menu_button(renderer, &fonts, menu_view, "VIEW");
-        draw_menu_button(renderer, &fonts, menu_log, "LOG");
-        draw_menu_button(renderer, &fonts, menu_help, "HELP");
-
-        /* Fixed panel viewport. Only this complete panel scales with the window. */
-        SDL_Rect panel_view = {
-            (int)panel_origin_x,
-            (int)panel_origin_y,
-            (int)panel_screen_w,
-            (int)panel_screen_h
-        };
-        SDL_SetRenderViewport(renderer, &panel_view);
-        SDL_SetRenderScale(renderer, panel_scale, panel_scale);
 
         SDL_FRect face = {10, 8, 1260, 742};
         draw_bevel_panel(renderer, face,
@@ -1091,9 +1112,28 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text(renderer, fonts.small, 52, 718,
                   (SDL_Color){193, 190, 174, 255}, status_text);
 
-        /* Restore renderer to window coordinates before presenting/events. */
-        SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+        /* Composite the fixed panel into the actual resizable window. */
+        SDL_SetRenderTarget(renderer, NULL);
         SDL_SetRenderViewport(renderer, NULL);
+        SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+
+        SDL_SetRenderDrawColor(renderer, 17, 19, 19, 255);
+        SDL_RenderClear(renderer);
+
+        SDL_FRect menu_bar = {0, 0, (float)rw, menu_h};
+        SDL_SetRenderDrawColor(renderer, 34, 36, 36, 255);
+        SDL_RenderFillRect(renderer, &menu_bar);
+        draw_menu_button(renderer, &fonts, menu_open, "OPEN");
+        draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
+        draw_menu_button(renderer, &fonts, menu_view, "VIEW");
+        draw_menu_button(renderer, &fonts, menu_log, "LOG");
+        draw_menu_button(renderer, &fonts, menu_help, "HELP");
+
+        SDL_FRect panel_dst = {
+            panel_origin_x, panel_origin_y,
+            panel_screen_w, panel_screen_h
+        };
+        SDL_RenderTexture(renderer, panel_texture, NULL, &panel_dst);
         SDL_RenderPresent(renderer);
 
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
@@ -1108,6 +1148,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&view_window);
     destroy_aux(&log_window);
     destroy_aux(&help_window);
+    SDL_DestroyTexture(panel_texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     close_fonts(&fonts);
