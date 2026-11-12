@@ -1428,6 +1428,7 @@ typedef struct {
     bool loaded;
     bool powered;
     bool running;
+    uint8_t panel_data_bus;
 } GuiBackendContext;
 
 static void gui_cpu_reset_state(GuiBackendContext *g) {
@@ -1469,9 +1470,23 @@ static bool gui_backend_load_rom(void *ctx, const char *path) {
 static void gui_backend_set_power(void *ctx, bool on) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g) return;
-    g->powered = on;
-    if (!on) g->running = false;
-    printf("GUI: processor power %s\n", on ? "ON" : "OFF");
+
+    if (!on) {
+        g->running = false;
+        g->powered = false;
+        g->panel_data_bus = 0x00;
+
+        /* PWR=0 behaves like removing power from the CPU itself:
+           all volatile processor state is lost, while EEPROM/RAM image
+           ownership stays with the emulator. */
+        gui_cpu_reset_state(g);
+        printf("GUI: processor power OFF (CPU state lost/reset)\n");
+        return;
+    }
+
+    g->powered = true;
+    g->running = false;
+    printf("GUI: processor power ON\n");
 }
 
 static void gui_backend_set_running(void *ctx, bool running) {
@@ -1532,8 +1547,11 @@ static void gui_backend_tick(void *ctx, int clock_edges) {
 
 static void gui_backend_set_data_input(void *ctx, uint8_t value) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->loaded || !g->powered || g->running) return;
+    if (!g || !g->powered || g->running) return;
 
+    /* With the CPU stopped, D0-D7 front-panel switches directly drive
+       the manual DATA bus. ABR mirrors the value for controller visibility. */
+    g->panel_data_bus = value;
     g->cpu->ABR = value;
 }
 
@@ -1553,10 +1571,11 @@ static uint8_t gui_backend_examine(void *ctx, uint16_t address) {
     g->running = false;
     g->cpu->AR = address;
     g->cpu->ABR = bus_read8(g->cpu, g->memory, g->serial, address);
+    g->panel_data_bus = g->cpu->ABR;
 
-    printf("GUI: EXAMINE BR=%04X ADDR=%04X -> %02X\n",
-           g->cpu->BR, address, g->cpu->ABR);
-    return g->cpu->ABR;
+    printf("GUI: EXAMINE BR=%04X ADDR=%04X -> DATA=%02X\n",
+           g->cpu->BR, address, g->panel_data_bus);
+    return g->panel_data_bus;
 }
 
 static void gui_backend_deposit(void *ctx, uint16_t address, uint8_t value) {
@@ -1565,11 +1584,18 @@ static void gui_backend_deposit(void *ctx, uint16_t address, uint8_t value) {
 
     g->running = false;
     g->cpu->AR = address;
+    g->panel_data_bus = value;
     g->cpu->ABR = value;
+
     bus_write8(g->cpu, g->memory, g->serial, address, value);
 
-    printf("GUI: DEPOSIT BR=%04X ADDR=%04X <- %02X\n",
-           g->cpu->BR, address, value);
+    /* Read back immediately so the front panel shows the value actually
+       present in memory after the write. */
+    g->panel_data_bus = bus_read8(g->cpu, g->memory, g->serial, address);
+    g->cpu->ABR = g->panel_data_bus;
+
+    printf("GUI: DEPOSIT BR=%04X ADDR=%04X <- %02X (readback %02X)\n",
+           g->cpu->BR, address, value, g->panel_data_bus);
 }
 
 static void gui_backend_start_at(void *ctx, uint16_t address) {
@@ -1677,7 +1703,29 @@ static uint16_t gui_backend_address_bus(void *ctx) {
 
 static uint8_t gui_backend_data_bus(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    return (g && g->loaded) ? g->cpu->ABR : 0;
+    if (!g || !g->powered) return 0;
+
+    if (!g->running) return g->panel_data_bus;
+    return g->cpu->ABR;
+}
+
+static uint8_t gui_backend_register_value(void *ctx, int selector) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->powered || !g->cpu) return 0;
+
+    switch (selector) {
+        case 0: return g->cpu->A;
+        case 1: return g->cpu->B;
+        case 2: return g->cpu->C;
+        case 3: return g->cpu->D;
+        case 4: return (uint8_t)(g->cpu->X >> 8);
+        case 5: return (uint8_t)(g->cpu->X & 0xFFu);
+        case 6: return (uint8_t)(g->cpu->Y >> 8);
+        case 7: return (uint8_t)(g->cpu->Y & 0xFFu);
+        case 8: return (uint8_t)(g->cpu->BR >> 8);
+        case 9: return (uint8_t)(g->cpu->BR & 0xFFu);
+        default: return 0;
+    }
 }
 
 static void usage(const char *prog) {
@@ -1794,7 +1842,8 @@ int main(int argc, char **argv) {
             .is_running = gui_backend_is_running,
             .is_halted = gui_backend_is_halted,
             .address_bus = gui_backend_address_bus,
-            .data_bus = gui_backend_data_bus
+            .data_bus = gui_backend_data_bus,
+            .register_value = gui_backend_register_value
         };
 
         (void)ppa_gui_run_panel(rom_path, tty_enabled, &gui_backend);
