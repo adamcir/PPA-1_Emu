@@ -1582,8 +1582,8 @@ int ppa_gui_run_panel(const char *initial_rom,
         };
         SDL_RenderRect(renderer, &a1_inner);
 
-        draw_text_center(renderer, panel_fonts.badge,
-            (SDL_FRect){1042, 20, 182, 56},
+        draw_text_stretched(renderer, panel_fonts.badge,
+            (SDL_FRect){1046, 20, 174, 56},
             COL_WHITE, "A-1");
 
         draw_text_center(renderer, panel_fonts.small,
