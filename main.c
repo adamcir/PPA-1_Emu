@@ -1597,7 +1597,6 @@ static bool gui_backend_set_tty_enabled(void *ctx, bool enabled) {
         }
 
         printf("GUI: PTY serial enabled: %s\n", g->serial->slave_name);
-        printf("Connect with: screen %s 9600\n", g->serial->slave_name);
         return true;
     }
 
