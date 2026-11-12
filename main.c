@@ -1416,6 +1416,54 @@ static void gui_backend_tick(void *ctx, int instruction_budget) {
     }
 }
 
+static void gui_backend_load_address(void *ctx, uint16_t address) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded || !g->powered) return;
+
+    g->running = false;
+    g->cpu->AR = address;
+    printf("GUI: LOAD ADDRESS -> %04X (BR=%04X)\n", address, g->cpu->BR);
+}
+
+static uint8_t gui_backend_examine(void *ctx, uint16_t address) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded || !g->powered) return 0xFF;
+
+    g->running = false;
+    g->cpu->AR = address;
+    g->cpu->ABR = bus_read8(g->cpu, g->memory, g->serial, address);
+
+    printf("GUI: EXAMINE BR=%04X ADDR=%04X -> %02X\n",
+           g->cpu->BR, address, g->cpu->ABR);
+    return g->cpu->ABR;
+}
+
+static void gui_backend_deposit(void *ctx, uint16_t address, uint8_t value) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded || !g->powered) return;
+
+    g->running = false;
+    g->cpu->AR = address;
+    g->cpu->ABR = value;
+    bus_write8(g->cpu, g->memory, g->serial, address, value);
+
+    printf("GUI: DEPOSIT BR=%04X ADDR=%04X <- %02X\n",
+           g->cpu->BR, address, value);
+}
+
+static void gui_backend_start_at(void *ctx, uint16_t address) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded || !g->powered) return;
+
+    g->cpu->PC = address;
+    g->cpu->AR = address;
+    g->cpu->STEP = 0;
+    g->cpu->halted = false;
+    g->running = true;
+
+    printf("GUI: START at %04X\n", address);
+}
+
 static bool gui_backend_is_loaded(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     return g && g->loaded;
@@ -1543,6 +1591,10 @@ int main(int argc, char **argv) {
             .step_instruction = gui_backend_step_instruction,
             .step_micro = gui_backend_step_micro,
             .tick = gui_backend_tick,
+            .load_address = gui_backend_load_address,
+            .examine = gui_backend_examine,
+            .deposit = gui_backend_deposit,
+            .start_at = gui_backend_start_at,
             .is_loaded = gui_backend_is_loaded,
             .is_powered = gui_backend_is_powered,
             .is_running = gui_backend_is_running,
