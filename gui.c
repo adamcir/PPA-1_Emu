@@ -937,7 +937,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         for (int i = 0; i < 16; i++) {
             char label[2] = {"0123456789ABCDEF"[i], 0};
             bool bit = prefs.lamp_test ||
-                (powered && loaded && ((address >> i) & 1u));
+                (powered && ((address >> i) & 1u));
             draw_led(renderer, &fonts,
                      58.0f + i * 31.0f, 190.0f, label, bit,
                      (SDL_Color){235, 154, 37, 255});
