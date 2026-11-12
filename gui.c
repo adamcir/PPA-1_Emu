@@ -466,13 +466,14 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
     } else if (aux->kind == AUX_HELP) {
         draw_text(r, fonts->section, 24, 20, cream, "PPA-1 FRONT PANEL HELP");
         draw_text(r, fonts->small, 24, 70, muted, "OPEN         Select a 4 MiB EEPROM image.");
-        draw_text(r, fonts->small, 24, 96, muted, "LOAD         Load/reset the selected image into the emulator.");
-        draw_text(r, fonts->small, 24, 122, muted, "RUN/STOP     Start or stop continuous CPU execution.");
-        draw_text(r, fonts->small, 24, 148, muted, "STEP         Execute one complete instruction.");
-        draw_text(r, fonts->small, 24, 174, muted, "MICROSTEP    Execute one controller microstep.");
-        draw_text(r, fonts->small, 24, 200, muted, "RESET        Reset CPU registers; EEPROM remains loaded.");
-        draw_text(r, fonts->small, 24, 226, muted, "PWR          Power-gates the processor only; GUI stays open.");
-        draw_text(r, fonts->small, 24, 252, muted, "Rotary controls: click left/right side to rotate.");
+        draw_text(r, fonts->small, 24, 96, muted, "LOAD ADDR    Gate all 16 input switches onto ADDRESS BUS.");
+        draw_text(r, fonts->small, 24, 122, muted, "EXAM / +     Read current / next memory byte onto DATA BUS.");
+        draw_text(r, fonts->small, 24, 148, muted, "DEPOSIT / +  Write D0-D7 switches to current / next address.");
+        draw_text(r, fonts->small, 24, 174, muted, "START        Set PC to front-panel address and run.");
+        draw_text(r, fonts->small, 24, 200, muted, "CONT/STOP    Continue or stop CPU execution.");
+        draw_text(r, fonts->small, 24, 226, muted, "STEP/MICRO   Execute one instruction or controller microstep.");
+        draw_text(r, fonts->small, 24, 252, muted, "PWR          Power-gates processor only; GUI stays open.");
+        draw_text(r, fonts->small, 24, 278, muted, "Switches 0-7 drive DATA BUS; 8-F are used by LOAD ADDRESS.");
     }
 
     SDL_RenderPresent(r);
@@ -561,6 +562,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     bool switches[16] = {0};
     bool panel_running = true;
+    uint16_t manual_address = 0x0000;
 
     const char *clock_values[] = {
         "1 Hz", "10 Hz", "100 Hz", "1 kHz",
@@ -588,16 +590,23 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_FRect menu_help = {346, 5, 72, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
-    SDL_FRect op_run   = {640, 590, 64, 42};
-    SDL_FRect op_stop  = {710, 590, 64, 42};
-    SDL_FRect op_step  = {780, 590, 64, 42};
-    SDL_FRect op_ustep = {850, 590, 74, 42};
-    SDL_FRect op_reset = {930, 590, 66, 42};
-    SDL_FRect op_exam  = {1002, 590, 78, 42};
-    SDL_FRect op_dep   = {1086, 590, 78, 42};
+    /* Front-panel programming row. */
+    SDL_FRect fp_load_addr = {640, 582, 92, 36};
+    SDL_FRect fp_exam      = {738, 582, 78, 36};
+    SDL_FRect fp_exam_next = {822, 582, 88, 36};
+    SDL_FRect fp_dep       = {916, 582, 82, 36};
+    SDL_FRect fp_dep_next  = {1004, 582, 88, 36};
+    SDL_FRect fp_start     = {1098, 582, 66, 36};
 
-    SDL_FRect load_btn = {1009, 645, 155, 38};
-    SDL_FRect power_btn = {1185, 642, 48, 82};
+    /* Processor execution row. */
+    SDL_FRect op_cont  = {640, 626, 72, 38};
+    SDL_FRect op_stop  = {718, 626, 72, 38};
+    SDL_FRect op_step  = {796, 626, 72, 38};
+    SDL_FRect op_ustep = {874, 626, 82, 38};
+    SDL_FRect op_reset = {962, 626, 72, 38};
+    SDL_FRect load_btn = {1040, 626, 124, 38};
+
+    SDL_FRect power_btn = {1185, 602, 48, 102};
 
     const float clock_cx = 748.0f, clock_cy = 408.0f, clock_radius = 36.0f;
     const float output_cx = 922.0f, output_cy = 408.0f, output_radius = 32.0f;
@@ -685,7 +694,40 @@ int ppa_gui_run_panel(const char *initial_rom,
                             float x = (wx - panel_origin_x) / panel_scale;
                             float y = (wy - panel_origin_y) / panel_scale;
 
-                            if (point_in_rect(x, y, &op_run)) {
+                            if (point_in_rect(x, y, &fp_load_addr)) {
+                                uint16_t address_value = 0;
+                                for (int i = 0; i < 16; i++) {
+                                    if (switches[i]) address_value |= (uint16_t)(1u << i);
+                                }
+                                manual_address = address_value;
+                                backend->load_address(backend->ctx, manual_address);
+
+                                uint8_t data_value = 0;
+                                for (int i = 0; i < 8; i++) {
+                                    if (switches[i]) data_value |= (uint8_t)(1u << i);
+                                }
+                                backend->set_data_input(backend->ctx, data_value);
+                            } else if (point_in_rect(x, y, &fp_exam)) {
+                                (void)backend->examine(backend->ctx, manual_address);
+                            } else if (point_in_rect(x, y, &fp_exam_next)) {
+                                manual_address++;
+                                (void)backend->examine(backend->ctx, manual_address);
+                            } else if (point_in_rect(x, y, &fp_dep)) {
+                                uint8_t data_value = 0;
+                                for (int i = 0; i < 8; i++) {
+                                    if (switches[i]) data_value |= (uint8_t)(1u << i);
+                                }
+                                backend->deposit(backend->ctx, manual_address, data_value);
+                            } else if (point_in_rect(x, y, &fp_dep_next)) {
+                                uint8_t data_value = 0;
+                                for (int i = 0; i < 8; i++) {
+                                    if (switches[i]) data_value |= (uint8_t)(1u << i);
+                                }
+                                manual_address++;
+                                backend->deposit(backend->ctx, manual_address, data_value);
+                            } else if (point_in_rect(x, y, &fp_start)) {
+                                backend->start_at(backend->ctx, manual_address);
+                            } else if (point_in_rect(x, y, &op_cont)) {
                                 backend->set_running(backend->ctx, true);
                             } else if (point_in_rect(x, y, &op_stop)) {
                                 backend->set_running(backend->ctx, false);
@@ -695,14 +737,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 backend->step_micro(backend->ctx);
                             } else if (point_in_rect(x, y, &op_reset)) {
                                 backend->reset(backend->ctx);
-                            } else if (point_in_rect(x, y, &op_exam)) {
-                                unsigned sr = 0;
-                                for (int i = 0; i < 16; i++) {
-                                    if (switches[i]) sr |= (1u << i);
-                                }
-                                ppa_log_printf("GUI: EXAMINE requested, switch register=%04X\n", sr);
-                            } else if (point_in_rect(x, y, &op_dep)) {
-                                ppa_log_printf("GUI: DEPOSIT requested. Memory write control will be wired next.\n");
+                                manual_address = 0x0000;
                             } else if (point_in_rect(x, y, &power_btn)) {
                                 backend->set_power(
                                     backend->ctx,
@@ -743,6 +778,12 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     SDL_FRect hit = {62.0f + i * 31.0f, 507.0f, 28.0f, 72.0f};
                                     if (point_in_rect(x, y, &hit)) {
                                         switches[i] = !switches[i];
+
+                                        uint8_t data_value = 0;
+                                        for (int bit = 0; bit < 8; bit++) {
+                                            if (switches[bit]) data_value |= (uint8_t)(1u << bit);
+                                        }
+                                        backend->set_data_input(backend->ctx, data_value);
                                         break;
                                     }
                                 }
@@ -920,13 +961,13 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         /* Lower left: manual switch register. */
         draw_text(renderer, fonts.section, 52, 371,
-                  (SDL_Color){229, 221, 194, 255}, "MANUAL INPUT");
+                  (SDL_Color){229, 221, 194, 255}, "FRONT PANEL INPUT");
         draw_text(renderer, fonts.label, 54, 407,
                   (SDL_Color){212, 207, 185, 255},
-                  "SWITCH REGISTER  SR0-SR15");
+                  "DATA D0-D7 / ADDRESS A0-A15");
         draw_text(renderer, fonts.small, 54, 432,
                   (SDL_Color){176, 174, 160, 255},
-                  "Manual address / data entry");
+                  "0-7 drive DATA BUS. LOAD ADDRESS temporarily gates all 16 switches to ADDRESS BUS.");
 
         for (int i = 0; i < 16; i++) {
             char label[2] = {"0123456789ABCDEF"[i], 0};
@@ -934,9 +975,11 @@ int ppa_gui_run_panel(const char *initial_rom,
                         62.0f + i * 31.0f, 475.0f, label, switches[i]);
         }
         draw_text(renderer, fonts.small, 58, 570,
-                  (SDL_Color){178, 175, 160, 255}, "DOWN = 0");
-        draw_text(renderer, fonts.small, 516, 570,
-                  (SDL_Color){178, 175, 160, 255}, "UP = 1");
+                  (SDL_Color){178, 175, 160, 255}, "0 = LOW");
+        draw_text(renderer, fonts.small, 452, 570,
+                  (SDL_Color){178, 175, 160, 255}, "8-F = ADDRESS ONLY");
+        draw_text(renderer, fonts.small, 540, 570,
+                  (SDL_Color){178, 175, 160, 255}, "1 = HIGH");
 
         /* Right middle: interactive selectors. */
         draw_text(renderer, fonts.section, 646, 321,
@@ -960,14 +1003,33 @@ int ppa_gui_run_panel(const char *initial_rom,
                          (SDL_Color){235, 225, 198, 255},
                          format_values[format_index]);
 
-        /* Bottom right: all operational controls in one row. */
+        /* Bottom right: PDP-style manual programming + execution controls. */
         draw_text(renderer, fonts.section, 646, 554,
-                  (SDL_Color){229, 221, 194, 255}, "CONTROL & OPERATIONS");
-        draw_text(renderer, fonts.small, 646, 579,
-                  (SDL_Color){176, 174, 160, 255},
-                  loaded ? "CPU IMAGE LOADED" : "NO EEPROM IMAGE LOADED");
+                  (SDL_Color){229, 221, 194, 255}, "PROGRAMMING & CONTROL");
 
-        draw_push_button(renderer, &fonts, op_run, "RUN",
+        char fp_state[128];
+        snprintf(fp_state, sizeof(fp_state),
+                 "FP ADDRESS %04X   DATA %02X   %s",
+                 manual_address,
+                 (unsigned)(data),
+                 loaded ? "IMAGE LOADED" : "NO EEPROM IMAGE");
+        draw_text(renderer, fonts.small, 646, 574,
+                  (SDL_Color){176, 174, 160, 255}, fp_state);
+
+        draw_push_button(renderer, &fonts, fp_load_addr, "LOAD ADDR",
+                         (SDL_Color){126, 91, 38, 255}, false);
+        draw_push_button(renderer, &fonts, fp_exam, "EXAM",
+                         (SDL_Color){99, 96, 86, 255}, false);
+        draw_push_button(renderer, &fonts, fp_exam_next, "EXAM +",
+                         (SDL_Color){99, 96, 86, 255}, false);
+        draw_push_button(renderer, &fonts, fp_dep, "DEPOSIT",
+                         (SDL_Color){99, 96, 86, 255}, false);
+        draw_push_button(renderer, &fonts, fp_dep_next, "DEP +",
+                         (SDL_Color){99, 96, 86, 255}, false);
+        draw_push_button(renderer, &fonts, fp_start, "START",
+                         (SDL_Color){41, 112, 55, 255}, powered && running);
+
+        draw_push_button(renderer, &fonts, op_cont, "CONT",
                          (SDL_Color){41, 112, 55, 255}, powered && running);
         draw_push_button(renderer, &fonts, op_stop, "STOP",
                          (SDL_Color){135, 45, 39, 255}, powered && !running);
@@ -977,11 +1039,6 @@ int ppa_gui_run_panel(const char *initial_rom,
                          (SDL_Color){99, 96, 86, 255}, false);
         draw_push_button(renderer, &fonts, op_reset, "RESET",
                          (SDL_Color){99, 96, 86, 255}, false);
-        draw_push_button(renderer, &fonts, op_exam, "EXAMINE",
-                         (SDL_Color){99, 96, 86, 255}, false);
-        draw_push_button(renderer, &fonts, op_dep, "DEPOSIT",
-                         (SDL_Color){99, 96, 86, 255}, false);
-
         draw_push_button(renderer, &fonts, load_btn,
                          loaded ? "RELOAD IMAGE" :
                          (file_state.rom_path[0] ? "LOAD IMAGE" : "OPEN IMAGE"),
@@ -991,7 +1048,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                          false);
 
         /* PWR remains part of the same physical plate. */
-        draw_text(renderer, fonts.label, 1188, 610,
+        draw_text(renderer, fonts.label, 1188, 570,
                   (SDL_Color){219, 212, 190, 255}, "PWR");
         SDL_SetRenderDrawColor(renderer, 18, 18, 17, 255);
         SDL_RenderFillRect(renderer, &power_btn);
@@ -1014,7 +1071,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         /* Status line is engraved into the same panel, not a separate block. */
         SDL_SetRenderDrawColor(renderer, 176, 166, 132, 255);
-        SDL_RenderLine(renderer, 46, 690, 1228, 690);
+        SDL_RenderLine(renderer, 46, 708, 1228, 708);
 
         char status_text[1160];
         snprintf(status_text, sizeof(status_text),
@@ -1023,7 +1080,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                  clock_values[clock_index],
                  output_values[output_index],
                  format_values[format_index]);
-        draw_text(renderer, fonts.small, 52, 706,
+        draw_text(renderer, fonts.small, 52, 718,
                   (SDL_Color){193, 190, 174, 255}, status_text);
 
         /* Restore renderer to window coordinates before presenting/events. */
