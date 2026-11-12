@@ -51,6 +51,7 @@ typedef enum {
 
 typedef enum {
     BTN_NONE = 0,
+    BTN_LOAD_BANK,
     BTN_LOAD_ADDR,
     BTN_ADDR_DEC,
     BTN_ADDR_INC,
@@ -991,20 +992,21 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_FRect menu_terminal = {346, 5, 118, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
-    /* Real front-panel programming row. */
-    SDL_FRect fp_load_addr = {650, 548, 96, 38};
-    SDL_FRect fp_addr_dec  = {754, 548, 76, 38};
-    SDL_FRect fp_addr_inc  = {838, 548, 76, 38};
-    SDL_FRect fp_exam      = {922, 548, 76, 38};
-    SDL_FRect fp_dep       = {1006, 548, 86, 38};
-    SDL_FRect fp_start     = {1100, 548, 70, 38};
+    /* Front-panel bank/address/memory programming row. */
+    SDL_FRect fp_load_bank = {650, 548, 96, 38};
+    SDL_FRect fp_load_addr = {754, 548, 96, 38};
+    SDL_FRect fp_addr_dec  = {858, 548, 68, 38};
+    SDL_FRect fp_addr_inc  = {934, 548, 68, 38};
+    SDL_FRect fp_exam      = {1010, 548, 68, 38};
+    SDL_FRect fp_dep       = {1086, 548, 78, 38};
 
     /* Processor execution row. */
-    SDL_FRect op_cont  = {650, 596, 76, 40};
-    SDL_FRect op_stop  = {734, 596, 76, 40};
-    SDL_FRect op_step  = {818, 596, 76, 40};
-    SDL_FRect op_ustep = {902, 596, 84, 40};
-    SDL_FRect op_reset = {994, 596, 76, 40};
+    SDL_FRect fp_start = {650, 596, 76, 40};
+    SDL_FRect op_cont  = {734, 596, 76, 40};
+    SDL_FRect op_stop  = {818, 596, 76, 40};
+    SDL_FRect op_step  = {902, 596, 76, 40};
+    SDL_FRect op_ustep = {986, 596, 84, 40};
+    SDL_FRect op_reset = {1078, 596, 86, 40};
 
     SDL_FRect power_btn = {1184, 548, 48, 108};
 
@@ -1191,7 +1193,20 @@ int ppa_gui_run_panel(const char *initial_rom,
                             float x = (wx - panel_origin_x) / panel_scale;
                             float y = (wy - panel_origin_y) / panel_scale;
 
-                            if (point_in_rect(x, y, &fp_load_addr)) {
+                            if (point_in_rect(x, y, &fp_load_bank)) {
+                                pressed_button = BTN_LOAD_BANK;
+                                pressed_until = SDL_GetTicks() + 140;
+
+                                uint16_t bank_value = 0;
+                                for (int bit = 0; bit < 16; bit++) {
+                                    if (switches[bit])
+                                        bank_value |= (uint16_t)(1u << bit);
+                                }
+                                if (backend->load_bank) {
+                                    backend->load_bank(
+                                        backend->ctx, bank_value);
+                                }
+                            } else if (point_in_rect(x, y, &fp_load_addr)) {
                                 pressed_button = BTN_LOAD_ADDR;
                                 pressed_until = SDL_GetTicks() + 140;
 
@@ -1600,6 +1615,9 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text(renderer, panel_fonts.section, 646, 520,
                   COL_WHITE, "PROGRAMMING & CONTROL");
 
+        draw_push_button(renderer, &panel_fonts, fp_load_bank, "LOAD BANK",
+                         COL_BLUE, false,
+                         button_pressed(pressed_button, BTN_LOAD_BANK, pressed_until));
         draw_push_button(renderer, &panel_fonts, fp_load_addr, "LOAD ADDR",
                          COL_ORANGE, false,
                          button_pressed(pressed_button, BTN_LOAD_ADDR, pressed_until));
