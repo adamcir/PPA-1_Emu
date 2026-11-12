@@ -1312,6 +1312,140 @@ static int cpu_execute_instruction(CPU *cpu, Memory *memory, Serial *serial) {
     return 1;
 }
 
+
+typedef struct {
+    CPU *cpu;
+    Memory *memory;
+    Serial *serial;
+    bool loaded;
+    bool powered;
+    bool running;
+} GuiBackendContext;
+
+static void gui_cpu_reset_state(GuiBackendContext *g) {
+    if (!g || !g->cpu) return;
+    memset(g->cpu, 0, sizeof(*g->cpu));
+    g->cpu->PC = 0x0000;
+    g->cpu->SP = 0xFF;
+    g->cpu->BR = 0x0000;
+    g->cpu->halted = false;
+}
+
+static bool gui_backend_load_rom(void *ctx, const char *path) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !path || !*path) return false;
+
+    if (g->memory->rom_file) {
+        fclose(g->memory->rom_file);
+        g->memory->rom_file = NULL;
+    }
+
+    gui_cpu_reset_state(g);
+
+    int loaded = load_rom(g->memory, path, 0x0000);
+    if (!loaded) {
+        g->loaded = false;
+        g->running = false;
+        printf("GUI: failed to load ROM: %s\n", path);
+        return false;
+    }
+
+    g->loaded = true;
+    g->powered = true;
+    g->running = false;
+
+    printf("GUI: loaded %d EEPROM bytes: %s\n", loaded, path);
+    return true;
+}
+
+static void gui_backend_set_power(void *ctx, bool on) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g) return;
+    g->powered = on;
+    if (!on) g->running = false;
+    printf("GUI: processor power %s\n", on ? "ON" : "OFF");
+}
+
+static void gui_backend_set_running(void *ctx, bool running) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g) return;
+
+    if (running && (!g->loaded || !g->powered || g->cpu->halted)) {
+        g->running = false;
+        return;
+    }
+
+    g->running = running;
+}
+
+static void gui_backend_reset(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded) return;
+    gui_cpu_reset_state(g);
+    g->running = false;
+    printf("GUI: processor reset\n");
+}
+
+static void gui_backend_step_instruction(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded || !g->powered || g->cpu->halted) return;
+    cpu_execute_instruction(g->cpu, g->memory, g->serial);
+    if (g->cpu->halted) g->running = false;
+}
+
+static void gui_backend_step_micro(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded || !g->powered || g->cpu->halted) return;
+    (void)cpu_microstep(g->cpu, g->memory, g->serial);
+    if (g->cpu->halted) g->running = false;
+}
+
+static void gui_backend_tick(void *ctx, int instruction_budget) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded || !g->powered || !g->running) return;
+
+    if (instruction_budget < 1) instruction_budget = 1;
+    if (instruction_budget > 5000) instruction_budget = 5000;
+
+    for (int i = 0; i < instruction_budget && g->running; i++) {
+        if (g->cpu->halted) {
+            g->running = false;
+            break;
+        }
+        cpu_execute_instruction(g->cpu, g->memory, g->serial);
+    }
+}
+
+static bool gui_backend_is_loaded(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return g && g->loaded;
+}
+
+static bool gui_backend_is_powered(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return g && g->powered;
+}
+
+static bool gui_backend_is_running(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return g && g->running;
+}
+
+static bool gui_backend_is_halted(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return !g || !g->loaded || g->cpu->halted;
+}
+
+static uint16_t gui_backend_address_bus(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return (g && g->loaded) ? g->cpu->AR : 0;
+}
+
+static uint8_t gui_backend_data_bus(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return (g && g->loaded) ? g->cpu->ABR : 0;
+}
+
 static void usage(const char *prog) {
     printf("Usage:\n");
     printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--dump HEX LEN] [--tty] [--nogui]\n", prog);
@@ -1390,19 +1524,42 @@ int main(int argc, char **argv) {
     ppa_gui_init_state(&gui_state, no_gui);
     ppa_gui_log_mode(&gui_state);
 
-    char gui_rom_path[1024] = {0};
-
     if (!no_gui) {
-        PPA1GuiLaunchOptions gui_options;
-        if (!ppa_gui_run_launcher(rom_path, &gui_options)) {
-            ppa_log_close();
-            return 0;
-        }
+        GuiBackendContext gui_backend_ctx = {
+            .cpu = &cpu,
+            .memory = &memory,
+            .serial = &serial,
+            .loaded = false,
+            .powered = false,
+            .running = false
+        };
 
-        snprintf(gui_rom_path, sizeof(gui_rom_path), "%s", gui_options.rom_path);
-        rom_path = gui_rom_path;
-        if (gui_options.tty_enabled) tty_enabled = true;
-    } else if (!rom_path) {
+        PPA1GuiBackend gui_backend = {
+            .ctx = &gui_backend_ctx,
+            .load_rom = gui_backend_load_rom,
+            .set_power = gui_backend_set_power,
+            .set_running = gui_backend_set_running,
+            .reset = gui_backend_reset,
+            .step_instruction = gui_backend_step_instruction,
+            .step_micro = gui_backend_step_micro,
+            .tick = gui_backend_tick,
+            .is_loaded = gui_backend_is_loaded,
+            .is_powered = gui_backend_is_powered,
+            .is_running = gui_backend_is_running,
+            .is_halted = gui_backend_is_halted,
+            .address_bus = gui_backend_address_bus,
+            .data_bus = gui_backend_data_bus
+        };
+
+        (void)ppa_gui_run_panel(rom_path, tty_enabled, &gui_backend);
+
+        serial_close(&serial);
+        if (memory.rom_file) fclose(memory.rom_file);
+        ppa_log_close();
+        return 0;
+    }
+
+    if (!rom_path) {
         usage(argv[0]);
         ppa_log_close();
         return 1;
