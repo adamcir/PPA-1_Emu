@@ -1429,6 +1429,10 @@ typedef struct {
     bool powered;
     bool running;
     uint8_t panel_data_bus;
+
+    /* GUI execution trace counters. */
+    uint64_t microcycle_count;
+    uint64_t instruction_count;
 } GuiBackendContext;
 
 static void gui_cpu_reset_state(GuiBackendContext *g) {
@@ -1438,6 +1442,45 @@ static void gui_cpu_reset_state(GuiBackendContext *g) {
     g->cpu->SP = 0xFF;
     g->cpu->BR = 0x0000;
     g->cpu->halted = false;
+    g->microcycle_count = 0;
+    g->instruction_count = 0;
+}
+
+static void gui_dump_cpu_state(const GuiBackendContext *g,
+                               const char *reason)
+{
+    if (!g || !g->cpu) return;
+
+    const CPU *c = g->cpu;
+    printf(
+        "GUI CPU [%s] INST=%llu MICRO=%llu "
+        "PC=%04X AR=%04X SP=%02X IR=%02X SR=%02X RS=%02X DST=%02X STEP=%02X "
+        "AOS=%02X IMM=%02X AAR=%02X ABR=%02X A=%02X B=%02X C=%02X D=%02X "
+        "X=%04X Y=%04X BR=%04X HALT=%d\n",
+        reason ? reason : "STATE",
+        (unsigned long long)g->instruction_count,
+        (unsigned long long)g->microcycle_count,
+        c->PC,
+        c->AR,
+        c->SP,
+        c->IR,
+        c->SR,
+        c->RS,
+        c->DST,
+        c->STEP,
+        c->AOS,
+        c->IMM,
+        c->AAR,
+        c->ABR,
+        c->A,
+        c->B,
+        c->C,
+        c->D,
+        c->X,
+        c->Y,
+        c->BR,
+        c->halted ? 1 : 0
+    );
 }
 
 static bool gui_backend_load_rom(void *ctx, const char *path) {
@@ -1531,14 +1574,30 @@ static void gui_backend_reset(void *ctx) {
 static void gui_backend_step_instruction(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->loaded || !g->powered || g->cpu->halted) return;
-    cpu_execute_instruction(g->cpu, g->memory, g->serial);
+
+    bool complete = false;
+    while (!complete && !g->cpu->halted) {
+        complete = cpu_microstep(g->cpu, g->memory, g->serial);
+        g->microcycle_count++;
+    }
+
+    if (complete) g->instruction_count++;
+    gui_dump_cpu_state(g, "STEP");
+
     if (g->cpu->halted) g->running = false;
 }
 
 static void gui_backend_step_micro(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->loaded || !g->powered || g->cpu->halted) return;
-    (void)cpu_microstep(g->cpu, g->memory, g->serial);
+
+    bool complete = cpu_microstep(g->cpu, g->memory, g->serial);
+    g->microcycle_count++;
+    if (complete) g->instruction_count++;
+
+    gui_dump_cpu_state(
+        g, complete ? "MICRO / INSTRUCTION COMPLETE" : "MICRO");
+
     if (g->cpu->halted) g->running = false;
 }
 
@@ -1555,7 +1614,13 @@ static void gui_backend_tick(void *ctx, int clock_edges) {
             break;
         }
 
-        (void)cpu_microstep(g->cpu, g->memory, g->serial);
+        bool complete = cpu_microstep(g->cpu, g->memory, g->serial);
+        g->microcycle_count++;
+
+        if (complete) {
+            g->instruction_count++;
+            gui_dump_cpu_state(g, "RUN / INSTRUCTION COMPLETE");
+        }
 
         if (g->cpu->halted) {
             g->running = false;
