@@ -26,6 +26,10 @@ typedef struct {
     void (*deposit)(void *ctx, uint16_t address, uint8_t value);
     void (*start_at)(void *ctx, uint16_t address);
 
+    bool (*set_tty_enabled)(void *ctx, bool enabled);
+    bool (*is_tty_enabled)(void *ctx);
+    const char *(*tty_name)(void *ctx);
+
     bool (*is_loaded)(void *ctx);
     bool (*is_powered)(void *ctx);
     bool (*is_running)(void *ctx);
