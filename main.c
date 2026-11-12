@@ -1351,10 +1351,10 @@ static bool gui_backend_load_rom(void *ctx, const char *path) {
     }
 
     g->loaded = true;
-    g->powered = true;
+    g->powered = false;
     g->running = false;
 
-    printf("GUI: loaded %d EEPROM bytes: %s\n", loaded, path);
+    printf("GUI: loaded %d EEPROM bytes: %s (processor power OFF)\n", loaded, path);
     return true;
 }
 
