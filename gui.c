@@ -154,7 +154,7 @@ static bool load_fonts_scaled(PanelFonts *f, float scale) {
        Re-open it at the panel supersampling scale so it is never just
        a low-resolution bitmap stretched with the window. */
     f->title   = TTF_OpenFont(bold, 46.0f * scale);
-    f->badge   = TTF_OpenFont(bold, 34.0f * scale);
+    f->badge   = TTF_OpenFont(bold, 46.0f * scale);
     f->section = TTF_OpenFont(bold, 17.0f * scale);
     f->label   = TTF_OpenFont(bold, 13.5f * scale);
     f->small   = TTF_OpenFont(regular, 11.5f * scale);
@@ -252,6 +252,37 @@ static void draw_text_fit(SDL_Renderer *r, TTF_Font *font,
         logical_w * fit,
         logical_h * fit
     };
+    SDL_RenderTexture(r, texture, NULL, &dst);
+    SDL_DestroyTexture(texture);
+}
+
+static void draw_text_stretched(SDL_Renderer *r, TTF_Font *font,
+                                SDL_FRect rect, SDL_Color color,
+                                const char *text)
+{
+    int w = 0, h = 0;
+    SDL_Texture *texture = make_text_texture(r, font, color, text, &w, &h);
+    if (!texture || w <= 0 || h <= 0) {
+        if (texture) SDL_DestroyTexture(texture);
+        return;
+    }
+
+    /*
+     * The glyphs were rasterized at the panel supersampling scale, so this
+     * horizontal expansion still comes from a high-resolution source rather
+     * than from the final low-resolution panel image.
+     */
+    float logical_h = (float)h / g_text_pixel_scale;
+    float dst_h = rect.h;
+    if (dst_h > logical_h) dst_h = logical_h;
+
+    SDL_FRect dst = {
+        rect.x,
+        rect.y + (rect.h - dst_h) * 0.5f,
+        rect.w,
+        dst_h
+    };
+
     SDL_RenderTexture(r, texture, NULL, &dst);
     SDL_DestroyTexture(texture);
 }
@@ -1521,21 +1552,42 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_screw(renderer, 1256, 736);
 
         /* One continuous metal panel: only engraved separator lines, no modular cards. */
-        SDL_FRect title_rect = {36, 20, 992, 64};
-        draw_text_fit(renderer, panel_fonts.title, title_rect,
-                      COL_WHITE,
-                      "PROGRAMBLE PROCESSOR");
+        SDL_FRect title_rect = {36, 18, 990, 68};
+        draw_text_stretched(renderer, panel_fonts.title, title_rect,
+                            COL_WHITE,
+                            "PROGRAMBLE PROCESSOR");
 
-        SDL_FRect badge = {1036, 20, 194, 82};
-        draw_bevel_panel(renderer, badge,
-            COL_RED,
-            COL_LIGHT_GRAY,
-            COL_BLACK);
+        /*
+         * A-1 uses the same 46 px bold type scale as the processor title.
+         * Its box is an independent white-outline nameplate; the manufacturer
+         * label sits immediately below it, outside the rectangle.
+         */
+        SDL_FRect a1_box = {1038, 18, 190, 62};
+        SDL_SetRenderDrawColor(renderer,
+                               COL_DARK_GRAY.r,
+                               COL_DARK_GRAY.g,
+                               COL_DARK_GRAY.b, 255);
+        SDL_RenderFillRect(renderer, &a1_box);
+
+        SDL_SetRenderDrawColor(renderer,
+                               COL_WHITE.r,
+                               COL_WHITE.g,
+                               COL_WHITE.b, 255);
+        SDL_RenderRect(renderer, &a1_box);
+
+        /* Second inset line keeps the outline readable after downsampling. */
+        SDL_FRect a1_inner = {
+            a1_box.x + 1.0f, a1_box.y + 1.0f,
+            a1_box.w - 2.0f, a1_box.h - 2.0f
+        };
+        SDL_RenderRect(renderer, &a1_inner);
+
         draw_text_center(renderer, panel_fonts.badge,
-            (SDL_FRect){1040, 25, 186, 46},
+            (SDL_FRect){1042, 20, 182, 56},
             COL_WHITE, "A-1");
+
         draw_text_center(renderer, panel_fonts.small,
-            (SDL_FRect){1040, 72, 186, 22},
+            (SDL_FRect){1038, 81, 190, 20},
             COL_WHITE, "Adava Electronics");
 
         SDL_SetRenderDrawColor(
