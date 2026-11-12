@@ -614,11 +614,14 @@ static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
                "-e", "sh", "-lc", script, "sh", tty,
                (char *)NULL);
 
+        char xfce_command[256];
+        snprintf(xfce_command, sizeof(xfce_command),
+                 "screen %s 9600", tty);
+
         execlp("xfce4-terminal",
                "xfce4-terminal",
                "--title=PPA-1 UART TERMINAL",
-               "-e", "sh -lc 'exec screen \"$1\" 9600' sh",
-               tty,
+               "-e", xfce_command,
                (char *)NULL);
 
         execlp("gnome-terminal",
