@@ -385,6 +385,68 @@ static void draw_knob(SDL_Renderer *r, PanelFonts *fonts,
         (SDL_Color){215, 210, 191, 255}, value);
 }
 
+static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
+                              float cx, float cy, float radius,
+                              int index, int count,
+                              const char * const *labels,
+                              bool enabled)
+{
+    SDL_Color tick_color = enabled
+        ? (SDL_Color){215, 207, 183, 255}
+        : (SDL_Color){111, 108, 99, 255};
+    SDL_Color label_color = enabled
+        ? (SDL_Color){215, 210, 191, 255}
+        : (SDL_Color){108, 107, 101, 255};
+
+    for (int i = 0; i < count; i++) {
+        float t = count > 1 ? (float)i / (float)(count - 1) : 0.0f;
+        float angle = (225.0f - t * 270.0f) *
+                      3.14159265358979323846f / 180.0f;
+
+        float ix = cx + cosf(angle) * (radius + 6.0f);
+        float iy = cy - sinf(angle) * (radius + 6.0f);
+        float ox = cx + cosf(angle) * (radius + 13.0f);
+        float oy = cy - sinf(angle) * (radius + 13.0f);
+
+        SDL_SetRenderDrawColor(r,
+            tick_color.r, tick_color.g, tick_color.b, tick_color.a);
+        SDL_RenderLine(r, ix, iy, ox, oy);
+
+        if (labels && labels[i]) {
+            float lx = cx + cosf(angle) * (radius + 27.0f);
+            float ly = cy - sinf(angle) * (radius + 27.0f);
+
+            SDL_FRect lr = {lx - 22.0f, ly - 8.0f, 44.0f, 16.0f};
+            draw_text_center(r, fonts->small, lr, label_color, labels[i]);
+        }
+    }
+
+    SDL_SetRenderDrawColor(r, 13, 14, 14, 255);
+    fill_circle(r, cx, cy, radius + 4.0f);
+
+    SDL_SetRenderDrawColor(r,
+        enabled ? 103 : 64,
+        enabled ? 104 : 65,
+        enabled ? 100 : 63, 255);
+    fill_circle(r, cx, cy, radius);
+
+    SDL_SetRenderDrawColor(r,
+        enabled ? 48 : 39,
+        enabled ? 49 : 40,
+        enabled ? 48 : 39, 255);
+    fill_circle(r, cx, cy, radius - 7.0f);
+
+    float t = count > 1 ? (float)index / (float)(count - 1) : 0.0f;
+    float angle = (225.0f - t * 270.0f) *
+                  3.14159265358979323846f / 180.0f;
+    float px = cx + cosf(angle) * radius * 0.68f;
+    float py = cy - sinf(angle) * radius * 0.68f;
+
+    SDL_SetRenderDrawColor(r,
+        tick_color.r, tick_color.g, tick_color.b, 255);
+    SDL_RenderLine(r, cx, cy, px, py);
+}
+
 static void draw_menu_button(SDL_Renderer *r, PanelFonts *fonts,
                              SDL_FRect rect, const char *label)
 {
