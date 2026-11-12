@@ -1509,7 +1509,7 @@ static void gui_backend_set_running(void *ctx, bool running) {
 
 static void gui_backend_reset(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->loaded || !g->memory) return;
+    if (!g || !g->memory) return;
 
     /* Hard front-panel RESET:
        - reset every volatile CPU register/state
@@ -1596,7 +1596,7 @@ static void gui_backend_load_address(void *ctx, uint16_t address) {
 
 static uint8_t gui_backend_examine(void *ctx, uint16_t address) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->loaded || !g->powered) return 0xFF;
+    if (!g || !g->memory || !g->powered) return 0xFF;
 
     g->running = false;
     g->cpu->AR = address;
@@ -1610,7 +1610,7 @@ static uint8_t gui_backend_examine(void *ctx, uint16_t address) {
 
 static void gui_backend_deposit(void *ctx, uint16_t address, uint8_t value) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->loaded || !g->powered) return;
+    if (!g || !g->memory || !g->powered) return;
 
     g->running = false;
     g->cpu->AR = address;
