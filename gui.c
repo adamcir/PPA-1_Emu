@@ -1130,6 +1130,10 @@ int ppa_gui_run_panel(const char *initial_rom,
         running = backend->is_running(backend->ctx);
         halted = backend->is_halted(backend->ctx);
 
+        if (!powered || !running || halted) {
+            clock_level = false;
+        }
+
         Uint16 address = backend->address_bus(backend->ctx);
         Uint8 data = backend->data_bus(backend->ctx);
 
