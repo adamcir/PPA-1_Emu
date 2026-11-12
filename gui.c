@@ -546,6 +546,10 @@ static void draw_menu_button(SDL_Renderer *r, PanelFonts *fonts,
 static void draw_aux_header(SDL_Renderer *r, PanelFonts *fonts,
                             const char *title, const char *subtitle)
 {
+    int w = 560, h = 380;
+    SDL_GetCurrentRenderOutputSize(r, &w, &h);
+    (void)h;
+
     draw_text(r, fonts->section, 24, 18,
               (SDL_Color){238, 240, 234, 255}, title);
 
@@ -555,7 +559,7 @@ static void draw_aux_header(SDL_Renderer *r, PanelFonts *fonts,
     }
 
     SDL_SetRenderDrawColor(r, 73, 77, 74, 255);
-    SDL_RenderLine(r, 24, 64, 536, 64);
+    SDL_RenderLine(r, 24, 64, (float)w - 24.0f, 64);
 }
 
 static void draw_aux_toggle_button(SDL_Renderer *r, PanelFonts *fonts,
@@ -619,10 +623,13 @@ static void draw_aux_toggle_button(SDL_Renderer *r, PanelFonts *fonts,
 
 static void read_log_tail(char lines[][160], int *line_count, int max_lines) {
     *line_count = 0;
+    if (max_lines < 1) return;
+    if (max_lines > 64) max_lines = 64;
+
     FILE *f = fopen("latest.log", "r");
     if (!f) return;
 
-    char ring[32][160] = {{0}};
+    char ring[64][160] = {{0}};
     int total = 0;
     char buf[160];
 
@@ -704,8 +711,10 @@ static bool open_terminal(TerminalWindow *term,
     term->window = SDL_CreateWindow(
         "PPA-1 UART Terminal",
         680, 380,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY);
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!term->window) return false;
+
+    SDL_SetWindowMinimumSize(term->window, 480, 280);
 
     term->renderer = SDL_CreateRenderer(term->window, NULL);
     if (!term->renderer) {
@@ -764,30 +773,41 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     int w = 680, h = 380;
     SDL_GetCurrentRenderOutputSize(term->renderer, &w, &h);
 
-    SDL_SetRenderDrawColor(term->renderer, 10, 14, 13, 255);
+    SDL_SetRenderDrawColor(term->renderer, 28, 30, 30, 255);
     SDL_RenderClear(term->renderer);
 
-    draw_text(term->renderer, fonts->label, 14, 10,
-              (SDL_Color){140, 224, 171, 255},
-              "PPA-1 UART TERMINAL  FF00 TX / FF01 RX");
-
-    SDL_SetRenderDrawColor(term->renderer, 45, 72, 58, 255);
-    SDL_RenderLine(term->renderer, 14, 34, (float)w - 14.0f, 34);
+    draw_aux_header(term->renderer, fonts,
+                    "UART MONITOR",
+                    "FF00 TX / FF01 RX");
 
     /*
-     * Terminal body is deliberately monospaced: every character column must
-     * line up exactly with the same column on every other row.
+     * Terminal body stays strictly monospaced so character columns align,
+     * while the surrounding window uses the same visual language as LOG,
+     * VIEW, PREFERENCES and CREDITS.
      */
-    int visible = (h - 58) / 18;
+    int visible = (h - 94) / 18;
     if (visible < 1) visible = 1;
     if (visible > TERM_LINES) visible = TERM_LINES;
 
     int start = term->line - visible + 1;
     if (start < 0) start = 0;
 
-    float y = 44.0f;
+    SDL_FRect body = {
+        24.0f, 78.0f,
+        (float)w - 48.0f,
+        (float)h - 96.0f
+    };
+    if (body.w < 1.0f) body.w = 1.0f;
+    if (body.h < 1.0f) body.h = 1.0f;
+
+    SDL_SetRenderDrawColor(term->renderer, 22, 24, 24, 255);
+    SDL_RenderFillRect(term->renderer, &body);
+    SDL_SetRenderDrawColor(term->renderer, 63, 67, 64, 255);
+    SDL_RenderRect(term->renderer, &body);
+
+    float y = 88.0f;
     for (int line = start; line <= term->line && line < TERM_LINES; line++) {
-        draw_text(term->renderer, fonts->mono, 14, y,
+        draw_text(term->renderer, fonts->mono, 36, y,
                   (SDL_Color){201, 230, 208, 255},
                   term->lines[line]);
         y += 18.0f;
@@ -811,14 +831,17 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
 
     aux->kind = kind;
 
-    /*
-     * Auxiliary windows use a deliberately fixed layout.  Do not make them
-     * resizable: stretching these windows creates empty space and can make
-     * separators/text look misplaced.
-     */
-    aux->window = SDL_CreateWindow(title, w, h,
-        SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    Uint64 flags = SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    if (kind == AUX_LOG) {
+        flags |= SDL_WINDOW_RESIZABLE;
+    }
+
+    aux->window = SDL_CreateWindow(title, w, h, flags);
     if (!aux->window) return;
+
+    if (kind == AUX_LOG) {
+        SDL_SetWindowMinimumSize(aux->window, 560, 300);
+    }
 
     aux->renderer = SDL_CreateRenderer(aux->window, NULL);
     if (!aux->renderer) {
@@ -907,10 +930,19 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
     } else if (aux->kind == AUX_LOG) {
         draw_aux_header(r, fonts, "LATEST.LOG",
                         "LIVE EMULATOR TRACE");
-        char lines[16][160];
+
+        int rw = 760, rh = 430;
+        SDL_GetCurrentRenderOutputSize(r, &rw, &rh);
+        (void)rw;
+
+        int visible_lines = (rh - 88) / 20;
+        if (visible_lines < 1) visible_lines = 1;
+        if (visible_lines > 64) visible_lines = 64;
+
+        char lines[64][160];
         int count = 0;
-        read_log_tail(lines, &count, 16);
-        /* Keep log text below the header separator at y=64. */
+        read_log_tail(lines, &count, visible_lines);
+
         float y = 80.0f;
         for (int i = 0; i < count; i++, y += 20.0f) {
             draw_text(r, fonts->small, 24, y, muted, lines[i]);
