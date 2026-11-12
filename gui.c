@@ -926,6 +926,16 @@ int ppa_gui_run_panel(const char *initial_rom,
     const int clock_count = (int)(sizeof(clock_rates) / sizeof(clock_rates[0]));
     int clock_index = 9;
 
+    const char *data_source_labels[] = {"BUS", "REGISTER"};
+    int data_source_index = 0;
+
+    const char *register_labels[] = {
+        "A", "B", "C", "D", "XH", "XL", "YH", "YL", "BRH", "BRL"
+    };
+    const int register_count =
+        (int)(sizeof(register_labels) / sizeof(register_labels[0]));
+    int register_index = 0;
+
     /* Menu lives in real window coordinates and always spans the whole window. */
     SDL_FRect menu_open = {10, 5, 72, 28};
     SDL_FRect menu_pref = {86, 5, 112, 28};
@@ -951,7 +961,11 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     SDL_FRect power_btn = {1184, 548, 48, 108};
 
-    const float clock_cx = 838.0f, clock_cy = 406.0f, clock_radius = 38.0f;
+    const float clock_cx = 720.0f, clock_cy = 410.0f, clock_radius = 28.0f;
+    const float data_source_cx = 905.0f, data_source_cy = 410.0f;
+    const float data_source_radius = 28.0f;
+    const float register_cx = 1100.0f, register_cy = 410.0f;
+    const float register_radius = 28.0f;
 
     Uint64 last_ticks = SDL_GetTicks();
     double clock_phase = 0.0;
