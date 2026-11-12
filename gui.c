@@ -933,6 +933,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     int clock_index = 9;
 
     const char *data_source_labels[] = {"BUS", "REGISTER"};
+    const char *data_source_tick_labels[] = {"BUS", "REG"};
     int data_source_index = 0;
 
     const char *register_labels[] = {
@@ -1335,7 +1336,12 @@ int ppa_gui_run_panel(const char *initial_rom,
         }
 
         Uint16 address = backend->address_bus(backend->ctx);
-        Uint8 data = backend->data_bus(backend->ctx);
+        Uint8 bus_data = backend->data_bus(backend->ctx);
+        Uint8 data = bus_data;
+
+        if (data_source_index == 1 && backend->register_value) {
+            data = backend->register_value(backend->ctx, register_index);
+        }
 
         /* Render the complete hardware panel at its immutable design size. */
         SDL_SetRenderTarget(renderer, panel_texture);
@@ -1401,7 +1407,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         for (int i = 0; i < 8; i++) {
             char label[2] = {(char)('0' + i), 0};
             bool bit = prefs.lamp_test ||
-                (powered && loaded && ((data >> i) & 1u));
+                (powered && ((data >> i) & 1u));
             draw_led(renderer, &fonts,
                      58.0f + i * 49.0f, 284.0f, label, bit,
                      (SDL_Color){38, 207, 190, 255});
@@ -1457,14 +1463,56 @@ int ppa_gui_run_panel(const char *initial_rom,
             draw_toggle(renderer, &fonts,
                         62.0f + i * 31.0f, 475.0f, label, switches[i]);
         }
-        /* Hardware clock control. */
+        /* Physical clock and DATA display selectors. */
         draw_text(renderer, fonts.section, 646, 321,
-                  (SDL_Color){229, 221, 194, 255}, "CLOCK CONTROL");
+                  (SDL_Color){229, 221, 194, 255}, "DISPLAY & CLOCK");
 
-        draw_text(renderer, fonts.label, 704, 360,
-                  (SDL_Color){212, 207, 185, 255}, "CPU CLOCK");
-        draw_knob(renderer, &fonts, clock_cx, clock_cy, clock_radius,
-                  clock_index, clock_count, clock_values[clock_index]);
+        draw_text_center(renderer, fonts.label,
+                         (SDL_FRect){660, 344, 120, 18},
+                         (SDL_Color){212, 207, 185, 255},
+                         "CLOCK");
+        draw_labeled_knob(renderer, &fonts,
+                          clock_cx, clock_cy, clock_radius,
+                          clock_index, clock_count,
+                          clock_tick_labels, true);
+        draw_text_center(renderer, fonts.small,
+                         (SDL_FRect){665, 474, 110, 16},
+                         (SDL_Color){215, 210, 191, 255},
+                         clock_values[clock_index]);
+
+        draw_text_center(renderer, fonts.label,
+                         (SDL_FRect){840, 344, 130, 18},
+                         (SDL_Color){212, 207, 185, 255},
+                         "DATA SOURCE");
+        draw_labeled_knob(renderer, &fonts,
+                          data_source_cx, data_source_cy,
+                          data_source_radius,
+                          data_source_index, 2,
+                          data_source_tick_labels, true);
+        draw_text_center(renderer, fonts.small,
+                         (SDL_FRect){845, 474, 120, 16},
+                         (SDL_Color){215, 210, 191, 255},
+                         data_source_labels[data_source_index]);
+
+        bool register_output_enabled = data_source_index == 1;
+        draw_text_center(renderer, fonts.label,
+                         (SDL_FRect){1025, 344, 150, 18},
+                         register_output_enabled
+                             ? (SDL_Color){212, 207, 185, 255}
+                             : (SDL_Color){111, 109, 101, 255},
+                         "REGISTER SELECT");
+        draw_labeled_knob(renderer, &fonts,
+                          register_cx, register_cy,
+                          register_radius,
+                          register_index, register_count,
+                          register_labels,
+                          register_output_enabled);
+        draw_text_center(renderer, fonts.small,
+                         (SDL_FRect){1040, 474, 120, 16},
+                         register_output_enabled
+                             ? (SDL_Color){215, 210, 191, 255}
+                             : (SDL_Color){108, 107, 101, 255},
+                         register_labels[register_index]);
 
         /* Hardware programming and execution controls. */
         draw_text(renderer, fonts.section, 646, 520,
