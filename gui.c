@@ -600,30 +600,29 @@ static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
     if (pid == 0) {
         (void)setsid();
 
-        execlp("x-terminal-emulator",
-               "x-terminal-emulator",
-               "-e", "screen", tty, "9600",
+        /*
+         * st / Simple Terminal can attach directly to a tty/PTY line.
+         * -T sets the window title, -l selects the line, final 9600 is
+         * the baud rate passed to stty by st.
+         */
+        execlp("st",
+               "st",
+               "-T", "PPA-1 UART TERMINAL",
+               "-l", tty, "9600",
                (char *)NULL);
 
-        execlp("gnome-terminal",
-               "gnome-terminal",
-               "--", "screen", tty, "9600",
-               (char *)NULL);
-
-        execlp("konsole",
-               "konsole",
-               "-e", "screen", tty, "9600",
-               (char *)NULL);
-
-        execlp("xterm",
-               "xterm",
-               "-e", "screen", tty, "9600",
+        /* Debian/Ubuntu package name commonly exposes the binary as stterm. */
+        execlp("stterm",
+               "stterm",
+               "-T", "PPA-1 UART TERMINAL",
+               "-l", tty, "9600",
                (char *)NULL);
 
         _exit(127);
     }
 
-    ppa_log_printf("GUI: opened UART monitor on %s at 9600 baud.\n", tty);
+    ppa_log_printf("GUI: opened Simple Terminal UART monitor on %s at 9600 baud.\n",
+                   tty);
     return true;
 }
 
