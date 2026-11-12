@@ -769,6 +769,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
     AuxWindow log_window = {0};
+    TerminalWindow terminal_window = {0};
 
     bool switches[16] = {0};
     bool panel_running = true;
@@ -794,6 +795,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_FRect menu_pref = {86, 5, 112, 28};
     SDL_FRect menu_view = {202, 5, 72, 28};
     SDL_FRect menu_log  = {278, 5, 64, 28};
+    SDL_FRect menu_terminal = {346, 5, 100, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
     /* Real front-panel programming row. */
@@ -816,11 +818,13 @@ int ppa_gui_run_panel(const char *initial_rom,
     const float clock_cx = 838.0f, clock_cy = 406.0f, clock_radius = 38.0f;
 
     Uint64 last_ticks = SDL_GetTicks();
-    double instruction_accum = 0.0;
+    double clock_phase = 0.0;
     ButtonId pressed_button = BTN_NONE;
     Uint64 pressed_until = 0;
 
     ppa_log_printf("GUI: fixed-layout PPA-1 front panel opened.\n");
+
+    (void)open_terminal(&terminal_window, backend);
 
     while (panel_running) {
         int rw = 1280, rh = 820;
@@ -857,7 +861,41 @@ int ppa_gui_run_panel(const char *initial_rom,
                     destroy_aux(&view_window);
                 } else if (log_window.window && id == SDL_GetWindowID(log_window.window)) {
                     destroy_aux(&log_window);
-                                }
+                } else if (terminal_window.window &&
+                           id == SDL_GetWindowID(terminal_window.window)) {
+                    close_terminal(&terminal_window, backend);
+                }
+                continue;
+            }
+
+            if (terminal_window.window &&
+                event.type == SDL_EVENT_TEXT_INPUT &&
+                event.text.windowID == SDL_GetWindowID(terminal_window.window)) {
+                if (backend->terminal_write_rx) {
+                    const unsigned char *p =
+                        (const unsigned char *)event.text.text;
+                    while (*p) backend->terminal_write_rx(backend->ctx, *p++);
+                }
+                continue;
+            }
+
+            if (terminal_window.window &&
+                event.type == SDL_EVENT_KEY_DOWN &&
+                event.key.windowID == SDL_GetWindowID(terminal_window.window)) {
+                uint8_t ch = 0;
+
+                if (event.key.key == SDLK_RETURN ||
+                    event.key.key == SDLK_KP_ENTER) {
+                    ch = 0x0D;
+                } else if (event.key.key == SDLK_BACKSPACE) {
+                    ch = 0x08;
+                } else if (event.key.key == SDLK_TAB) {
+                    ch = 0x09;
+                }
+
+                if (ch && backend->terminal_write_rx) {
+                    backend->terminal_write_rx(backend->ctx, ch);
+                }
                 continue;
             }
 
@@ -881,7 +919,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                         }
 
                         if (clock_index != old_clock_index) {
-                            instruction_accum = 0.0;
+                            clock_phase = 0.0;
                             last_ticks = SDL_GetTicks();
                             ppa_log_printf("GUI: live CPU clock -> %s\n",
                                            clock_values[clock_index]);
@@ -915,6 +953,9 @@ int ppa_gui_run_panel(const char *initial_rom,
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_log)) {
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
+                            continue;
+                        } else if (point_in_rect(wx, wy, &menu_terminal)) {
+                            (void)open_terminal(&terminal_window, backend);
                             continue;
                         }
 
@@ -1001,7 +1042,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 }
 
                                 if (clock_index != old_clock_index) {
-                                    instruction_accum = 0.0;
+                                    clock_phase = 0.0;
                                     last_ticks = SDL_GetTicks();
                                     ppa_log_printf("GUI: live CPU clock -> %s\n",
                                                    clock_values[clock_index]);
@@ -1074,7 +1115,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                 instruction_accum -= (double)budget;
             }
         } else {
-            instruction_accum = 0.0;
+            clock_phase = 0.0;
         }
 
         loaded = backend->is_loaded(backend->ctx);
