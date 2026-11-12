@@ -600,37 +600,18 @@ static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
     if (pid == 0) {
         (void)setsid();
 
-        /*
-         * A normal desktop terminal cannot usually adopt an already existing
-         * PTY as its own terminal line. Use the desktop's default terminal
-         * and run a tiny serial client inside it. picocom talks directly to
-         * the PPA-1 /dev/pts/N device; minicom is only a fallback.
-         */
         const char *script =
             "printf '\\033]0;PPA-1 UART TERMINAL\\007'; "
-            "if command -v picocom >/dev/null 2>&1; then "
-            "  exec picocom -b 9600 \"$1\"; "
-            "elif command -v minicom >/dev/null 2>&1; then "
-            "  exec minicom -D \"$1\" -b 9600; "
-            "else "
-            "  echo 'PPA-1 UART: install picocom (sudo apt install picocom)'; "
-            "  echo 'PTY: ' \"$1\"; "
-            "  exec sh; "
-            "fi";
+            "exec screen \"$1\" 9600";
 
         execlp("x-terminal-emulator",
                "x-terminal-emulator",
                "-e", "sh", "-lc", script, "sh", tty,
                (char *)NULL);
 
-        char xfce_command[512];
+        char xfce_command[256];
         snprintf(xfce_command, sizeof(xfce_command),
-                 "sh -lc 'if command -v picocom >/dev/null 2>&1; then "
-                 "exec picocom -b 9600 %s; "
-                 "elif command -v minicom >/dev/null 2>&1; then "
-                 "exec minicom -D %s -b 9600; "
-                 "else echo Install picocom; exec sh; fi'",
-                 tty, tty);
+                 "screen %s 9600", tty);
 
         execlp("xfce4-terminal",
                "xfce4-terminal",
@@ -641,19 +622,19 @@ static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
         execlp("gnome-terminal",
                "gnome-terminal",
                "--title=PPA-1 UART TERMINAL",
-               "--", "picocom", "-b", "9600", tty,
+               "--", "screen", tty, "9600",
                (char *)NULL);
 
         execlp("konsole",
                "konsole",
                "--title", "PPA-1 UART TERMINAL",
-               "-e", "picocom", "-b", "9600", tty,
+               "-e", "screen", tty, "9600",
                (char *)NULL);
 
         execlp("xterm",
                "xterm",
                "-T", "PPA-1 UART TERMINAL",
-               "-e", "picocom", "-b", "9600", tty,
+               "-e", "screen", tty, "9600",
                (char *)NULL);
 
         _exit(127);
