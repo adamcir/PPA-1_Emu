@@ -83,7 +83,6 @@ typedef struct {
 } TerminalWindow;
 
 typedef struct {
-    bool active;
     pid_t launcher_pid;
     char screen_session[64];
 } UartTerminalState;
@@ -719,18 +718,108 @@ static void uart_terminal_reap_launcher(UartTerminalState *state)
     }
 }
 
-static void stop_uart_terminal(UartTerminalState *state)
+enum {
+    UART_SCREEN_NONE = 0,
+    UART_SCREEN_DETACHED = 1,
+    UART_SCREEN_ATTACHED = 2
+};
+
+static int uart_screen_state(const UartTerminalState *state)
 {
-    if (!state || !state->active) return;
+    if (!state || !state->screen_session[0]) return UART_SCREEN_NONE;
+
+    char command[192];
+    snprintf(command, sizeof(command),
+             "screen -ls %s 2>/dev/null",
+             state->screen_session);
+
+    FILE *pipe = popen(command, "r");
+    if (!pipe) return UART_SCREEN_NONE;
+
+    int result = UART_SCREEN_NONE;
+    char line[256];
+
+    while (fgets(line, sizeof(line), pipe)) {
+        if (!strstr(line, state->screen_session)) continue;
+
+        if (strstr(line, "(Attached)")) {
+            result = UART_SCREEN_ATTACHED;
+            break;
+        }
+
+        if (strstr(line, "(Detached)")) {
+            result = UART_SCREEN_DETACHED;
+        }
+    }
+
+    (void)pclose(pipe);
+    return result;
+}
+
+static bool create_uart_screen(const PPA1GuiBackend *backend,
+                               UartTerminalState *state)
+{
+    if (!backend || !state || !backend->tty_name) return false;
+
+    const char *tty = backend->tty_name(backend->ctx);
+    if (!tty || !*tty) return false;
+
+    if (!state->screen_session[0]) {
+        snprintf(state->screen_session, sizeof(state->screen_session),
+                 "ppa1_uart_%ld", (long)getpid());
+    }
 
     /*
-     * screen owns the serial attachment. Asking that exact named session to
-     * quit detaches it from the PTY and makes the terminal command exit too.
-     * The emulator PTY itself intentionally remains enabled and keeps the same
-     * /dev/pts/N name for the next UART MONITOR click.
+     * Create the serial screen independently of any terminal window.
+     * It survives a manually closed terminal in Detached state and remains
+     * attached to the same emulator-owned PTY.
      */
-    if (state->screen_session[0]) {
+    pid_t pid = fork();
+    if (pid < 0) return false;
+
+    if (pid == 0) {
+        execlp("screen", "screen",
+               "-DmS", state->screen_session,
+               tty, "9600",
+               (char *)NULL);
+        _exit(127);
+    }
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return false;
+    }
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        ppa_log_printf("GUI: failed to create UART screen session.\n");
+        return false;
+    }
+
+    /* screen daemonizes; give the session a brief chance to register. */
+    for (int i = 0; i < 20; i++) {
+        if (uart_screen_state(state) != UART_SCREEN_NONE) {
+            ppa_log_printf(
+                "GUI: UART screen created: session=%s PTY=%s baud=9600.\n",
+                state->screen_session, tty);
+            return true;
+        }
+        usleep(10000);
+    }
+
+    ppa_log_printf(
+        "GUI: UART screen did not appear after creation: session=%s.\n",
+        state->screen_session);
+    return false;
+}
+
+static void stop_uart_terminal(UartTerminalState *state)
+{
+    if (!state || !state->screen_session[0]) return;
+
+    int screen_state = uart_screen_state(state);
+    if (screen_state != UART_SCREEN_NONE) {
         pid_t ctl = fork();
+
         if (ctl == 0) {
             execlp("screen", "screen",
                    "-S", state->screen_session,
@@ -744,21 +833,92 @@ static void stop_uart_terminal(UartTerminalState *state)
         }
     }
 
-    uart_terminal_reap_launcher(state);
-    if (state->launcher_pid > 0) {
-        /* The launcher called setsid(), so its negative PID addresses only
-           the terminal process group created for this UART window. */
-        (void)kill(-state->launcher_pid, SIGTERM);
-        (void)waitpid(state->launcher_pid, NULL, WNOHANG);
-        state->launcher_pid = -1;
+    /*
+     * The attached terminal command is 'screen -r'. Quitting the screen
+     * session makes that command exit, so a normal terminal emulator closes
+     * its UART window as well. Reap only the launcher we actually own.
+     */
+    for (int i = 0; i < 20; i++) {
+        uart_terminal_reap_launcher(state);
+        if (state->launcher_pid <= 0) break;
+        usleep(10000);
     }
 
-    state->active = false;
-    ppa_log_printf("GUI: UART terminal closed; PTY kept active for reuse.\n");
+    ppa_log_printf(
+        "GUI: UART monitor closed: session=%s; emulator PTY remains active.\n",
+        state->screen_session);
 }
 
-static bool start_uart_terminal(const PPA1GuiBackend *backend,
-                                UartTerminalState *state)
+static bool attach_uart_terminal(UartTerminalState *state)
+{
+    if (!state || !state->screen_session[0]) return false;
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        ppa_log_printf(
+            "GUI: fork() failed while attaching UART terminal.\n");
+        return false;
+    }
+
+    if (pid == 0) {
+        (void)setsid();
+
+        const char *script =
+            "printf '\\033]0;PPA-1 UART TERMINAL\\007'; "
+            "exec screen -r \"$1\"";
+
+        execlp("x-terminal-emulator",
+               "x-terminal-emulator",
+               "-e", "sh", "-lc", script, "sh",
+               state->screen_session,
+               (char *)NULL);
+
+        char xfce_command[256];
+        snprintf(xfce_command, sizeof(xfce_command),
+                 "screen -r %s", state->screen_session);
+
+        execlp("xfce4-terminal",
+               "xfce4-terminal",
+               "--disable-server",
+               "--title=PPA-1 UART TERMINAL",
+               "-e", xfce_command,
+               (char *)NULL);
+
+        execlp("gnome-terminal",
+               "gnome-terminal",
+               "--wait",
+               "--title=PPA-1 UART TERMINAL",
+               "--", "screen", "-r",
+               state->screen_session,
+               (char *)NULL);
+
+        execlp("konsole",
+               "konsole",
+               "--title", "PPA-1 UART TERMINAL",
+               "-e", "screen", "-r",
+               state->screen_session,
+               (char *)NULL);
+
+        execlp("xterm",
+               "xterm",
+               "-T", "PPA-1 UART TERMINAL",
+               "-e", "screen", "-r",
+               state->screen_session,
+               (char *)NULL);
+
+        _exit(127);
+    }
+
+    state->launcher_pid = pid;
+
+    ppa_log_printf(
+        "GUI: UART terminal attached to screen session=%s.\n",
+        state->screen_session);
+    return true;
+}
+
+static bool toggle_uart_terminal(const PPA1GuiBackend *backend,
+                                 UartTerminalState *state)
 {
     if (!backend || !state || !backend->set_tty_enabled ||
         !backend->is_tty_enabled || !backend->tty_name) {
@@ -772,95 +932,28 @@ static bool start_uart_terminal(const PPA1GuiBackend *backend,
         }
     }
 
-    const char *tty = backend->tty_name(backend->ctx);
-    if (!tty || !*tty) {
-        ppa_log_printf("GUI: UART PTY has no device name.\n");
-        return false;
-    }
+    uart_terminal_reap_launcher(state);
 
-    if (!state->screen_session[0]) {
-        snprintf(state->screen_session, sizeof(state->screen_session),
-                 "ppa1_uart_%ld", (long)getpid());
-    }
+    int screen_state = uart_screen_state(state);
 
-    pid_t pid = fork();
-    if (pid < 0) {
-        ppa_log_printf("GUI: fork() failed while opening UART terminal.\n");
-        return false;
-    }
-
-    if (pid == 0) {
-        (void)setsid();
-
-        const char *script =
-            "printf '\\033]0;PPA-1 UART TERMINAL\\007'; "
-            "exec screen -S \"$1\" \"$2\" 9600";
-
-        execlp("x-terminal-emulator",
-               "x-terminal-emulator",
-               "-e", "sh", "-lc", script, "sh",
-               state->screen_session, tty,
-               (char *)NULL);
-
-        char xfce_command[384];
-        snprintf(xfce_command, sizeof(xfce_command),
-                 "screen -S %s %s 9600",
-                 state->screen_session, tty);
-
-        execlp("xfce4-terminal",
-               "xfce4-terminal",
-               "--title=PPA-1 UART TERMINAL",
-               "-e", xfce_command,
-               (char *)NULL);
-
-        execlp("gnome-terminal",
-               "gnome-terminal",
-               "--wait",
-               "--title=PPA-1 UART TERMINAL",
-               "--", "screen",
-               "-S", state->screen_session,
-               tty, "9600",
-               (char *)NULL);
-
-        execlp("konsole",
-               "konsole",
-               "--title", "PPA-1 UART TERMINAL",
-               "-e", "screen",
-               "-S", state->screen_session,
-               tty, "9600",
-               (char *)NULL);
-
-        execlp("xterm",
-               "xterm",
-               "-T", "PPA-1 UART TERMINAL",
-               "-e", "screen",
-               "-S", state->screen_session,
-               tty, "9600",
-               (char *)NULL);
-
-        _exit(127);
-    }
-
-    state->launcher_pid = pid;
-    state->active = true;
-
-    ppa_log_printf(
-        "GUI: UART terminal opened: screen session=%s PTY=%s baud=9600.\n",
-        state->screen_session, tty);
-    return true;
-}
-
-static bool toggle_uart_terminal(const PPA1GuiBackend *backend,
-                                 UartTerminalState *state)
-{
-    if (!state) return false;
-
-    if (state->active) {
+    if (screen_state == UART_SCREEN_ATTACHED) {
+        /* Re-click while the UART terminal is actually open: close it. */
         stop_uart_terminal(state);
         return true;
     }
 
-    return start_uart_terminal(backend, state);
+    if (screen_state == UART_SCREEN_NONE) {
+        if (!create_uart_screen(backend, state)) {
+            return false;
+        }
+    }
+
+    /*
+     * Detached means the user closed the terminal window manually.
+     * Re-click simply opens a fresh terminal attached to the same screen,
+     * which is still connected to exactly the same PTY.
+     */
+    return attach_uart_terminal(state);
 }
 
 static void destroy_aux(AuxWindow *aux) {
@@ -1076,7 +1169,6 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow view_window = {0};
     AuxWindow log_window = {0};
     UartTerminalState uart_terminal = {
-        .active = false,
         .launcher_pid = -1,
         .screen_session = {0}
     };
