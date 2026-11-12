@@ -500,17 +500,6 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         for (int i = 0; i < count; i++, y += 20.0f) {
             draw_text(r, fonts->small, 24, y, muted, lines[i]);
         }
-    } else if (aux->kind == AUX_HELP) {
-        draw_text(r, fonts->section, 24, 20, cream, "PPA-1 FRONT PANEL HELP");
-        draw_text(r, fonts->small, 24, 70, muted, "OPEN         Select a 4 MiB EEPROM image.");
-        draw_text(r, fonts->small, 24, 96, muted, "LOAD ADDR    Gate all 16 input switches onto ADDRESS BUS.");
-        draw_text(r, fonts->small, 24, 122, muted, "EXAM / +     Read current / next memory byte onto DATA BUS.");
-        draw_text(r, fonts->small, 24, 148, muted, "DEPOSIT / +  Write D0-D7 switches to current / next address.");
-        draw_text(r, fonts->small, 24, 174, muted, "START        Set PC to front-panel address and run.");
-        draw_text(r, fonts->small, 24, 200, muted, "CONT/STOP    Continue or stop CPU execution.");
-        draw_text(r, fonts->small, 24, 226, muted, "STEP/MICRO   Execute one instruction or controller microstep.");
-        draw_text(r, fonts->small, 24, 252, muted, "PWR          Power-gates processor only; GUI stays open.");
-        draw_text(r, fonts->small, 24, 278, muted, "Switches 0-7 drive DATA BUS; 8-F are used by LOAD ADDRESS.");
     }
 
     SDL_RenderPresent(r);
@@ -620,7 +609,6 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
     AuxWindow log_window = {0};
-    AuxWindow help_window = {0};
 
     bool switches[16] = {0};
     bool panel_running = true;
@@ -636,46 +624,36 @@ int ppa_gui_run_panel(const char *initial_rom,
     };
     int clock_index = 3;
 
-    const char *output_values[] = {
-        "PARALLEL", "SERIAL TTL", "SERIAL RS-232", "INTERNAL"
-    };
-    int output_index = 3;
-
-    const char *format_values[] = {"BIN", "HEX", "ASCII"};
-    int format_index = 1;
-
     /* Menu lives in real window coordinates and always spans the whole window. */
     SDL_FRect menu_open = {10, 5, 72, 28};
     SDL_FRect menu_pref = {86, 5, 112, 28};
     SDL_FRect menu_view = {202, 5, 72, 28};
     SDL_FRect menu_log  = {278, 5, 64, 28};
-    SDL_FRect menu_help = {346, 5, 72, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
-    /* Front-panel programming row. */
-    SDL_FRect fp_load_addr = {640, 582, 92, 36};
-    SDL_FRect fp_exam      = {738, 582, 78, 36};
-    SDL_FRect fp_exam_next = {822, 582, 88, 36};
-    SDL_FRect fp_dep       = {916, 582, 82, 36};
-    SDL_FRect fp_dep_next  = {1004, 582, 88, 36};
-    SDL_FRect fp_start     = {1098, 582, 66, 36};
+    /* Real front-panel programming row. */
+    SDL_FRect fp_load_addr = {650, 548, 96, 38};
+    SDL_FRect fp_addr_dec  = {754, 548, 76, 38};
+    SDL_FRect fp_addr_inc  = {838, 548, 76, 38};
+    SDL_FRect fp_exam      = {922, 548, 76, 38};
+    SDL_FRect fp_dep       = {1006, 548, 86, 38};
+    SDL_FRect fp_start     = {1100, 548, 70, 38};
 
     /* Processor execution row. */
-    SDL_FRect op_cont  = {640, 626, 72, 38};
-    SDL_FRect op_stop  = {718, 626, 72, 38};
-    SDL_FRect op_step  = {796, 626, 72, 38};
-    SDL_FRect op_ustep = {874, 626, 82, 38};
-    SDL_FRect op_reset = {962, 626, 72, 38};
-    SDL_FRect load_btn = {1040, 626, 124, 38};
+    SDL_FRect op_cont  = {650, 596, 76, 40};
+    SDL_FRect op_stop  = {734, 596, 76, 40};
+    SDL_FRect op_step  = {818, 596, 76, 40};
+    SDL_FRect op_ustep = {902, 596, 84, 40};
+    SDL_FRect op_reset = {994, 596, 76, 40};
 
-    SDL_FRect power_btn = {1185, 602, 48, 102};
+    SDL_FRect power_btn = {1184, 546, 48, 104};
 
-    const float clock_cx = 748.0f, clock_cy = 408.0f, clock_radius = 36.0f;
-    const float output_cx = 922.0f, output_cy = 408.0f, output_radius = 32.0f;
-    SDL_FRect format_hit = {1050, 364, 125, 88};
+    const float clock_cx = 838.0f, clock_cy = 406.0f, clock_radius = 38.0f;
 
     Uint64 last_ticks = SDL_GetTicks();
     double instruction_accum = 0.0;
+    ButtonId pressed_button = BTN_NONE;
+    Uint64 pressed_until = 0;
 
     ppa_log_printf("GUI: fixed-layout PPA-1 front panel opened.\n");
 
