@@ -1471,6 +1471,40 @@ static void gui_backend_start_at(void *ctx, uint16_t address) {
     printf("GUI: START at %04X\n", address);
 }
 
+static bool gui_backend_set_tty_enabled(void *ctx, bool enabled) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->serial) return false;
+
+    if (enabled) {
+        if (g->serial->enabled) return true;
+        if (!serial_open_pty(g->serial)) {
+            printf("GUI: failed to create PTY serial terminal\n");
+            return false;
+        }
+
+        printf("GUI: PTY serial enabled: %s\n", g->serial->slave_name);
+        printf("Connect with: screen %s 9600\n", g->serial->slave_name);
+        return true;
+    }
+
+    if (g->serial->enabled) {
+        printf("GUI: PTY serial disabled: %s\n", g->serial->slave_name);
+        serial_close(g->serial);
+    }
+    return true;
+}
+
+static bool gui_backend_is_tty_enabled(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return g && g->serial && g->serial->enabled;
+}
+
+static const char *gui_backend_tty_name(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->serial || !g->serial->enabled) return "";
+    return g->serial->slave_name;
+}
+
 static bool gui_backend_is_loaded(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     return g && g->loaded;
@@ -1603,6 +1637,9 @@ int main(int argc, char **argv) {
             .examine = gui_backend_examine,
             .deposit = gui_backend_deposit,
             .start_at = gui_backend_start_at,
+            .set_tty_enabled = gui_backend_set_tty_enabled,
+            .is_tty_enabled = gui_backend_is_tty_enabled,
+            .tty_name = gui_backend_tty_name,
             .is_loaded = gui_backend_is_loaded,
             .is_powered = gui_backend_is_powered,
             .is_running = gui_backend_is_running,
