@@ -1504,11 +1504,23 @@ static void gui_backend_set_running(void *ctx, bool running) {
 
 static void gui_backend_reset(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->loaded) return;
+    if (!g || !g->loaded || !g->memory) return;
+
+    /* Hard front-panel RESET:
+       - reset every volatile CPU register/state
+       - clear all main RAM banks
+       - clear the SYSTEM stack RAM
+       - restore reserved SYSTEM bytes to their power-on value
+       EEPROM contents are intentionally preserved. */
     gui_cpu_reset_state(g);
+    memset(g->memory->ram, 0x00, sizeof(g->memory->ram));
+    memset(g->memory->stack, 0x00, sizeof(g->memory->stack));
+    memset(g->memory->reserved, 0xFF, sizeof(g->memory->reserved));
+
     g->panel_data_bus = 0x00;
     g->running = false;
-    printf("GUI: processor reset\n");
+
+    printf("GUI: hard RESET (CPU registers + RAM cleared, EEPROM preserved)\n");
 }
 
 static void gui_backend_step_instruction(void *ctx) {
