@@ -1535,6 +1535,9 @@ int ppa_gui_run_panel(const char *initial_rom,
             ? backend->data_bus(backend->ctx)
             : (exam_held ? exam_data : front_data_latch);
         Uint8 data = bus_data;
+        Uint8 status_register = backend->status_register
+            ? backend->status_register(backend->ctx)
+            : 0;
 
         if (data_source_index == 1 && backend->register_value) {
             data = backend->register_value(backend->ctx, register_index);
@@ -1651,18 +1654,6 @@ int ppa_gui_run_panel(const char *initial_rom,
                      COL_GREEN);
         }
 
-        draw_text(renderer, panel_fonts.label, 452, 284,
-                  COL_LIGHT_GRAY, "CPU");
-        draw_led(renderer, &panel_fonts, 448, 302, "RDY",
-                 prefs.lamp_test || (loaded && powered && !halted),
-                 COL_GREEN);
-        draw_led(renderer, &panel_fonts, 493, 302, "RUN",
-                 prefs.lamp_test || (powered && running),
-                 COL_GREEN);
-        draw_led(renderer, &panel_fonts, 538, 302, "HLT",
-                 prefs.lamp_test || (loaded && halted),
-                 COL_RED);
-
         /* Right upper: system status, no separate box. */
         draw_text(renderer, panel_fonts.section, 646, 126,
                   COL_WHITE, "SYSTEM STATUS");
@@ -1689,6 +1680,21 @@ int ppa_gui_run_panel(const char *initial_rom,
                      prefs.lamp_test || sys_on[i],
                      sys_colors[i]);
         }
+
+        /*
+         * STATUS REGISTER is shown semantically, not as raw S7-S0 bits.
+         * PPA-1 currently defines only ZERO (bit 0) and CARRY (bit 1).
+         */
+        draw_text(renderer, panel_fonts.label, 646, 226,
+                  COL_LIGHT_GRAY, "STATUS REGISTER");
+        draw_led(renderer, &panel_fonts, 650, 245, "ZERO",
+                 prefs.lamp_test ||
+                     (powered && ((status_register & 0x01u) != 0)),
+                 COL_GREEN);
+        draw_led(renderer, &panel_fonts, 728, 245, "CARRY",
+                 prefs.lamp_test ||
+                     (powered && ((status_register & 0x02u) != 0)),
+                 COL_ORANGE);
 
         /* Lower left: manual switch register. */
         draw_text(renderer, panel_fonts.section, 52, 371,
