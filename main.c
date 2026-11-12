@@ -1334,13 +1334,6 @@ int main(int argc, char **argv) {
     printf("PPA-1 Emu\n");
     printf("(c) 2026 Adam Cír (Adava), Adava Software, Adava Development\n");
 
-    if (argc < 2) {
-        usage(argv[0]);
-        return 1;
-    }
-
-    const char *rom_path = argv[1];
-
     CPU cpu = {0};
     Memory memory = {0};
     Serial serial = {0};
@@ -1359,9 +1352,16 @@ int main(int argc, char **argv) {
     bool no_gui = false;
     uint16_t dump_start = 0;
     uint16_t dump_len = 0;
+    const char *rom_path = NULL;
 
-    for (int i = 2; i < argc; i++) {
-        if (strcmp(argv[i], "--base") == 0 && i + 1 < argc) {
+    /*
+     * GUI is the default mode. The first non-option argument is the ROM image.
+     * --nogui explicitly selects the classic console frontend.
+     */
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--nogui") == 0) {
+            no_gui = true;
+        } else if (strcmp(argv[i], "--base") == 0 && i + 1 < argc) {
             base = (uint16_t)parse_hex(argv[++i]);
         } else if (strcmp(argv[i], "--pc") == 0 && i + 1 < argc) {
             cpu.PC = (uint16_t)parse_hex(argv[++i]);
@@ -1369,14 +1369,19 @@ int main(int argc, char **argv) {
             steps = strtoll(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--tty") == 0) {
             tty_enabled = true;
-        } else if (strcmp(argv[i], "--nogui") == 0) {
-            no_gui = true;
         } else if (strcmp(argv[i], "--dump") == 0 && i + 2 < argc) {
             do_dump = true;
             dump_start = (uint16_t)parse_hex(argv[++i]);
             dump_len = (uint16_t)parse_hex(argv[++i]);
+        } else if (argv[i][0] == '-') {
+            usage(argv[0]);
+            ppa_log_close();
+            return 1;
+        } else if (!rom_path) {
+            rom_path = argv[i];
         } else {
             usage(argv[0]);
+            ppa_log_close();
             return 1;
         }
     }
@@ -1385,8 +1390,27 @@ int main(int argc, char **argv) {
     ppa_gui_init_state(&gui_state, no_gui);
     ppa_gui_log_mode(&gui_state);
 
+    char gui_rom_path[1024] = {0};
+
+    if (!no_gui) {
+        PPA1GuiLaunchOptions gui_options;
+        if (!ppa_gui_run_launcher(rom_path, &gui_options)) {
+            ppa_log_close();
+            return 0;
+        }
+
+        snprintf(gui_rom_path, sizeof(gui_rom_path), "%s", gui_options.rom_path);
+        rom_path = gui_rom_path;
+        if (gui_options.tty_enabled) tty_enabled = true;
+    } else if (!rom_path) {
+        usage(argv[0]);
+        ppa_log_close();
+        return 1;
+    }
+
     if (tty_enabled) {
         if (!serial_open_pty(&serial)) {
+            ppa_log_close();
             return 1;
         }
 
@@ -1396,6 +1420,7 @@ int main(int argc, char **argv) {
 
         if (!serial_wait_for_client(&serial)) {
             serial_close(&serial);
+            ppa_log_close();
             return 1;
         }
     }
@@ -1403,6 +1428,8 @@ int main(int argc, char **argv) {
     int loaded = load_rom(&memory, rom_path, base);
     if (!loaded) {
         printf("Failed to load ROM.\n");
+        serial_close(&serial);
+        ppa_log_close();
         return 1;
     }
 
