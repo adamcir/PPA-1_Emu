@@ -27,6 +27,8 @@ typedef struct {
     TTF_Font *small;
 } PanelFonts;
 
+static float g_text_pixel_scale = 1.0f;
+
 typedef enum {
     AUX_NONE = 0,
     AUX_PREFERENCES,
@@ -126,7 +128,7 @@ static const char *find_bold_font(void) {
     return NULL;
 }
 
-static bool load_fonts(PanelFonts *f) {
+static bool load_fonts_scaled(PanelFonts *f, float scale) {
     const char *regular = find_regular_font();
     const char *bold = find_bold_font();
 
@@ -135,13 +137,19 @@ static bool load_fonts(PanelFonts *f) {
         return false;
     }
 
-    f->title   = TTF_OpenFont(regular, 39.0f);
-    f->badge   = TTF_OpenFont(bold, 34.0f);
-    f->section = TTF_OpenFont(bold, 17.0f);
-    f->label   = TTF_OpenFont(bold, 13.5f);
-    f->small   = TTF_OpenFont(regular, 11.5f);
+    if (scale < 1.0f) scale = 1.0f;
+
+    f->title   = TTF_OpenFont(regular, 39.0f * scale);
+    f->badge   = TTF_OpenFont(bold, 34.0f * scale);
+    f->section = TTF_OpenFont(bold, 17.0f * scale);
+    f->label   = TTF_OpenFont(bold, 13.5f * scale);
+    f->small   = TTF_OpenFont(regular, 11.5f * scale);
 
     return f->title && f->badge && f->section && f->label && f->small;
+}
+
+static bool load_fonts(PanelFonts *f) {
+    return load_fonts_scaled(f, 1.0f);
 }
 
 static void close_fonts(PanelFonts *f) {
@@ -177,7 +185,9 @@ static void draw_text(SDL_Renderer *r, TTF_Font *font,
     SDL_Texture *texture = make_text_texture(r, font, color, text, &w, &h);
     if (!texture) return;
 
-    SDL_FRect dst = {x, y, (float)w, (float)h};
+    float logical_w = (float)w / g_text_pixel_scale;
+    float logical_h = (float)h / g_text_pixel_scale;
+    SDL_FRect dst = {x, y, logical_w, logical_h};
     SDL_RenderTexture(r, texture, NULL, &dst);
     SDL_DestroyTexture(texture);
 }
@@ -190,10 +200,12 @@ static void draw_text_center(SDL_Renderer *r, TTF_Font *font,
     SDL_Texture *texture = make_text_texture(r, font, color, text, &w, &h);
     if (!texture) return;
 
+    float logical_w = (float)w / g_text_pixel_scale;
+    float logical_h = (float)h / g_text_pixel_scale;
     SDL_FRect dst = {
-        rect.x + (rect.w - (float)w) * 0.5f,
-        rect.y + (rect.h - (float)h) * 0.5f,
-        (float)w, (float)h
+        rect.x + (rect.w - logical_w) * 0.5f,
+        rect.y + (rect.h - logical_h) * 0.5f,
+        logical_w, logical_h
     };
     SDL_RenderTexture(r, texture, NULL, &dst);
     SDL_DestroyTexture(texture);
@@ -210,7 +222,19 @@ static void draw_text_fit(SDL_Renderer *r, TTF_Font *font,
         return;
     }
 
-    SDL_FRect dst = rect;
+    float logical_w = (float)w / g_text_pixel_scale;
+    float logical_h = (float)h / g_text_pixel_scale;
+    float scale_x = rect.w / logical_w;
+    float scale_y = rect.h / logical_h;
+    float fit = scale_x < scale_y ? scale_x : scale_y;
+    if (fit > 1.0f) fit = 1.0f;
+
+    SDL_FRect dst = {
+        rect.x + (rect.w - logical_w * fit) * 0.5f,
+        rect.y + (rect.h - logical_h * fit) * 0.5f,
+        logical_w * fit,
+        logical_h * fit
+    };
     SDL_RenderTexture(r, texture, NULL, &dst);
     SDL_DestroyTexture(texture);
 }
