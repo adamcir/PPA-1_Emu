@@ -585,6 +585,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     FileDialogState file_state = {0};
     if (initial_rom && *initial_rom) {
         snprintf(file_state.rom_path, sizeof(file_state.rom_path), "%s", initial_rom);
+        file_state.load_requested = true;
     }
 
     const SDL_DialogFileFilter filters[] = {
@@ -845,16 +846,10 @@ int ppa_gui_run_panel(const char *initial_rom,
         if (file_state.load_requested && file_state.rom_path[0]) {
             file_state.load_requested = false;
             if (backend->load_rom(backend->ctx, file_state.rom_path)) {
-                backend->set_power(backend->ctx, true);
                 manual_address = 0x0000;
 
-                uint8_t data_value = 0;
-                for (int bit = 0; bit < 8; bit++) {
-                    if (switches[bit]) data_value |= (uint8_t)(1u << bit);
-                }
-                backend->set_data_input(backend->ctx, data_value);
-
                 if (prefs.auto_run) {
+                    backend->set_power(backend->ctx, true);
                     backend->set_running(backend->ctx, true);
                 }
             }
