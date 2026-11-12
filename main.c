@@ -1425,11 +1425,11 @@ static void gui_backend_set_data_input(void *ctx, uint8_t value) {
 
 static void gui_backend_load_address(void *ctx, uint16_t address) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->loaded || !g->powered) return;
+    if (!g || !g->powered) return;
 
     g->running = false;
     g->cpu->AR = address;
-    printf("GUI: LOAD ADDRESS -> %04X (BR=%04X)\n", address, g->cpu->BR);
+    printf("GUI: LOAD ADDRESS -> AR=%04X (BR=%04X)\n", address, g->cpu->BR);
 }
 
 static uint8_t gui_backend_examine(void *ctx, uint16_t address) {
@@ -1527,7 +1527,7 @@ static bool gui_backend_is_halted(void *ctx) {
 
 static uint16_t gui_backend_address_bus(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    return (g && g->loaded) ? g->cpu->AR : 0;
+    return (g && g->cpu) ? g->cpu->AR : 0;
 }
 
 static uint8_t gui_backend_data_bus(void *ctx) {
