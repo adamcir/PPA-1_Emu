@@ -20,6 +20,11 @@ typedef struct {
     void (*step_micro)(void *ctx);
     void (*tick)(void *ctx, int instruction_budget);
 
+    void (*load_address)(void *ctx, uint16_t address);
+    uint8_t (*examine)(void *ctx, uint16_t address);
+    void (*deposit)(void *ctx, uint16_t address, uint8_t value);
+    void (*start_at)(void *ctx, uint16_t address);
+
     bool (*is_loaded)(void *ctx);
     bool (*is_powered)(void *ctx);
     bool (*is_running)(void *ctx);
