@@ -44,7 +44,8 @@ typedef enum {
     AUX_NONE = 0,
     AUX_PREFERENCES,
     AUX_VIEW,
-    AUX_LOG
+    AUX_LOG,
+    AUX_CREDITS
 } AuxKind;
 
 #define TERM_LINES 128
@@ -83,9 +84,12 @@ typedef struct {
 typedef struct {
     bool auto_run;
     bool lamp_test;
-    bool high_contrast;
     bool tty_requested;
 } Preferences;
+
+static const SDL_FRect PREF_LAMP_BUTTON = {24, 78, 512, 62};
+static const SDL_FRect PREF_AUTORUN_BUTTON = {24, 150, 512, 62};
+static const SDL_FRect PREF_PTY_BUTTON = {24, 222, 512, 62};
 
 static bool point_in_rect(float x, float y, const SDL_FRect *r) {
     return x >= r->x && y >= r->y && x < r->x + r->w && y < r->y + r->h;
@@ -542,6 +546,80 @@ static void draw_menu_button(SDL_Renderer *r, PanelFonts *fonts,
                      (SDL_Color){225, 221, 204, 255}, label);
 }
 
+static void draw_aux_header(SDL_Renderer *r, PanelFonts *fonts,
+                            const char *title, const char *subtitle)
+{
+    draw_text(r, fonts->section, 24, 18,
+              (SDL_Color){238, 240, 234, 255}, title);
+
+    if (subtitle && *subtitle) {
+        draw_text(r, fonts->small, 24, 42,
+                  (SDL_Color){151, 156, 151, 255}, subtitle);
+    }
+
+    SDL_SetRenderDrawColor(r, 73, 77, 74, 255);
+    SDL_RenderLine(r, 24, 64, 536, 64);
+}
+
+static void draw_aux_toggle_button(SDL_Renderer *r, PanelFonts *fonts,
+                                   SDL_FRect rect,
+                                   const char *title,
+                                   const char *description,
+                                   bool enabled,
+                                   SDL_Color accent)
+{
+    SDL_Color fill = enabled
+        ? (SDL_Color){42, 47, 44, 255}
+        : (SDL_Color){34, 36, 36, 255};
+    SDL_Color border = enabled
+        ? accent
+        : (SDL_Color){78, 81, 78, 255};
+
+    SDL_SetRenderDrawColor(r, fill.r, fill.g, fill.b, 255);
+    SDL_RenderFillRect(r, &rect);
+
+    SDL_SetRenderDrawColor(r, border.r, border.g, border.b, 255);
+    SDL_RenderRect(r, &rect);
+
+    SDL_FRect inner = {
+        rect.x + 1.0f, rect.y + 1.0f,
+        rect.w - 2.0f, rect.h - 2.0f
+    };
+    SDL_RenderRect(r, &inner);
+
+    draw_text(r, fonts->label,
+              rect.x + 16.0f, rect.y + 9.0f,
+              (SDL_Color){238, 240, 234, 255}, title);
+
+    draw_text(r, fonts->small,
+              rect.x + 16.0f, rect.y + 34.0f,
+              (SDL_Color){164, 169, 164, 255}, description);
+
+    SDL_FRect state = {
+        rect.x + rect.w - 70.0f,
+        rect.y + 16.0f,
+        52.0f, 30.0f
+    };
+
+    SDL_Color state_fill = enabled
+        ? accent
+        : (SDL_Color){52, 54, 53, 255};
+
+    SDL_SetRenderDrawColor(r,
+        state_fill.r, state_fill.g, state_fill.b, 255);
+    SDL_RenderFillRect(r, &state);
+
+    SDL_SetRenderDrawColor(r,
+        enabled ? 225 : 91,
+        enabled ? 226 : 94,
+        enabled ? 218 : 91, 255);
+    SDL_RenderRect(r, &state);
+
+    draw_text_center(r, fonts->label, state,
+                     (SDL_Color){247, 247, 240, 255},
+                     enabled ? "ON" : "OFF");
+}
+
 static void read_log_tail(char lines[][160], int *line_count, int max_lines) {
     *line_count = 0;
     FILE *f = fopen("latest.log", "r");
@@ -764,26 +842,48 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
     SDL_Color muted = {180, 181, 171, 255};
 
     if (aux->kind == AUX_PREFERENCES) {
-        draw_text(r, fonts->section, 24, 20, cream, "PREFERENCES");
-        draw_text(r, fonts->label, 24, 70, cream, "Front panel");
-        draw_text(r, fonts->small, 24, 100, muted,
-                  prefs->high_contrast ? "High contrast panel: ON" : "High contrast panel: OFF");
-        draw_text(r, fonts->small, 24, 128, muted,
-                  prefs->lamp_test ? "Lamp test: ON" : "Lamp test: OFF");
-        draw_text(r, fonts->small, 24, 156, muted,
-                  prefs->auto_run ? "Auto RUN after LOAD: ON" : "Auto RUN after LOAD: OFF");
+        draw_aux_header(r, fonts, "PREFERENCES",
+                        "EMULATOR & FRONT PANEL");
+
+        bool pty_on = backend->is_tty_enabled &&
+                      backend->is_tty_enabled(backend->ctx);
+
+        draw_aux_toggle_button(
+            r, fonts, PREF_LAMP_BUTTON,
+            "LAMP TEST",
+            "Light every front-panel indicator for a quick hardware check.",
+            prefs->lamp_test, COL_GREEN);
+
+        draw_aux_toggle_button(
+            r, fonts, PREF_AUTORUN_BUTTON,
+            "AUTO RUN AFTER LOAD",
+            "Power the processor and start execution after loading EEPROM.",
+            prefs->auto_run, COL_ORANGE);
+
+        draw_aux_toggle_button(
+            r, fonts, PREF_PTY_BUTTON,
+            "EXTERNAL PTY",
+            "Expose FF00-FF03 UART through a Linux pseudo-terminal.",
+            pty_on, COL_BLUE);
+
         char pty_line[256];
-        if (backend->is_tty_enabled && backend->is_tty_enabled(backend->ctx)) {
-            snprintf(pty_line, sizeof(pty_line), "External PTY: ON   %s",
-                     backend->tty_name ? backend->tty_name(backend->ctx) : "");
+        if (pty_on && backend->tty_name) {
+            snprintf(pty_line, sizeof(pty_line),
+                     "ACTIVE DEVICE: %s",
+                     backend->tty_name(backend->ctx));
         } else {
-            snprintf(pty_line, sizeof(pty_line), "External PTY: OFF");
+            snprintf(pty_line, sizeof(pty_line),
+                     "No external serial device active.");
         }
-        draw_text(r, fonts->small, 24, 184, muted, pty_line);
-        draw_text(r, fonts->small, 24, 230, muted,
-                  "Click each line to toggle the setting.");
+
+        draw_text(r, fonts->mono, 24, 302,
+                  pty_on ? COL_BLUE : muted, pty_line);
+        draw_text(r, fonts->small, 24, 329, muted,
+                  "Changes apply immediately.");
+
     } else if (aux->kind == AUX_VIEW) {
-        draw_text(r, fonts->section, 24, 20, cream, "PROCESSOR VIEW");
+        draw_aux_header(r, fonts, "PROCESSOR VIEW",
+                        "LIVE FRONT-PANEL TELEMETRY");
         bool loaded = backend->is_loaded(backend->ctx);
         bool power = backend->is_powered(backend->ctx);
         bool running = backend->is_running(backend->ctx);
@@ -803,7 +903,8 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         snprintf(line, sizeof(line), "DATA BUS: %02X", backend->data_bus(backend->ctx));
         draw_text(r, fonts->small, 24, 222, cream, line);
     } else if (aux->kind == AUX_LOG) {
-        draw_text(r, fonts->section, 24, 20, cream, "LATEST.LOG");
+        draw_aux_header(r, fonts, "LATEST.LOG",
+                        "LIVE EMULATOR TRACE");
         char lines[16][160];
         int count = 0;
         read_log_tail(lines, &count, 16);
@@ -811,6 +912,50 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         for (int i = 0; i < count; i++, y += 20.0f) {
             draw_text(r, fonts->small, 24, y, muted, lines[i]);
         }
+    } else if (aux->kind == AUX_CREDITS) {
+        draw_aux_header(r, fonts, "CREDITS",
+                        "PROGRAMBLE PROCESSOR A-1");
+
+        SDL_FRect badge = {24, 88, 184, 76};
+        SDL_SetRenderDrawColor(r, 28, 30, 30, 255);
+        SDL_RenderFillRect(r, &badge);
+        SDL_SetRenderDrawColor(r, 238, 240, 234, 255);
+        SDL_RenderRect(r, &badge);
+        SDL_FRect badge_inner = {
+            badge.x + 2.0f, badge.y + 2.0f,
+            badge.w - 4.0f, badge.h - 4.0f
+        };
+        SDL_RenderRect(r, &badge_inner);
+        draw_text_stretched(r, fonts->badge,
+                            (SDL_FRect){34, 94, 164, 62},
+                            COL_WHITE, "A-1");
+
+        draw_text(r, fonts->small, 236, 88, muted,
+                  "DESIGNED & DEVELOPED BY");
+        draw_text(r, fonts->section, 236, 112, cream,
+                  "Adam Cir (Adava)");
+        draw_text(r, fonts->small, 236, 142, muted,
+                  "Adava Electronics / Adava Development");
+
+        SDL_SetRenderDrawColor(r, 73, 77, 74, 255);
+        SDL_RenderLine(r, 24, 188, 536, 188);
+
+        draw_text(r, fonts->label, 24, 210, cream,
+                  "PPA-1 EMULATOR");
+        draw_text(r, fonts->small, 24, 238, muted,
+                  "Original 8-bit processor architecture and emulator.");
+        draw_text(r, fonts->small, 24, 264, muted,
+                  "Frontend: SDL3 + SDL3_ttf");
+        draw_text(r, fonts->small, 24, 290, muted,
+                  "(c) 2026 Adam Cir (Adava)");
+
+        SDL_FRect footer = {24, 326, 512, 1};
+        SDL_SetRenderDrawColor(r, 73, 77, 74, 255);
+        SDL_RenderFillRect(r, &footer);
+        draw_text_center(r, fonts->small,
+                         (SDL_FRect){24, 338, 512, 20},
+                         (SDL_Color){126, 226, 112, 255},
+                         "PROGRAMBLE PROCESSOR A-1");
     }
 
     SDL_RenderPresent(r);
@@ -920,7 +1065,6 @@ int ppa_gui_run_panel(const char *initial_rom,
     Preferences prefs = {
         .auto_run = false,
         .lamp_test = false,
-        .high_contrast = false,
         .tty_requested = false
     };
 
@@ -934,6 +1078,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
     AuxWindow log_window = {0};
+    AuxWindow credits_window = {0};
     TerminalWindow uart_terminal = {0};
 
     bool switches[16] = {0};
@@ -981,6 +1126,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_FRect menu_view = {202, 5, 72, 28};
     SDL_FRect menu_log  = {278, 5, 64, 28};
     SDL_FRect menu_terminal = {346, 5, 118, 28};
+    SDL_FRect menu_credits = {468, 5, 86, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
     /* Front-panel bank/address/memory programming row. */
@@ -1089,6 +1235,9 @@ int ppa_gui_run_panel(const char *initial_rom,
                     destroy_aux(&view_window);
                 } else if (log_window.window && id == SDL_GetWindowID(log_window.window)) {
                     destroy_aux(&log_window);
+                } else if (credits_window.window &&
+                           id == SDL_GetWindowID(credits_window.window)) {
+                    destroy_aux(&credits_window);
                 } else if (uart_terminal.window &&
                            id == SDL_GetWindowID(uart_terminal.window)) {
                     close_terminal(&uart_terminal, backend);
@@ -1237,13 +1386,18 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 filters, 2, NULL, false);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_pref)) {
-                            open_aux(&prefs_window, AUX_PREFERENCES, "PPA-1 Preferences", 520, 330);
+                            open_aux(&prefs_window, AUX_PREFERENCES,
+                                     "PPA-1 Preferences", 560, 380);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_view)) {
                             open_aux(&view_window, AUX_VIEW, "PPA-1 Processor View", 520, 330);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_log)) {
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
+                            continue;
+                        } else if (point_in_rect(wx, wy, &menu_credits)) {
+                            open_aux(&credits_window, AUX_CREDITS,
+                                     "PPA-1 Credits", 560, 390);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_terminal)) {
                             if (uart_terminal.window) {
@@ -1456,18 +1610,34 @@ int ppa_gui_run_panel(const char *initial_rom,
                 } else if (prefs_window.window &&
                            id == SDL_GetWindowID(prefs_window.window) &&
                            event.button.button == SDL_BUTTON_LEFT) {
+                    float x = event.button.x;
                     float y = event.button.y;
-                    if (y >= 90 && y < 118) prefs.high_contrast = !prefs.high_contrast;
-                    else if (y >= 118 && y < 146) prefs.lamp_test = !prefs.lamp_test;
-                    else if (y >= 146 && y < 174) prefs.auto_run = !prefs.auto_run;
-                    else if (y >= 174 && y < 206) {
+
+                    if (point_in_rect(x, y, &PREF_LAMP_BUTTON)) {
+                        prefs.lamp_test = !prefs.lamp_test;
+                        ppa_log_printf("GUI: Lamp test -> %s\n",
+                                       prefs.lamp_test ? "ON" : "OFF");
+                    } else if (point_in_rect(
+                                   x, y, &PREF_AUTORUN_BUTTON)) {
+                        prefs.auto_run = !prefs.auto_run;
+                        ppa_log_printf("GUI: Auto RUN after LOAD -> %s\n",
+                                       prefs.auto_run ? "ON" : "OFF");
+                    } else if (point_in_rect(
+                                   x, y, &PREF_PTY_BUTTON)) {
                         bool desired = !(backend->is_tty_enabled &&
-                                         backend->is_tty_enabled(backend->ctx));
+                                         backend->is_tty_enabled(
+                                             backend->ctx));
                         if (backend->set_tty_enabled &&
-                            backend->set_tty_enabled(backend->ctx, desired)) {
-                            prefs.tty_requested = backend->is_tty_enabled
-                                ? backend->is_tty_enabled(backend->ctx)
-                                : desired;
+                            backend->set_tty_enabled(
+                                backend->ctx, desired)) {
+                            prefs.tty_requested =
+                                backend->is_tty_enabled
+                                    ? backend->is_tty_enabled(
+                                          backend->ctx)
+                                    : desired;
+                            ppa_log_printf(
+                                "GUI: External PTY -> %s\n",
+                                prefs.tty_requested ? "ON" : "OFF");
                         }
                     }
                 }
@@ -1555,9 +1725,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         SDL_FRect face = {10, 8, 1260, 742};
         draw_bevel_panel(renderer, face,
-            prefs.high_contrast
-                ? COL_GRAY
-                : COL_DARK_GRAY,
+            COL_DARK_GRAY,
             COL_LIGHT_GRAY,
             COL_BLACK);
 
@@ -1826,6 +1994,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_menu_button(renderer, &fonts, menu_view, "VIEW");
         draw_menu_button(renderer, &fonts, menu_log, "LOG");
         draw_menu_button(renderer, &fonts, menu_terminal, "UART MONITOR");
+        draw_menu_button(renderer, &fonts, menu_credits, "CREDITS");
 
         SDL_FRect panel_dst = {
             panel_origin_x, panel_origin_y,
@@ -1837,6 +2006,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
         draw_aux_window(&view_window, &fonts, &prefs, backend);
         draw_aux_window(&log_window, &fonts, &prefs, backend);
+        draw_aux_window(&credits_window, &fonts, &prefs, backend);
         draw_terminal(&uart_terminal, &fonts, backend);
     }
 
@@ -1846,6 +2016,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&prefs_window);
     destroy_aux(&view_window);
     destroy_aux(&log_window);
+    destroy_aux(&credits_window);
     SDL_DestroyTexture(panel_texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
