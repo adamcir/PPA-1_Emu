@@ -1106,16 +1106,23 @@ int ppa_gui_run_panel(const char *initial_rom,
         bool running = backend->is_running(backend->ctx);
         bool halted = backend->is_halted(backend->ctx);
 
+        bool clock_level = false;
+
         if (loaded && powered && running && !halted) {
-            instruction_accum += dt * clock_rates[clock_index];
-            int budget = (int)instruction_accum;
-            if (budget > 0) {
-                if (budget > 5000) budget = 5000;
-                backend->tick(backend->ctx, budget);
-                instruction_accum -= (double)budget;
+            double total_cycles = clock_phase + dt * clock_rates[clock_index];
+            double whole_cycles = floor(total_cycles);
+            int rising_edges = (int)whole_cycles;
+            clock_phase = total_cycles - whole_cycles;
+
+            if (rising_edges > 5000) rising_edges = 5000;
+            if (rising_edges > 0) {
+                backend->tick(backend->ctx, rising_edges);
             }
+
+            clock_level = clock_phase < 0.5;
         } else {
             clock_phase = 0.0;
+            clock_level = false;
         }
 
         loaded = backend->is_loaded(backend->ctx);
@@ -1223,7 +1230,7 @@ int ppa_gui_run_panel(const char *initial_rom,
             powered && running,
             loaded && halted,
             false,
-            powered && running && ((now / 250) & 1u),
+            clock_level,
             loaded,
             false
         };
@@ -1331,6 +1338,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
         draw_menu_button(renderer, &fonts, menu_view, "VIEW");
         draw_menu_button(renderer, &fonts, menu_log, "LOG");
+        draw_menu_button(renderer, &fonts, menu_terminal, "TERMINAL");
 
         SDL_FRect panel_dst = {
             panel_origin_x, panel_origin_y,
@@ -1342,6 +1350,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
         draw_aux_window(&view_window, &fonts, &prefs, backend);
         draw_aux_window(&log_window, &fonts, &prefs, backend);
+        draw_terminal(&terminal_window, &fonts, backend);
     }
 
     backend->set_running(backend->ctx, false);
@@ -1349,6 +1358,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&prefs_window);
     destroy_aux(&view_window);
     destroy_aux(&log_window);
+    close_terminal(&terminal_window, backend);
     SDL_DestroyTexture(panel_texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
