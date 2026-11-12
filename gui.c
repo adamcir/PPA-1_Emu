@@ -14,6 +14,7 @@
 typedef struct {
     char rom_path[1024];
     bool dialog_open;
+    bool load_requested;
 } FileDialogState;
 
 typedef struct {
@@ -28,9 +29,23 @@ typedef enum {
     AUX_NONE = 0,
     AUX_PREFERENCES,
     AUX_VIEW,
-    AUX_LOG,
-    AUX_HELP
+    AUX_LOG
 } AuxKind;
+
+typedef enum {
+    BTN_NONE = 0,
+    BTN_LOAD_ADDR,
+    BTN_ADDR_DEC,
+    BTN_ADDR_INC,
+    BTN_EXAM,
+    BTN_DEPOSIT,
+    BTN_START,
+    BTN_CONT,
+    BTN_STOP,
+    BTN_STEP,
+    BTN_MICRO,
+    BTN_RESET
+} ButtonId;
 
 typedef struct {
     SDL_Window *window;
@@ -66,6 +81,7 @@ static void file_dialog_callback(void *userdata, const char * const *filelist, i
     }
 
     snprintf(state->rom_path, sizeof(state->rom_path), "%s", filelist[0]);
+    state->load_requested = true;
     ppa_log_printf("GUI: selected ROM: %s\n", state->rom_path);
 }
 
@@ -297,7 +313,7 @@ static void draw_toggle(SDL_Renderer *r, PanelFonts *fonts,
 
 static void draw_push_button(SDL_Renderer *r, PanelFonts *fonts,
                              SDL_FRect rect, const char *label,
-                             SDL_Color face, bool active)
+                             SDL_Color face, bool active, bool pressed)
 {
     SDL_Color actual = face;
     if (active) {
@@ -306,12 +322,27 @@ static void draw_push_button(SDL_Renderer *r, PanelFonts *fonts,
         actual.b = (Uint8)SDL_min(255, actual.b + 24);
     }
 
-    draw_bevel_panel(r, rect, actual,
-        (SDL_Color){208, 206, 190, 255},
-        (SDL_Color){16, 16, 16, 255});
+    if (pressed) {
+        rect.x += 2.0f;
+        rect.y += 2.0f;
+        actual.r = (Uint8)(actual.r * 0.84f);
+        actual.g = (Uint8)(actual.g * 0.84f);
+        actual.b = (Uint8)(actual.b * 0.84f);
+        draw_bevel_panel(r, rect, actual,
+            (SDL_Color){24, 24, 23, 255},
+            (SDL_Color){150, 148, 136, 255});
+    } else {
+        draw_bevel_panel(r, rect, actual,
+            (SDL_Color){208, 206, 190, 255},
+            (SDL_Color){16, 16, 16, 255});
+    }
 
     draw_text_center(r, fonts->label, rect,
                      (SDL_Color){246, 242, 221, 255}, label);
+}
+
+static bool button_pressed(ButtonId current, ButtonId id, Uint64 until) {
+    return current == id && SDL_GetTicks() < until;
 }
 
 static void draw_knob(SDL_Renderer *r, PanelFonts *fonts,
