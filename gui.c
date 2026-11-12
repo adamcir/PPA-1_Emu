@@ -35,6 +35,7 @@ typedef struct {
     TTF_Font *section;
     TTF_Font *label;
     TTF_Font *small;
+    TTF_Font *mono;
 } PanelFonts;
 
 static float g_text_pixel_scale = 1.0f;
@@ -139,11 +140,26 @@ static const char *find_bold_font(void) {
     return NULL;
 }
 
+static const char *find_mono_font(void) {
+    static const char *paths[] = {
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+        NULL
+    };
+
+    for (int i = 0; paths[i]; i++) {
+        if (SDL_GetPathInfo(paths[i], NULL)) return paths[i];
+    }
+    return NULL;
+}
+
 static bool load_fonts_scaled(PanelFonts *f, float scale) {
     const char *regular = find_regular_font();
     const char *bold = find_bold_font();
+    const char *mono = find_mono_font();
 
-    if (!regular || !bold) {
+    if (!regular || !bold || !mono) {
         ppa_log_printf("GUI: no suitable technical TrueType font found.\n");
         return false;
     }
@@ -158,8 +174,10 @@ static bool load_fonts_scaled(PanelFonts *f, float scale) {
     f->section = TTF_OpenFont(bold, 17.0f * scale);
     f->label   = TTF_OpenFont(bold, 13.5f * scale);
     f->small   = TTF_OpenFont(regular, 11.5f * scale);
+    f->mono    = TTF_OpenFont(mono, 12.0f * scale);
 
-    return f->title && f->badge && f->section && f->label && f->small;
+    return f->title && f->badge && f->section && f->label &&
+           f->small && f->mono;
 }
 
 static bool load_fonts(PanelFonts *f) {
@@ -172,6 +190,7 @@ static void close_fonts(PanelFonts *f) {
     if (f->section) TTF_CloseFont(f->section);
     if (f->label) TTF_CloseFont(f->label);
     if (f->small) TTF_CloseFont(f->small);
+    if (f->mono) TTF_CloseFont(f->mono);
     memset(f, 0, sizeof(*f));
 }
 
@@ -681,6 +700,10 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     SDL_SetRenderDrawColor(term->renderer, 45, 72, 58, 255);
     SDL_RenderLine(term->renderer, 14, 34, (float)w - 14.0f, 34);
 
+    /*
+     * Terminal body is deliberately monospaced: every character column must
+     * line up exactly with the same column on every other row.
+     */
     int visible = (h - 58) / 18;
     if (visible < 1) visible = 1;
     if (visible > TERM_LINES) visible = TERM_LINES;
@@ -690,7 +713,7 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
 
     float y = 44.0f;
     for (int line = start; line <= term->line && line < TERM_LINES; line++) {
-        draw_text(term->renderer, fonts->small, 14, y,
+        draw_text(term->renderer, fonts->mono, 14, y,
                   (SDL_Color){201, 230, 208, 255},
                   term->lines[line]);
         y += 18.0f;
