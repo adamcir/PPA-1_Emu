@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define PANEL_W 1280
-#define PANEL_H 820
+#define PANEL_H 760
 
 typedef struct {
     char rom_path[1024];
@@ -516,7 +516,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     SDL_Window *window = SDL_CreateWindow(
         "PROGRAMBLE PROCESSOR A-1",
-        PANEL_W, PANEL_H,
+        1280, 820,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!window) {
         close_fonts(&fonts);
@@ -535,10 +535,6 @@ int ppa_gui_run_panel(const char *initial_rom,
     }
 
     SDL_SetRenderVSync(renderer, 1);
-    SDL_SetRenderLogicalPresentation(
-        renderer, PANEL_W, PANEL_H,
-        SDL_LOGICAL_PRESENTATION_LETTERBOX);
-
     Uint32 main_window_id = SDL_GetWindowID(window);
 
     FileDialogState file_state = {0};
@@ -565,7 +561,6 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     bool switches[16] = {0};
     bool panel_running = true;
-    bool power_on = false;
 
     const char *clock_values[] = {
         "1 Hz", "10 Hz", "100 Hz", "1 kHz",
@@ -585,33 +580,52 @@ int ppa_gui_run_panel(const char *initial_rom,
     const char *format_values[] = {"BIN", "HEX", "ASCII"};
     int format_index = 1;
 
-    SDL_FRect menu_open = {10, 4, 72, 29};
-    SDL_FRect menu_pref = {86, 4, 112, 29};
-    SDL_FRect menu_view = {202, 4, 72, 29};
-    SDL_FRect menu_log  = {278, 4, 64, 29};
-    SDL_FRect menu_help = {346, 4, 72, 29};
+    /* Menu lives in real window coordinates and always spans the whole window. */
+    SDL_FRect menu_open = {10, 5, 72, 28};
+    SDL_FRect menu_pref = {86, 5, 112, 28};
+    SDL_FRect menu_view = {202, 5, 72, 28};
+    SDL_FRect menu_log  = {278, 5, 64, 28};
+    SDL_FRect menu_help = {346, 5, 72, 28};
 
-    SDL_FRect op_run   = {626, 686, 72, 42};
-    SDL_FRect op_stop  = {706, 686, 72, 42};
-    SDL_FRect op_step  = {786, 686, 76, 42};
-    SDL_FRect op_ustep = {870, 686, 92, 42};
-    SDL_FRect op_reset = {970, 686, 78, 42};
-    SDL_FRect op_exam  = {1056, 686, 86, 42};
-    SDL_FRect op_dep   = {1150, 686, 86, 42};
+    /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
+    SDL_FRect op_run   = {640, 590, 70, 42};
+    SDL_FRect op_stop  = {718, 590, 70, 42};
+    SDL_FRect op_step  = {796, 590, 74, 42};
+    SDL_FRect op_ustep = {878, 590, 88, 42};
+    SDL_FRect op_reset = {974, 590, 76, 42};
+    SDL_FRect op_exam  = {1058, 590, 84, 42};
+    SDL_FRect op_dep   = {1150, 590, 82, 42};
 
-    SDL_FRect load_btn = {1022, 750, 154, 40};
-    SDL_FRect power_btn = {1195, 665, 46, 112};
+    SDL_FRect load_btn = {1015, 645, 155, 38};
+    SDL_FRect power_btn = {1185, 642, 48, 82};
 
-    const float clock_cx = 738.0f, clock_cy = 472.0f, clock_radius = 36.0f;
-    const float output_cx = 912.0f, output_cy = 472.0f, output_radius = 32.0f;
-    SDL_FRect format_hit = {1050, 427, 130, 90};
+    const float clock_cx = 748.0f, clock_cy = 408.0f, clock_radius = 36.0f;
+    const float output_cx = 922.0f, output_cy = 408.0f, output_radius = 32.0f;
+    SDL_FRect format_hit = {1050, 364, 125, 88};
 
     Uint64 last_ticks = SDL_GetTicks();
     double instruction_accum = 0.0;
 
-    ppa_log_printf("GUI: persistent PPA-1 front panel opened.\n");
+    ppa_log_printf("GUI: fixed-layout PPA-1 front panel opened.\n");
 
     while (panel_running) {
+        int rw = 1280, rh = 820;
+        SDL_GetCurrentRenderOutputSize(renderer, &rw, &rh);
+
+        const float menu_h = 38.0f;
+        float available_h = (float)rh - menu_h;
+        if (available_h < 1.0f) available_h = 1.0f;
+
+        float scale_x = (float)rw / (float)PANEL_W;
+        float scale_y = available_h / (float)PANEL_H;
+        float panel_scale = scale_x < scale_y ? scale_x : scale_y;
+        if (panel_scale < 0.10f) panel_scale = 0.10f;
+
+        float panel_screen_w = (float)PANEL_W * panel_scale;
+        float panel_screen_h = (float)PANEL_H * panel_scale;
+        float panel_origin_x = ((float)rw - panel_screen_w) * 0.5f;
+        float panel_origin_y = menu_h + (available_h - panel_screen_h) * 0.5f;
+
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT) {
@@ -640,81 +654,97 @@ int ppa_gui_run_panel(const char *initial_rom,
 
                 if (id == main_window_id) {
                     SDL_ConvertEventToRenderCoordinates(renderer, &event);
-                    float x = event.button.x;
-                    float y = event.button.y;
+                    float wx = event.button.x;
+                    float wy = event.button.y;
 
                     if (event.button.button == SDL_BUTTON_LEFT) {
-                        if (point_in_rect(x, y, &menu_open) && !file_state.dialog_open) {
+                        /* Window-level dynamic menu. */
+                        if (point_in_rect(wx, wy, &menu_open) && !file_state.dialog_open) {
                             file_state.dialog_open = true;
                             SDL_ShowOpenFileDialog(
                                 file_dialog_callback, &file_state, window,
                                 filters, 2, NULL, false);
-                        } else if (point_in_rect(x, y, &menu_pref)) {
+                            continue;
+                        } else if (point_in_rect(wx, wy, &menu_pref)) {
                             open_aux(&prefs_window, AUX_PREFERENCES, "PPA-1 Preferences", 520, 330);
-                        } else if (point_in_rect(x, y, &menu_view)) {
+                            continue;
+                        } else if (point_in_rect(wx, wy, &menu_view)) {
                             open_aux(&view_window, AUX_VIEW, "PPA-1 Processor View", 520, 330);
-                        } else if (point_in_rect(x, y, &menu_log)) {
+                            continue;
+                        } else if (point_in_rect(wx, wy, &menu_log)) {
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
-                        } else if (point_in_rect(x, y, &menu_help)) {
+                            continue;
+                        } else if (point_in_rect(wx, wy, &menu_help)) {
                             open_aux(&help_window, AUX_HELP, "PPA-1 Help", 620, 360);
-                        } else if (point_in_rect(x, y, &op_run)) {
-                            backend->set_running(backend->ctx, true);
-                        } else if (point_in_rect(x, y, &op_stop)) {
-                            backend->set_running(backend->ctx, false);
-                        } else if (point_in_rect(x, y, &op_step)) {
-                            backend->step_instruction(backend->ctx);
-                        } else if (point_in_rect(x, y, &op_ustep)) {
-                            backend->step_micro(backend->ctx);
-                        } else if (point_in_rect(x, y, &op_reset)) {
-                            backend->reset(backend->ctx);
-                        } else if (point_in_rect(x, y, &op_exam)) {
-                            ppa_log_printf("GUI: EXAMINE requested, switch register=%04X\n",
-                                (unsigned)(
-                                    (switches[0] ? 1u : 0u) |
-                                    (switches[1] ? 2u : 0u) |
-                                    (switches[2] ? 4u : 0u) |
-                                    (switches[3] ? 8u : 0u)));
-                        } else if (point_in_rect(x, y, &op_dep)) {
-                            ppa_log_printf("GUI: DEPOSIT requested. Memory write control will be wired next.\n");
-                        } else if (point_in_rect(x, y, &power_btn)) {
-                            power_on = !backend->is_powered(backend->ctx);
-                            backend->set_power(backend->ctx, power_on);
-                        } else if (point_in_rect(x, y, &load_btn)) {
-                            if (!file_state.rom_path[0]) {
-                                if (!file_state.dialog_open) {
-                                    file_state.dialog_open = true;
-                                    SDL_ShowOpenFileDialog(
-                                        file_dialog_callback, &file_state, window,
-                                        filters, 2, NULL, false);
+                            continue;
+                        }
+
+                        /* Convert window coordinates into the immutable front-panel design space. */
+                        if (wx >= panel_origin_x && wx <= panel_origin_x + panel_screen_w &&
+                            wy >= panel_origin_y && wy <= panel_origin_y + panel_screen_h) {
+                            float x = (wx - panel_origin_x) / panel_scale;
+                            float y = (wy - panel_origin_y) / panel_scale;
+
+                            if (point_in_rect(x, y, &op_run)) {
+                                backend->set_running(backend->ctx, true);
+                            } else if (point_in_rect(x, y, &op_stop)) {
+                                backend->set_running(backend->ctx, false);
+                            } else if (point_in_rect(x, y, &op_step)) {
+                                backend->step_instruction(backend->ctx);
+                            } else if (point_in_rect(x, y, &op_ustep)) {
+                                backend->step_micro(backend->ctx);
+                            } else if (point_in_rect(x, y, &op_reset)) {
+                                backend->reset(backend->ctx);
+                            } else if (point_in_rect(x, y, &op_exam)) {
+                                unsigned sr = 0;
+                                for (int i = 0; i < 16; i++) {
+                                    if (switches[i]) sr |= (1u << i);
                                 }
-                            } else if (backend->load_rom(backend->ctx, file_state.rom_path)) {
-                                power_on = true;
-                                backend->set_power(backend->ctx, true);
-                                if (prefs.auto_run) backend->set_running(backend->ctx, true);
-                            }
-                        } else if (point_in_circle(x, y, clock_cx, clock_cy, clock_radius + 10)) {
-                            if (x < clock_cx) {
-                                if (clock_index > 0) clock_index--;
+                                ppa_log_printf("GUI: EXAMINE requested, switch register=%04X\n", sr);
+                            } else if (point_in_rect(x, y, &op_dep)) {
+                                ppa_log_printf("GUI: DEPOSIT requested. Memory write control will be wired next.\n");
+                            } else if (point_in_rect(x, y, &power_btn)) {
+                                backend->set_power(
+                                    backend->ctx,
+                                    !backend->is_powered(backend->ctx));
+                            } else if (point_in_rect(x, y, &load_btn)) {
+                                if (!file_state.rom_path[0]) {
+                                    if (!file_state.dialog_open) {
+                                        file_state.dialog_open = true;
+                                        SDL_ShowOpenFileDialog(
+                                            file_dialog_callback, &file_state, window,
+                                            filters, 2, NULL, false);
+                                    }
+                                } else if (backend->load_rom(backend->ctx, file_state.rom_path)) {
+                                    backend->set_power(backend->ctx, true);
+                                    if (prefs.auto_run) {
+                                        backend->set_running(backend->ctx, true);
+                                    }
+                                }
+                            } else if (point_in_circle(x, y, clock_cx, clock_cy, clock_radius + 12)) {
+                                if (x < clock_cx) {
+                                    if (clock_index > 0) clock_index--;
+                                } else {
+                                    if (clock_index < 6) clock_index++;
+                                }
+                                ppa_log_printf("GUI: clock selector -> %s\n", clock_values[clock_index]);
+                            } else if (point_in_circle(x, y, output_cx, output_cy, output_radius + 12)) {
+                                if (x < output_cx) {
+                                    output_index = (output_index + 3) % 4;
+                                } else {
+                                    output_index = (output_index + 1) % 4;
+                                }
+                                ppa_log_printf("GUI: data output -> %s\n", output_values[output_index]);
+                            } else if (point_in_rect(x, y, &format_hit)) {
+                                format_index = (format_index + 1) % 3;
+                                ppa_log_printf("GUI: data format -> %s\n", format_values[format_index]);
                             } else {
-                                if (clock_index < 6) clock_index++;
-                            }
-                            ppa_log_printf("GUI: clock selector -> %s\n", clock_values[clock_index]);
-                        } else if (point_in_circle(x, y, output_cx, output_cy, output_radius + 10)) {
-                            if (x < output_cx) {
-                                output_index = (output_index + 3) % 4;
-                            } else {
-                                output_index = (output_index + 1) % 4;
-                            }
-                            ppa_log_printf("GUI: data output -> %s\n", output_values[output_index]);
-                        } else if (point_in_rect(x, y, &format_hit)) {
-                            format_index = (format_index + 1) % 3;
-                            ppa_log_printf("GUI: data format -> %s\n", format_values[format_index]);
-                        } else {
-                            for (int i = 0; i < 16; i++) {
-                                SDL_FRect hit = {54.0f + i * 32.0f, 621.0f, 28.0f, 70.0f};
-                                if (point_in_rect(x, y, &hit)) {
-                                    switches[i] = !switches[i];
-                                    break;
+                                for (int i = 0; i < 16; i++) {
+                                    SDL_FRect hit = {62.0f + i * 31.0f, 507.0f, 28.0f, 72.0f};
+                                    if (point_in_rect(x, y, &hit)) {
+                                        switches[i] = !switches[i];
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -722,9 +752,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                 } else if (prefs_window.window &&
                            id == SDL_GetWindowID(prefs_window.window) &&
                            event.button.button == SDL_BUTTON_LEFT) {
-                    float x = event.button.x;
                     float y = event.button.y;
-                    (void)x;
                     if (y >= 90 && y < 118) prefs.high_contrast = !prefs.high_contrast;
                     else if (y >= 118 && y < 146) prefs.lamp_test = !prefs.lamp_test;
                     else if (y >= 146 && y < 174) prefs.auto_run = !prefs.auto_run;
@@ -762,13 +790,14 @@ int ppa_gui_run_panel(const char *initial_rom,
         Uint16 address = backend->address_bus(backend->ctx);
         Uint8 data = backend->data_bus(backend->ctx);
 
-        SDL_SetRenderDrawColor(renderer,
-            prefs.high_contrast ? 18 : 25,
-            prefs.high_contrast ? 19 : 27,
-            prefs.high_contrast ? 19 : 27, 255);
+        /* Entire output background. */
+        SDL_SetRenderViewport(renderer, NULL);
+        SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+        SDL_SetRenderDrawColor(renderer, 17, 19, 19, 255);
         SDL_RenderClear(renderer);
 
-        SDL_FRect menu_bar = {0, 0, PANEL_W, 38};
+        /* Dynamic top application bar: it always uses the actual output width. */
+        SDL_FRect menu_bar = {0, 0, (float)rw, menu_h};
         SDL_SetRenderDrawColor(renderer, 34, 36, 36, 255);
         SDL_RenderFillRect(renderer, &menu_bar);
         draw_menu_button(renderer, &fonts, menu_open, "OPEN");
@@ -777,16 +806,36 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_menu_button(renderer, &fonts, menu_log, "LOG");
         draw_menu_button(renderer, &fonts, menu_help, "HELP");
 
-        /* Header deliberately stretches to the A-1 badge, like a real engraved panel. */
-        SDL_FRect title_rect = {42, 53, 980, 48};
+        /* Fixed panel viewport. Only this complete panel scales with the window. */
+        SDL_Rect panel_view = {
+            (int)panel_origin_x,
+            (int)panel_origin_y,
+            (int)panel_screen_w,
+            (int)panel_screen_h
+        };
+        SDL_SetRenderViewport(renderer, &panel_view);
+        SDL_SetRenderScale(renderer, panel_scale, panel_scale);
+
+        SDL_FRect face = {10, 8, 1260, 742};
+        draw_bevel_panel(renderer, face,
+            prefs.high_contrast
+                ? (SDL_Color){45, 47, 46, 255}
+                : (SDL_Color){37, 39, 38, 255},
+            (SDL_Color){122, 123, 115, 255},
+            (SDL_Color){10, 11, 11, 255});
+
+        draw_screw(renderer, 24, 22);
+        draw_screw(renderer, 1256, 22);
+        draw_screw(renderer, 24, 736);
+        draw_screw(renderer, 1256, 736);
+
+        /* One continuous metal panel: only engraved separator lines, no modular cards. */
+        SDL_FRect title_rect = {46, 26, 972, 52};
         draw_text_fit(renderer, fonts.title, title_rect,
-                      (SDL_Color){238, 230, 202, 255},
+                      (SDL_Color){239, 231, 204, 255},
                       "PROGRAMBLE PROCESSOR");
 
-        SDL_SetRenderDrawColor(renderer, 202, 190, 151, 255);
-        SDL_RenderLine(renderer, 42, 108, 1022, 108);
-
-        SDL_FRect badge = {1040, 49, 190, 66};
+        SDL_FRect badge = {1040, 24, 186, 62};
         draw_bevel_panel(renderer, badge,
             (SDL_Color){91, 38, 30, 255},
             (SDL_Color){218, 202, 160, 255},
@@ -794,59 +843,58 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text_center(renderer, fonts.badge, badge,
                          (SDL_Color){245, 232, 195, 255}, "A-1");
         draw_text_center(renderer, fonts.section,
-            (SDL_FRect){1040, 117, 190, 27},
+            (SDL_FRect){1035, 88, 196, 26},
             (SDL_Color){224, 216, 191, 255}, "Adava Electronics");
 
-        SDL_FRect indicators = {30, 155, 565, 274};
-        SDL_FRect status = {620, 155, 625, 178};
-        SDL_FRect io = {620, 350, 625, 191};
-        SDL_FRect manual = {30, 448, 565, 297};
-        SDL_FRect ops = {620, 560, 565, 185};
-        SDL_FRect pwr = {1194, 560, 51, 185};
+        SDL_SetRenderDrawColor(renderer, 178, 168, 134, 255);
+        SDL_RenderLine(renderer, 46, 104, 1228, 104);
+        SDL_RenderLine(renderer, 620, 132, 620, 565);
+        SDL_RenderLine(renderer, 46, 350, 592, 350);
+        SDL_RenderLine(renderer, 646, 300, 1228, 300);
+        SDL_RenderLine(renderer, 646, 535, 1228, 535);
 
-        draw_section(renderer, &fonts, indicators, "INDICATOR PANEL", prefs.high_contrast);
-        draw_section(renderer, &fonts, status, "SYSTEM INDICATORS", prefs.high_contrast);
-        draw_section(renderer, &fonts, io, "CLOCK & DATA OUTPUT", prefs.high_contrast);
-        draw_section(renderer, &fonts, manual, "MANUAL INPUT", prefs.high_contrast);
-        draw_section(renderer, &fonts, ops, "CONTROL & OPERATIONS", prefs.high_contrast);
-        draw_section(renderer, &fonts, pwr, "PWR", prefs.high_contrast);
-
-        draw_text(renderer, fonts.label, 52, 207,
-                  (SDL_Color){214, 208, 186, 255}, "ADDRESS BUS  A0-A15");
+        /* Left upper: bus lamps. */
+        draw_text(renderer, fonts.section, 52, 126,
+                  (SDL_Color){229, 221, 194, 255}, "BUS INDICATORS");
+        draw_text(renderer, fonts.label, 54, 163,
+                  (SDL_Color){212, 207, 185, 255}, "ADDRESS BUS  A0-A15");
 
         for (int i = 0; i < 16; i++) {
             char label[2] = {"0123456789ABCDEF"[i], 0};
             bool bit = prefs.lamp_test ||
                 (powered && loaded && ((address >> i) & 1u));
             draw_led(renderer, &fonts,
-                     54.0f + i * 32.0f, 236.0f, label, bit,
+                     58.0f + i * 31.0f, 190.0f, label, bit,
                      (SDL_Color){235, 154, 37, 255});
         }
 
-        draw_text(renderer, fonts.label, 52, 315,
-                  (SDL_Color){214, 208, 186, 255}, "DATA BUS  D0-D7");
+        draw_text(renderer, fonts.label, 54, 257,
+                  (SDL_Color){212, 207, 185, 255}, "DATA BUS  D0-D7");
         for (int i = 0; i < 8; i++) {
             char label[2] = {(char)('0' + i), 0};
             bool bit = prefs.lamp_test ||
                 (powered && loaded && ((data >> i) & 1u));
             draw_led(renderer, &fonts,
-                     54.0f + i * 48.0f, 343.0f, label, bit,
+                     58.0f + i * 49.0f, 284.0f, label, bit,
                      (SDL_Color){38, 207, 190, 255});
         }
 
-        draw_text(renderer, fonts.label, 438, 315,
-                  (SDL_Color){214, 208, 186, 255}, "STATUS");
-        draw_led(renderer, &fonts, 438, 343, "RDY",
+        draw_text(renderer, fonts.label, 452, 257,
+                  (SDL_Color){212, 207, 185, 255}, "CPU");
+        draw_led(renderer, &fonts, 448, 284, "RDY",
                  prefs.lamp_test || (loaded && powered && !halted),
                  (SDL_Color){72, 220, 89, 255});
-        draw_led(renderer, &fonts, 482, 343, "RUN",
+        draw_led(renderer, &fonts, 493, 284, "RUN",
                  prefs.lamp_test || (powered && running),
                  (SDL_Color){72, 220, 89, 255});
-        draw_led(renderer, &fonts, 526, 343, "HLT",
+        draw_led(renderer, &fonts, 538, 284, "HLT",
                  prefs.lamp_test || (loaded && halted),
                  (SDL_Color){222, 58, 43, 255});
 
-        /* Top-right is indicators only: operational buttons live at the bottom. */
+        /* Right upper: system status, no separate box. */
+        draw_text(renderer, fonts.section, 646, 126,
+                  (SDL_Color){229, 221, 194, 255}, "SYSTEM STATUS");
+
         const char *sys_labels[] = {"POWER", "RUN", "HALT", "ERROR", "CLOCK", "MEMORY", "I/O"};
         SDL_Color sys_colors[] = {
             {72,220,89,255}, {72,220,89,255}, {222,58,43,255},
@@ -863,52 +911,60 @@ int ppa_gui_run_panel(const char *initial_rom,
             false
         };
         for (int i = 0; i < 7; i++) {
-            draw_led(renderer, &fonts, 650.0f + i * 78.0f, 211.0f,
+            draw_led(renderer, &fonts,
+                     650.0f + i * 78.0f, 175.0f,
                      sys_labels[i],
                      prefs.lamp_test || sys_on[i],
                      sys_colors[i]);
         }
 
-        draw_text(renderer, fonts.small, 651, 286,
-                  (SDL_Color){180, 177, 161, 255},
-                  "Front-panel controls are grouped below, PDP-style.");
-
-        draw_text(renderer, fonts.label, 651, 401,
-                  (SDL_Color){214, 208, 186, 255}, "CLOCK RATE");
-        draw_knob(renderer, &fonts, clock_cx, clock_cy, clock_radius,
-                  clock_index, 7, clock_values[clock_index]);
-
-        draw_text(renderer, fonts.label, 829, 401,
-                  (SDL_Color){214, 208, 186, 255}, "DATA OUTPUT");
-        draw_knob(renderer, &fonts, output_cx, output_cy, output_radius,
-                  output_index, 4, output_values[output_index]);
-
-        draw_text(renderer, fonts.label, 1042, 401,
-                  (SDL_Color){214, 208, 186, 255}, "DISPLAY FORMAT");
-        draw_text_center(renderer, fonts.label, format_hit,
-                         (SDL_Color){235, 225, 198, 255},
-                         format_values[format_index]);
-        SDL_SetRenderDrawColor(renderer, 100, 102, 96, 255);
-        SDL_RenderRect(renderer, &format_hit);
-
-        draw_text(renderer, fonts.label, 52, 500,
-                  (SDL_Color){214, 208, 186, 255},
+        /* Lower left: manual switch register. */
+        draw_text(renderer, fonts.section, 52, 371,
+                  (SDL_Color){229, 221, 194, 255}, "MANUAL INPUT");
+        draw_text(renderer, fonts.label, 54, 407,
+                  (SDL_Color){212, 207, 185, 255},
                   "SWITCH REGISTER  SR0-SR15");
-        draw_text(renderer, fonts.small, 52, 527,
-                  (SDL_Color){178, 176, 162, 255},
-                  "Manual address/data entry");
+        draw_text(renderer, fonts.small, 54, 432,
+                  (SDL_Color){176, 174, 160, 255},
+                  "Manual address / data entry");
+
         for (int i = 0; i < 16; i++) {
             char label[2] = {"0123456789ABCDEF"[i], 0};
             draw_toggle(renderer, &fonts,
-                        54.0f + i * 32.0f, 576.0f, label, switches[i]);
+                        62.0f + i * 31.0f, 475.0f, label, switches[i]);
         }
-        draw_text(renderer, fonts.small, 54, 705,
-                  (SDL_Color){179, 177, 162, 255}, "DOWN = 0");
-        draw_text(renderer, fonts.small, 500, 705,
-                  (SDL_Color){179, 177, 162, 255}, "UP = 1");
+        draw_text(renderer, fonts.small, 58, 570,
+                  (SDL_Color){178, 175, 160, 255}, "DOWN = 0");
+        draw_text(renderer, fonts.small, 516, 570,
+                  (SDL_Color){178, 175, 160, 255}, "UP = 1");
 
-        draw_text(renderer, fonts.small, 646, 614,
-                  (SDL_Color){180, 177, 161, 255},
+        /* Right middle: interactive selectors. */
+        draw_text(renderer, fonts.section, 646, 321,
+                  (SDL_Color){229, 221, 194, 255}, "CLOCK & DATA OUTPUT");
+
+        draw_text(renderer, fonts.label, 672, 358,
+                  (SDL_Color){212, 207, 185, 255}, "CLOCK RATE");
+        draw_knob(renderer, &fonts, clock_cx, clock_cy, clock_radius,
+                  clock_index, 7, clock_values[clock_index]);
+
+        draw_text(renderer, fonts.label, 846, 358,
+                  (SDL_Color){212, 207, 185, 255}, "DATA OUTPUT");
+        draw_knob(renderer, &fonts, output_cx, output_cy, output_radius,
+                  output_index, 4, output_values[output_index]);
+
+        draw_text(renderer, fonts.label, 1046, 358,
+                  (SDL_Color){212, 207, 185, 255}, "DISPLAY FORMAT");
+        SDL_SetRenderDrawColor(renderer, 98, 100, 94, 255);
+        SDL_RenderRect(renderer, &format_hit);
+        draw_text_center(renderer, fonts.label, format_hit,
+                         (SDL_Color){235, 225, 198, 255},
+                         format_values[format_index]);
+
+        /* Bottom right: all operational controls in one row. */
+        draw_text(renderer, fonts.section, 646, 554,
+                  (SDL_Color){229, 221, 194, 255}, "CONTROL & OPERATIONS");
+        draw_text(renderer, fonts.small, 646, 579,
+                  (SDL_Color){176, 174, 160, 255},
                   loaded ? "CPU IMAGE LOADED" : "NO EEPROM IMAGE LOADED");
 
         draw_push_button(renderer, &fonts, op_run, "RUN",
@@ -934,13 +990,19 @@ int ppa_gui_run_panel(const char *initial_rom,
                              : (SDL_Color){84, 84, 78, 255},
                          false);
 
-        /* PWR is a processor power gate, not an application quit control. */
-        SDL_SetRenderDrawColor(renderer, 19, 19, 18, 255);
+        /* PWR remains part of the same physical plate. */
+        draw_text(renderer, fonts.label, 1188, 610,
+                  (SDL_Color){219, 212, 190, 255}, "PWR");
+        SDL_SetRenderDrawColor(renderer, 18, 18, 17, 255);
         SDL_RenderFillRect(renderer, &power_btn);
         SDL_SetRenderDrawColor(renderer, 136, 91, 53, 255);
         SDL_RenderRect(renderer, &power_btn);
 
-        SDL_FRect rocker = {1203, powered ? 681.0f : 715.0f, 28, 48};
+        SDL_FRect rocker = {
+            1195,
+            powered ? 651.0f : 684.0f,
+            28, 42
+        };
         SDL_SetRenderDrawColor(renderer,
             powered ? 116 : 73,
             powered ? 43 : 30,
@@ -950,9 +1012,9 @@ int ppa_gui_run_panel(const char *initial_rom,
                          (SDL_Color){244, 231, 205, 255},
                          powered ? "I" : "O");
 
-        SDL_FRect statusbar = {30, 764, 1155, 34};
-        SDL_SetRenderDrawColor(renderer, 46, 48, 47, 255);
-        SDL_RenderFillRect(renderer, &statusbar);
+        /* Status line is engraved into the same panel, not a separate block. */
+        SDL_SetRenderDrawColor(renderer, 176, 166, 132, 255);
+        SDL_RenderLine(renderer, 46, 690, 1228, 690);
 
         char status_text[1160];
         snprintf(status_text, sizeof(status_text),
@@ -961,9 +1023,12 @@ int ppa_gui_run_panel(const char *initial_rom,
                  clock_values[clock_index],
                  output_values[output_index],
                  format_values[format_index]);
-        draw_text(renderer, fonts.small, 42, 773,
+        draw_text(renderer, fonts.small, 52, 706,
                   (SDL_Color){193, 190, 174, 255}, status_text);
 
+        /* Restore renderer to window coordinates before presenting/events. */
+        SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+        SDL_SetRenderViewport(renderer, NULL);
         SDL_RenderPresent(renderer);
 
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
