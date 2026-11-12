@@ -43,6 +43,7 @@ typedef struct {
 
     uint16_t (*address_bus)(void *ctx);
     uint8_t (*data_bus)(void *ctx);
+    uint8_t (*register_value)(void *ctx, int selector);
 } PPA1GuiBackend;
 
 void ppa_gui_init_state(PPA1GuiState *state, bool no_gui);
