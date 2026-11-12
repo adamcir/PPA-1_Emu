@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define PANEL_W 1280
 #define PANEL_H 760
@@ -570,6 +571,61 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     SDL_RenderPresent(term->renderer);
 }
 
+static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
+    if (!backend || !backend->set_tty_enabled ||
+        !backend->is_tty_enabled || !backend->tty_name) {
+        return false;
+    }
+
+    if (!backend->is_tty_enabled(backend->ctx)) {
+        if (!backend->set_tty_enabled(backend->ctx, true)) {
+            ppa_log_printf("GUI: failed to enable UART PTY.\n");
+            return false;
+        }
+    }
+
+    const char *tty = backend->tty_name(backend->ctx);
+    if (!tty || !*tty) {
+        ppa_log_printf("GUI: UART PTY has no device name.\n");
+        return false;
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        ppa_log_printf("GUI: fork() failed while opening UART terminal.\n");
+        return false;
+    }
+
+    if (pid == 0) {
+        (void)setsid();
+
+        execlp("x-terminal-emulator",
+               "x-terminal-emulator",
+               "-e", "screen", tty, "9600",
+               (char *)NULL);
+
+        execlp("gnome-terminal",
+               "gnome-terminal",
+               "--", "screen", tty, "9600",
+               (char *)NULL);
+
+        execlp("konsole",
+               "konsole",
+               "-e", "screen", tty, "9600",
+               (char *)NULL);
+
+        execlp("xterm",
+               "xterm",
+               "-e", "screen", tty, "9600",
+               (char *)NULL);
+
+        _exit(127);
+    }
+
+    ppa_log_printf("GUI: opened UART monitor on %s at 9600 baud.\n", tty);
+    return true;
+}
+
 static void destroy_aux(AuxWindow *aux) {
     if (!aux) return;
     if (aux->renderer) SDL_DestroyRenderer(aux->renderer);
@@ -769,7 +825,6 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
     AuxWindow log_window = {0};
-    TerminalWindow terminal_window = {0};
 
     bool switches[16] = {0};
     bool panel_running = true;
@@ -795,7 +850,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_FRect menu_pref = {86, 5, 112, 28};
     SDL_FRect menu_view = {202, 5, 72, 28};
     SDL_FRect menu_log  = {278, 5, 64, 28};
-    SDL_FRect menu_terminal = {346, 5, 100, 28};
+    SDL_FRect menu_terminal = {346, 5, 118, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
     /* Real front-panel programming row. */
@@ -823,8 +878,6 @@ int ppa_gui_run_panel(const char *initial_rom,
     Uint64 pressed_until = 0;
 
     ppa_log_printf("GUI: fixed-layout PPA-1 front panel opened.\n");
-
-    (void)open_terminal(&terminal_window, backend);
 
     while (panel_running) {
         int rw = 1280, rh = 820;
@@ -861,40 +914,6 @@ int ppa_gui_run_panel(const char *initial_rom,
                     destroy_aux(&view_window);
                 } else if (log_window.window && id == SDL_GetWindowID(log_window.window)) {
                     destroy_aux(&log_window);
-                } else if (terminal_window.window &&
-                           id == SDL_GetWindowID(terminal_window.window)) {
-                    close_terminal(&terminal_window, backend);
-                }
-                continue;
-            }
-
-            if (terminal_window.window &&
-                event.type == SDL_EVENT_TEXT_INPUT &&
-                event.text.windowID == SDL_GetWindowID(terminal_window.window)) {
-                if (backend->terminal_write_rx) {
-                    const unsigned char *p =
-                        (const unsigned char *)event.text.text;
-                    while (*p) backend->terminal_write_rx(backend->ctx, *p++);
-                }
-                continue;
-            }
-
-            if (terminal_window.window &&
-                event.type == SDL_EVENT_KEY_DOWN &&
-                event.key.windowID == SDL_GetWindowID(terminal_window.window)) {
-                uint8_t ch = 0;
-
-                if (event.key.key == SDLK_RETURN ||
-                    event.key.key == SDLK_KP_ENTER) {
-                    ch = 0x0D;
-                } else if (event.key.key == SDLK_BACKSPACE) {
-                    ch = 0x08;
-                } else if (event.key.key == SDLK_TAB) {
-                    ch = 0x09;
-                }
-
-                if (ch && backend->terminal_write_rx) {
-                    backend->terminal_write_rx(backend->ctx, ch);
                 }
                 continue;
             }
@@ -955,7 +974,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_terminal)) {
-                            (void)open_terminal(&terminal_window, backend);
+                            (void)launch_uart_terminal(backend);
                             continue;
                         }
 
@@ -1342,7 +1361,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
         draw_menu_button(renderer, &fonts, menu_view, "VIEW");
         draw_menu_button(renderer, &fonts, menu_log, "LOG");
-        draw_menu_button(renderer, &fonts, menu_terminal, "TERMINAL");
+        draw_menu_button(renderer, &fonts, menu_terminal, "UART MONITOR");
 
         SDL_FRect panel_dst = {
             panel_origin_x, panel_origin_y,
@@ -1354,7 +1373,6 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
         draw_aux_window(&view_window, &fonts, &prefs, backend);
         draw_aux_window(&log_window, &fonts, &prefs, backend);
-        draw_terminal(&terminal_window, &fonts, backend);
     }
 
     backend->set_running(backend->ctx, false);
@@ -1362,7 +1380,6 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&prefs_window);
     destroy_aux(&view_window);
     destroy_aux(&log_window);
-    close_terminal(&terminal_window, backend);
     SDL_DestroyTexture(panel_texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
