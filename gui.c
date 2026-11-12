@@ -13,6 +13,16 @@
 #define PANEL_W 1280
 #define PANEL_H 760
 
+static const SDL_Color COL_BLACK      = {10, 11, 11, 255};
+static const SDL_Color COL_DARK_GRAY  = {39, 41, 40, 255};
+static const SDL_Color COL_GRAY       = {101, 103, 100, 255};
+static const SDL_Color COL_LIGHT_GRAY = {174, 177, 171, 255};
+static const SDL_Color COL_WHITE      = {238, 240, 234, 255};
+static const SDL_Color COL_ORANGE     = {229, 145, 34, 255};
+static const SDL_Color COL_GREEN      = {126, 226, 112, 255};
+static const SDL_Color COL_RED        = {205, 67, 58, 255};
+static const SDL_Color COL_BLUE       = {99, 199, 221, 255};
+
 typedef struct {
     char rom_path[1024];
     bool dialog_open;
@@ -415,12 +425,8 @@ static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
                               const char * const *labels,
                               bool enabled)
 {
-    SDL_Color tick_color = enabled
-        ? (SDL_Color){215, 207, 183, 255}
-        : (SDL_Color){111, 108, 99, 255};
-    SDL_Color label_color = enabled
-        ? (SDL_Color){215, 210, 191, 255}
-        : (SDL_Color){108, 107, 101, 255};
+    SDL_Color tick_color = enabled ? COL_WHITE : COL_GRAY;
+    SDL_Color label_color = enabled ? COL_WHITE : COL_GRAY;
 
     for (int i = 0; i < count; i++) {
         float t = count > 1 ? (float)i / (float)(count - 1) : 0.0f;
@@ -445,19 +451,16 @@ static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
         }
     }
 
-    SDL_SetRenderDrawColor(r, 13, 14, 14, 255);
+    SDL_SetRenderDrawColor(
+        r, COL_BLACK.r, COL_BLACK.g, COL_BLACK.b, 255);
     fill_circle(r, cx, cy, radius + 4.0f);
 
-    SDL_SetRenderDrawColor(r,
-        enabled ? 103 : 64,
-        enabled ? 104 : 65,
-        enabled ? 100 : 63, 255);
+    SDL_Color body = enabled ? COL_GRAY : COL_DARK_GRAY;
+    SDL_SetRenderDrawColor(r, body.r, body.g, body.b, 255);
     fill_circle(r, cx, cy, radius);
 
-    SDL_SetRenderDrawColor(r,
-        enabled ? 48 : 39,
-        enabled ? 49 : 40,
-        enabled ? 48 : 39, 255);
+    SDL_SetRenderDrawColor(
+        r, COL_DARK_GRAY.r, COL_DARK_GRAY.g, COL_DARK_GRAY.b, 255);
     fill_circle(r, cx, cy, radius - 7.0f);
 
     float t = count > 1 ? (float)index / (float)(count - 1) : 0.0f;
@@ -955,10 +958,10 @@ int ppa_gui_run_panel(const char *initial_rom,
         "10 kHz", "20 kHz", "50 kHz", "100 kHz"
     };
     const char *clock_tick_labels[] = {
-        "1", "2", "5", "10",
-        "20", "50", "100", "200",
-        "500", "1k", "2k", "5k",
-        "10k", "20k", "50k", "100k"
+        "1", NULL, NULL, "10",
+        NULL, NULL, "100", NULL,
+        NULL, "1k", NULL, NULL,
+        "10k", NULL, NULL, "100k"
     };
     const double clock_rates[] = {
         1.0, 2.0, 5.0, 10.0,
@@ -1005,11 +1008,11 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     SDL_FRect power_btn = {1184, 548, 48, 108};
 
-    const float clock_cx = 720.0f, clock_cy = 410.0f, clock_radius = 28.0f;
-    const float data_source_cx = 905.0f, data_source_cy = 410.0f;
-    const float data_source_radius = 28.0f;
-    const float register_cx = 1100.0f, register_cy = 410.0f;
-    const float register_radius = 28.0f;
+    const float clock_cx = 720.0f, clock_cy = 428.0f, clock_radius = 29.0f;
+    const float data_source_cx = 905.0f, data_source_cy = 428.0f;
+    const float data_source_radius = 29.0f;
+    const float register_cx = 1095.0f, register_cy = 428.0f;
+    const float register_radius = 29.0f;
 
     Uint64 last_ticks = SDL_GetTicks();
     double clock_phase = 0.0;
