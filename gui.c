@@ -752,6 +752,14 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     }
                                 } else if (backend->load_rom(backend->ctx, file_state.rom_path)) {
                                     backend->set_power(backend->ctx, true);
+
+                                    uint8_t data_value = 0;
+                                    for (int bit = 0; bit < 8; bit++) {
+                                        if (switches[bit]) data_value |= (uint8_t)(1u << bit);
+                                    }
+                                    backend->set_data_input(backend->ctx, data_value);
+
+                                    manual_address = 0x0000;
                                     if (prefs.auto_run) {
                                         backend->set_running(backend->ctx, true);
                                     }
@@ -975,11 +983,11 @@ int ppa_gui_run_panel(const char *initial_rom,
                         62.0f + i * 31.0f, 475.0f, label, switches[i]);
         }
         draw_text(renderer, fonts.small, 58, 570,
-                  (SDL_Color){178, 175, 160, 255}, "0 = LOW");
-        draw_text(renderer, fonts.small, 452, 570,
-                  (SDL_Color){178, 175, 160, 255}, "8-F = ADDRESS ONLY");
-        draw_text(renderer, fonts.small, 540, 570,
-                  (SDL_Color){178, 175, 160, 255}, "1 = HIGH");
+                  (SDL_Color){178, 175, 160, 255}, "DOWN = 0");
+        draw_text(renderer, fonts.small, 300, 570,
+                  (SDL_Color){178, 175, 160, 255}, "8-F: ADDRESS LOAD ONLY");
+        draw_text(renderer, fonts.small, 520, 570,
+                  (SDL_Color){178, 175, 160, 255}, "UP = 1");
 
         /* Right middle: interactive selectors. */
         draw_text(renderer, fonts.section, 646, 321,
