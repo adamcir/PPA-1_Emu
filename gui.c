@@ -981,7 +981,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     int data_source_index = 0;
 
     const char *register_labels[] = {
-        "A", "B", "C", "D", "XH", "XL", "YH", "YL", "BRH", "BRL"
+        "A", "B", "C", "D", "XH", "XL", "YH", "YL"
     };
     const int register_count =
         (int)(sizeof(register_labels) / sizeof(register_labels[0]));
@@ -1475,6 +1475,13 @@ int ppa_gui_run_panel(const char *initial_rom,
         }
 
         Uint16 address = backend->address_bus(backend->ctx);
+        Uint16 bank = 0;
+        if (backend->register_value) {
+            bank = (Uint16)(
+                ((Uint16)backend->register_value(backend->ctx, 8) << 8) |
+                (Uint16)backend->register_value(backend->ctx, 9));
+        }
+
         Uint8 bus_data = running
             ? backend->data_bus(backend->ctx)
             : (exam_held ? exam_data : front_data_latch);
@@ -1534,23 +1541,35 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_RenderLine(renderer, 646, 300, 1228, 300);
         SDL_RenderLine(renderer, 646, 500, 1228, 500);
 
-        /* Left upper: bus lamps. */
-        draw_text(renderer, panel_fonts.section, 52, 126,
+        /* Left upper: address, bank and data indicators. */
+        draw_text(renderer, panel_fonts.section, 52, 122,
                   COL_WHITE, "BUS INDICATORS");
-        draw_text(renderer, panel_fonts.label, 54, 163,
-                  COL_LIGHT_GRAY, "ADDRESS BUS  A15-A0");
 
+        draw_text(renderer, panel_fonts.label, 54, 148,
+                  COL_LIGHT_GRAY, "ADDRESS BUS  A15-A0");
         for (int pos = 0; pos < 16; pos++) {
             int bit_index = 15 - pos;
             char label[2] = {"0123456789ABCDEF"[bit_index], 0};
             bool bit = prefs.lamp_test ||
                 (powered && ((address >> bit_index) & 1u));
             draw_led(renderer, &panel_fonts,
-                     58.0f + pos * 31.0f, 190.0f, label, bit,
+                     58.0f + pos * 31.0f, 166.0f, label, bit,
                      COL_ORANGE);
         }
 
-        draw_text(renderer, panel_fonts.label, 54, 257,
+        draw_text(renderer, panel_fonts.label, 54, 216,
+                  COL_LIGHT_GRAY, "BANK REGISTER  B15-B0");
+        for (int pos = 0; pos < 16; pos++) {
+            int bit_index = 15 - pos;
+            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
+            bool bit = prefs.lamp_test ||
+                (powered && ((bank >> bit_index) & 1u));
+            draw_led(renderer, &panel_fonts,
+                     58.0f + pos * 31.0f, 234.0f, label, bit,
+                     COL_GREEN);
+        }
+
+        draw_text(renderer, panel_fonts.label, 54, 284,
                   COL_LIGHT_GRAY, "DATA BUS  D7-D0");
         for (int pos = 0; pos < 8; pos++) {
             int bit_index = 7 - pos;
@@ -1558,19 +1577,19 @@ int ppa_gui_run_panel(const char *initial_rom,
             bool bit = prefs.lamp_test ||
                 (powered && ((data >> bit_index) & 1u));
             draw_led(renderer, &panel_fonts,
-                     58.0f + pos * 49.0f, 284.0f, label, bit,
+                     58.0f + pos * 49.0f, 302.0f, label, bit,
                      COL_BLUE);
         }
 
-        draw_text(renderer, panel_fonts.label, 452, 257,
+        draw_text(renderer, panel_fonts.label, 452, 284,
                   COL_LIGHT_GRAY, "CPU");
-        draw_led(renderer, &panel_fonts, 448, 284, "RDY",
+        draw_led(renderer, &panel_fonts, 448, 302, "RDY",
                  prefs.lamp_test || (loaded && powered && !halted),
                  COL_GREEN);
-        draw_led(renderer, &panel_fonts, 493, 284, "RUN",
+        draw_led(renderer, &panel_fonts, 493, 302, "RUN",
                  prefs.lamp_test || (powered && running),
                  COL_GREEN);
-        draw_led(renderer, &panel_fonts, 538, 284, "HLT",
+        draw_led(renderer, &panel_fonts, 538, 302, "HLT",
                  prefs.lamp_test || (loaded && halted),
                  COL_RED);
 
