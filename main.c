@@ -590,11 +590,23 @@ static inline uint8_t pop8(CPU *cpu, Memory *memory, Serial *serial) {
     return memory->stack[cpu->SP];
 }
 
-static void dump_regs(const CPU *c) {
+static void trace_cpu_state(const char *frontend,
+                            const char *reason,
+                            uint64_t instruction_count,
+                            uint64_t microcycle_count,
+                            const CPU *c)
+{
+    if (!c) return;
+
     printf(
+        "CPU [%s / %s] INST=%llu MICRO=%llu "
         "PC=%04X AR=%04X SP=%02X IR=%02X SR=%02X RS=%02X DST=%02X STEP=%02X "
         "AOS=%02X IMM=%02X AAR=%02X ABR=%02X A=%02X B=%02X C=%02X D=%02X "
         "X=%04X Y=%04X BR=%04X HALT=%d\n",
+        frontend ? frontend : "CORE",
+        reason ? reason : "STATE",
+        (unsigned long long)instruction_count,
+        (unsigned long long)microcycle_count,
         c->PC,
         c->AR,
         c->SP,
@@ -1450,37 +1462,10 @@ static void gui_dump_cpu_state(const GuiBackendContext *g,
                                const char *reason)
 {
     if (!g || !g->cpu) return;
-
-    const CPU *c = g->cpu;
-    printf(
-        "GUI CPU [%s] INST=%llu MICRO=%llu "
-        "PC=%04X AR=%04X SP=%02X IR=%02X SR=%02X RS=%02X DST=%02X STEP=%02X "
-        "AOS=%02X IMM=%02X AAR=%02X ABR=%02X A=%02X B=%02X C=%02X D=%02X "
-        "X=%04X Y=%04X BR=%04X HALT=%d\n",
-        reason ? reason : "STATE",
-        (unsigned long long)g->instruction_count,
-        (unsigned long long)g->microcycle_count,
-        c->PC,
-        c->AR,
-        c->SP,
-        c->IR,
-        c->SR,
-        c->RS,
-        c->DST,
-        c->STEP,
-        c->AOS,
-        c->IMM,
-        c->AAR,
-        c->ABR,
-        c->A,
-        c->B,
-        c->C,
-        c->D,
-        c->X,
-        c->Y,
-        c->BR,
-        c->halted ? 1 : 0
-    );
+    trace_cpu_state("GUI", reason,
+                    g->instruction_count,
+                    g->microcycle_count,
+                    g->cpu);
 }
 
 static bool gui_backend_load_rom(void *ctx, const char *path) {
@@ -1983,15 +1968,24 @@ int main(int argc, char **argv) {
 
     printf("Loaded %d EEPROM bytes (ROM bank 0000 program fetch, BR=%04X)\n", loaded, cpu.BR);
 
-    long long instruction_count = 0;
+    uint64_t instruction_count = 0;
+    uint64_t microcycle_count = 0;
 
-    while (!cpu.halted && (steps < 0 || instruction_count < steps)) {
-        dump_regs(&cpu);
-        cpu_execute_instruction(&cpu, &memory, &serial);
-        instruction_count++;
+    while (!cpu.halted &&
+           (steps < 0 || instruction_count < (uint64_t)steps)) {
+        bool complete = false;
+
+        while (!complete && !cpu.halted) {
+            complete = cpu_microstep(&cpu, &memory, &serial);
+            microcycle_count++;
+        }
+
+        if (complete) {
+            instruction_count++;
+            trace_cpu_state("NOGUI", "RUN / INSTRUCTION COMPLETE",
+                            instruction_count, microcycle_count, &cpu);
+        }
     }
-
-    dump_regs(&cpu);
 
     if (do_dump) {
         printf("\nMemory dump:\n");
