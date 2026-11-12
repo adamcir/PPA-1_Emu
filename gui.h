@@ -44,6 +44,7 @@ typedef struct {
 
     uint16_t (*address_bus)(void *ctx);
     uint8_t (*data_bus)(void *ctx);
+    uint8_t (*status_register)(void *ctx);
     uint8_t (*register_value)(void *ctx, int selector);
 } PPA1GuiBackend;
 
