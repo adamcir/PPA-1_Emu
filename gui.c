@@ -1004,21 +1004,15 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text(renderer, fonts.label, 54, 407,
                   (SDL_Color){212, 207, 185, 255},
                   "DATA D0-D7 / ADDRESS A0-A15");
-        draw_text(renderer, fonts.small, 54, 432,
-                  (SDL_Color){176, 174, 160, 255},
-                  "0-7 drive DATA BUS. LOAD ADDRESS temporarily gates all 16 switches to ADDRESS BUS.");
-
         for (int i = 0; i < 16; i++) {
             char label[2] = {"0123456789ABCDEF"[i], 0};
             draw_toggle(renderer, &fonts,
                         62.0f + i * 31.0f, 475.0f, label, switches[i]);
         }
         draw_text(renderer, fonts.small, 58, 570,
-                  (SDL_Color){178, 175, 160, 255}, "DOWN = 0");
-        draw_text(renderer, fonts.small, 300, 570,
-                  (SDL_Color){178, 175, 160, 255}, "8-F: ADDRESS LOAD ONLY");
-        draw_text(renderer, fonts.small, 520, 570,
-                  (SDL_Color){178, 175, 160, 255}, "UP = 1");
+                  (SDL_Color){178, 175, 160, 255}, "0");
+        draw_text(renderer, fonts.small, 548, 570,
+                  (SDL_Color){178, 175, 160, 255}, "1");
 
         /* Hardware clock control. */
         draw_text(renderer, fonts.section, 646, 321,
@@ -1028,10 +1022,6 @@ int ppa_gui_run_panel(const char *initial_rom,
                   (SDL_Color){212, 207, 185, 255}, "CPU CLOCK");
         draw_knob(renderer, &fonts, clock_cx, clock_cy, clock_radius,
                   clock_index, 7, clock_values[clock_index]);
-
-        draw_text(renderer, fonts.small, 900, 386,
-                  (SDL_Color){176, 174, 160, 255},
-                  "Front-panel programming operates with CPU stopped.");
 
         /* Hardware programming and execution controls. */
         draw_text(renderer, fonts.section, 646, 520,
