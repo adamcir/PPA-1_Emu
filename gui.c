@@ -1566,7 +1566,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                 (powered && ((bank >> bit_index) & 1u));
             draw_led(renderer, &panel_fonts,
                      58.0f + pos * 31.0f, 234.0f, label, bit,
-                     COL_GREEN);
+                     COL_BLUE);
         }
 
         draw_text(renderer, panel_fonts.label, 54, 284,
@@ -1578,7 +1578,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                 (powered && ((data >> bit_index) & 1u));
             draw_led(renderer, &panel_fonts,
                      58.0f + pos * 49.0f, 302.0f, label, bit,
-                     COL_BLUE);
+                     COL_GREEN);
         }
 
         draw_text(renderer, panel_fonts.label, 452, 284,
