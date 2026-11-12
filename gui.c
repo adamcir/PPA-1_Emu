@@ -917,6 +917,12 @@ int ppa_gui_run_panel(const char *initial_rom,
         "500 Hz", "1 kHz", "2 kHz", "5 kHz",
         "10 kHz", "20 kHz", "50 kHz", "100 kHz"
     };
+    const char *clock_tick_labels[] = {
+        "1", "2", "5", "10",
+        "20", "50", "100", "200",
+        "500", "1k", "2k", "5k",
+        "10k", "20k", "50k", "100k"
+    };
     const double clock_rates[] = {
         1.0, 2.0, 5.0, 10.0,
         20.0, 50.0, 100.0, 200.0,
