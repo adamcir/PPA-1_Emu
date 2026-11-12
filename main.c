@@ -1462,6 +1462,7 @@ static bool gui_backend_load_rom(void *ctx, const char *path) {
     g->loaded = true;
     g->powered = false;
     g->running = false;
+    g->panel_data_bus = 0x00;
 
     printf("GUI: loaded %d EEPROM bytes: %s (processor power OFF)\n", loaded, path);
     return true;
@@ -1505,6 +1506,7 @@ static void gui_backend_reset(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->loaded) return;
     gui_cpu_reset_state(g);
+    g->panel_data_bus = 0x00;
     g->running = false;
     printf("GUI: processor reset\n");
 }
