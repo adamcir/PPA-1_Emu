@@ -16,6 +16,12 @@
 #include <errno.h>
 #include <termios.h>
 
+#include "logger.h"
+#include "gui.h"
+
+/* Mirror the emulator's existing printf-based diagnostics to latest.log. */
+#define printf(...) ppa_log_printf(__VA_ARGS__)
+
 #define BANK_SIZE       0x10000u
 #define ROM_BANK_COUNT  0x40u
 #define RAM_BANK_COUNT  0x10u
@@ -1308,11 +1314,12 @@ static int cpu_execute_instruction(CPU *cpu, Memory *memory, Serial *serial) {
 
 static void usage(const char *prog) {
     printf("Usage:\n");
-    printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--dump HEX LEN] [--tty]\n", prog);
+    printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--dump HEX LEN] [--tty] [--nogui]\n", prog);
     printf("\n");
     printf("Without --steps, execution continues until HLT or Ctrl+C.\n");
     printf("--steps limits the number of complete CPU instructions, not microsteps.\n");
     printf("--tty creates a pseudo-terminal for SYSTEM bank 0050, SERIAL FF00-FF03.\n");
+    printf("--nogui disables the graphical frontend and runs console mode.\n");
 }
 
 static uint32_t parse_hex(const char *s) {
@@ -1320,6 +1327,10 @@ static uint32_t parse_hex(const char *s) {
 }
 
 int main(int argc, char **argv) {
+    if (!ppa_log_open("latest.log")) {
+        fprintf(stderr, "Warning: could not open latest.log for writing\n");
+    }
+
     printf("PPA-1 Emu\n");
     printf("(c) 2026 Adam Cír (Adava), Adava Software, Adava Development\n");
 
@@ -1345,6 +1356,7 @@ int main(int argc, char **argv) {
     long long steps = -1;
     bool do_dump = false;
     bool tty_enabled = false;
+    bool no_gui = false;
     uint16_t dump_start = 0;
     uint16_t dump_len = 0;
 
@@ -1357,6 +1369,8 @@ int main(int argc, char **argv) {
             steps = strtoll(argv[++i], NULL, 10);
         } else if (strcmp(argv[i], "--tty") == 0) {
             tty_enabled = true;
+        } else if (strcmp(argv[i], "--nogui") == 0) {
+            no_gui = true;
         } else if (strcmp(argv[i], "--dump") == 0 && i + 2 < argc) {
             do_dump = true;
             dump_start = (uint16_t)parse_hex(argv[++i]);
@@ -1366,6 +1380,10 @@ int main(int argc, char **argv) {
             return 1;
         }
     }
+
+    PPA1GuiState gui_state;
+    ppa_gui_init_state(&gui_state, no_gui);
+    ppa_gui_log_mode(&gui_state);
 
     if (tty_enabled) {
         if (!serial_open_pty(&serial)) {
@@ -1411,5 +1429,6 @@ int main(int argc, char **argv) {
 
     serial_close(&serial);
     if (memory.rom_file) fclose(memory.rom_file);
+    ppa_log_close();
     return 0;
 }
