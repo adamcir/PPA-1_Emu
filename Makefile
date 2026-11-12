@@ -1,7 +1,7 @@
 CC = gcc
 
 EMU = out/PPA-1_Emu
-SRC = main.c
+SRC = main.c logger.c gui.c
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 
