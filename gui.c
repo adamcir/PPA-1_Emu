@@ -1586,8 +1586,8 @@ int ppa_gui_run_panel(const char *initial_rom,
             (SDL_FRect){1046, 18, 174, 68},
             COL_WHITE, "A-1");
 
-        draw_text_center(renderer, panel_fonts.small,
-            (SDL_FRect){1038, 87, 190, 18},
+        draw_text_stretched(renderer, panel_fonts.label,
+            (SDL_FRect){1038, 87, 190, 20},
             COL_WHITE, "Adava Electronics");
 
         SDL_SetRenderDrawColor(
