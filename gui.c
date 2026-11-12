@@ -951,6 +951,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     bool switches[16] = {0};
     bool panel_running = true;
     uint16_t manual_address = 0x0000;
+    uint8_t front_data_latch = 0x00;
 
     const char *clock_values[] = {
         "1 Hz", "2 Hz", "5 Hz", "10 Hz",
@@ -1235,7 +1236,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                             } else if (point_in_rect(x, y, &fp_exam)) {
                                 pressed_button = BTN_EXAM;
                                 pressed_until = SDL_GetTicks() + 140;
-                                (void)backend->examine(backend->ctx, manual_address);
+                                front_data_latch =
+                                    backend->examine(backend->ctx, manual_address);
                             } else if (point_in_rect(x, y, &fp_dep)) {
                                 pressed_button = BTN_DEPOSIT;
                                 pressed_until = SDL_GetTicks() + 140;
@@ -1244,7 +1246,11 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 for (int i = 0; i < 8; i++) {
                                     if (switches[i]) data_value |= (uint8_t)(1u << i);
                                 }
-                                backend->deposit(backend->ctx, manual_address, data_value);
+                                backend->deposit(
+                                    backend->ctx, manual_address, data_value);
+                                front_data_latch =
+                                    backend->examine(
+                                        backend->ctx, manual_address);
                             } else if (point_in_rect(x, y, &fp_start)) {
                                 pressed_button = BTN_START;
                                 pressed_until = SDL_GetTicks() + 140;
@@ -1270,6 +1276,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 pressed_until = SDL_GetTicks() + 140;
                                 backend->reset(backend->ctx);
                                 manual_address = 0x0000;
+                                front_data_latch = 0x00;
                             } else if (point_in_rect(x, y, &power_btn)) {
                                 bool new_power =
                                     !backend->is_powered(backend->ctx);
@@ -1277,6 +1284,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
                                 if (!new_power) {
                                     manual_address = 0x0000;
+                                    front_data_latch = 0x00;
                                     clock_phase = 0.0;
                                 } else {
                                     uint8_t data_value = 0;
@@ -1286,6 +1294,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     }
                                     backend->set_data_input(
                                         backend->ctx, data_value);
+                                    front_data_latch = data_value;
                                 }
                             } else if (point_in_circle(
                                            x, y,
@@ -1362,6 +1371,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                         }
                                         backend->set_data_input(
                                             backend->ctx, data_value);
+                                        front_data_latch = data_value;
                                         break;
                                     }
                                 }
@@ -1439,7 +1449,9 @@ int ppa_gui_run_panel(const char *initial_rom,
         }
 
         Uint16 address = backend->address_bus(backend->ctx);
-        Uint8 bus_data = backend->data_bus(backend->ctx);
+        Uint8 bus_data = running
+            ? backend->data_bus(backend->ctx)
+            : front_data_latch;
         Uint8 data = bus_data;
 
         if (data_source_index == 1 && backend->register_value) {
