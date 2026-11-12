@@ -1329,16 +1329,24 @@ int ppa_gui_run_panel(const char *initial_rom,
                                         ? ""
                                         : " (not routed to DATA)");
                             } else {
-                                for (int i = 0; i < 16; i++) {
-                                    SDL_FRect hit = {62.0f + i * 31.0f, 507.0f, 28.0f, 72.0f};
+                                for (int pos = 0; pos < 16; pos++) {
+                                    SDL_FRect hit = {
+                                        62.0f + pos * 31.0f,
+                                        507.0f, 28.0f, 72.0f
+                                    };
                                     if (point_in_rect(x, y, &hit)) {
-                                        switches[i] = !switches[i];
+                                        int bit_index = 15 - pos;
+                                        switches[bit_index] =
+                                            !switches[bit_index];
 
                                         uint8_t data_value = 0;
                                         for (int bit = 0; bit < 8; bit++) {
-                                            if (switches[bit]) data_value |= (uint8_t)(1u << bit);
+                                            if (switches[bit])
+                                                data_value |=
+                                                    (uint8_t)(1u << bit);
                                         }
-                                        backend->set_data_input(backend->ctx, data_value);
+                                        backend->set_data_input(
+                                            backend->ctx, data_value);
                                         break;
                                     }
                                 }
@@ -1477,25 +1485,27 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text(renderer, panel_fonts.section, 52, 126,
                   COL_WHITE, "BUS INDICATORS");
         draw_text(renderer, panel_fonts.label, 54, 163,
-                  COL_LIGHT_GRAY, "ADDRESS BUS  A0-A15");
+                  COL_LIGHT_GRAY, "ADDRESS BUS  A15-A0");
 
-        for (int i = 0; i < 16; i++) {
-            char label[2] = {"0123456789ABCDEF"[i], 0};
+        for (int pos = 0; pos < 16; pos++) {
+            int bit_index = 15 - pos;
+            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
             bool bit = prefs.lamp_test ||
-                (powered && ((address >> i) & 1u));
+                (powered && ((address >> bit_index) & 1u));
             draw_led(renderer, &panel_fonts,
-                     58.0f + i * 31.0f, 190.0f, label, bit,
+                     58.0f + pos * 31.0f, 190.0f, label, bit,
                      COL_ORANGE);
         }
 
         draw_text(renderer, panel_fonts.label, 54, 257,
-                  COL_LIGHT_GRAY, "DATA BUS  D0-D7");
-        for (int i = 0; i < 8; i++) {
-            char label[2] = {(char)('0' + i), 0};
+                  COL_LIGHT_GRAY, "DATA BUS  D7-D0");
+        for (int pos = 0; pos < 8; pos++) {
+            int bit_index = 7 - pos;
+            char label[2] = {(char)('0' + bit_index), 0};
             bool bit = prefs.lamp_test ||
-                (powered && ((data >> i) & 1u));
+                (powered && ((data >> bit_index) & 1u));
             draw_led(renderer, &panel_fonts,
-                     58.0f + i * 49.0f, 284.0f, label, bit,
+                     58.0f + pos * 49.0f, 284.0f, label, bit,
                      COL_BLUE);
         }
 
@@ -1543,11 +1553,13 @@ int ppa_gui_run_panel(const char *initial_rom,
                   COL_WHITE, "FRONT PANEL INPUT");
         draw_text(renderer, panel_fonts.label, 54, 407,
                   COL_LIGHT_GRAY,
-                  "DATA D0-D7 / ADDRESS A0-A15");
-        for (int i = 0; i < 16; i++) {
-            char label[2] = {"0123456789ABCDEF"[i], 0};
+                  "DATA D7-D0 / ADDRESS A15-A0");
+        for (int pos = 0; pos < 16; pos++) {
+            int bit_index = 15 - pos;
+            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
             draw_toggle(renderer, &panel_fonts,
-                        62.0f + i * 31.0f, 475.0f, label, switches[i]);
+                        62.0f + pos * 31.0f, 475.0f,
+                        label, switches[bit_index]);
         }
         /* Physical clock and DATA display selectors. */
         draw_text(renderer, panel_fonts.section, 646, 321,
