@@ -52,6 +52,9 @@
 #define SERIAL_CTL_RX_ENABLE 0x04
 #define SERIAL_CTL_RESET     0x08
 
+#define SERIAL_GUI_RX_CAP 256
+#define SERIAL_GUI_TX_CAP 4096
+
 #define FL_Z 0x01
 #define FL_C 0x02
 
@@ -110,12 +113,24 @@ typedef struct {
 
 typedef struct {
     bool enabled;
+    bool pty_enabled;
+    bool gui_enabled;
+
     int master_fd;
     int slave_fd;
     char slave_name[128];
+
     uint8_t rx;
     uint8_t status;
     uint8_t control;
+
+    uint8_t gui_rx[SERIAL_GUI_RX_CAP];
+    size_t gui_rx_head;
+    size_t gui_rx_tail;
+
+    uint8_t gui_tx[SERIAL_GUI_TX_CAP];
+    size_t gui_tx_head;
+    size_t gui_tx_tail;
 } Serial;
 
 static inline void set_flag(CPU *cpu, uint8_t flag, bool on) {
@@ -177,6 +192,79 @@ static void persist_rom_byte(Memory *memory, uint32_t physical, uint8_t value) {
     fflush(memory->rom_file);
 }
 
+static void serial_reset(Serial *serial) {
+    serial->rx = 0;
+    serial->status = 0;
+
+    if (serial->enabled &&
+        (serial->control & (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) ==
+        (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) {
+        serial->status |= SERIAL_ST_TX_READY;
+    }
+}
+
+static void serial_refresh_enabled(Serial *serial) {
+    if (!serial) return;
+
+    bool was_enabled = serial->enabled;
+    serial->enabled = serial->pty_enabled || serial->gui_enabled;
+
+    if (serial->enabled && !was_enabled) {
+        serial->control =
+            SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE | SERIAL_CTL_RX_ENABLE;
+        serial_reset(serial);
+    } else if (!serial->enabled) {
+        serial->control = 0;
+        serial->status = 0;
+        serial->rx = 0;
+    }
+}
+
+static bool serial_gui_rx_push(Serial *serial, uint8_t value) {
+    if (!serial || !serial->gui_enabled) return false;
+
+    size_t next = (serial->gui_rx_head + 1u) % SERIAL_GUI_RX_CAP;
+    if (next == serial->gui_rx_tail) {
+        serial->status |= SERIAL_ST_RX_OVERRUN;
+        return false;
+    }
+
+    serial->gui_rx[serial->gui_rx_head] = value;
+    serial->gui_rx_head = next;
+    return true;
+}
+
+static bool serial_gui_rx_pop(Serial *serial, uint8_t *value) {
+    if (!serial || serial->gui_rx_tail == serial->gui_rx_head) return false;
+
+    if (value) *value = serial->gui_rx[serial->gui_rx_tail];
+    serial->gui_rx_tail = (serial->gui_rx_tail + 1u) % SERIAL_GUI_RX_CAP;
+    return true;
+}
+
+static void serial_gui_tx_push(Serial *serial, uint8_t value) {
+    if (!serial || !serial->gui_enabled) return;
+
+    size_t next = (serial->gui_tx_head + 1u) % SERIAL_GUI_TX_CAP;
+    if (next == serial->gui_tx_tail) {
+        serial->gui_tx_tail = (serial->gui_tx_tail + 1u) % SERIAL_GUI_TX_CAP;
+    }
+
+    serial->gui_tx[serial->gui_tx_head] = value;
+    serial->gui_tx_head = next;
+}
+
+static size_t serial_gui_tx_read(Serial *serial, uint8_t *dst, size_t capacity) {
+    if (!serial || !dst || capacity == 0) return 0;
+
+    size_t n = 0;
+    while (n < capacity && serial->gui_tx_tail != serial->gui_tx_head) {
+        dst[n++] = serial->gui_tx[serial->gui_tx_tail];
+        serial->gui_tx_tail = (serial->gui_tx_tail + 1u) % SERIAL_GUI_TX_CAP;
+    }
+    return n;
+}
+
 static void serial_poll_rx(Serial *serial) {
     if (!serial || !serial->enabled)
         return;
@@ -189,7 +277,16 @@ static void serial_poll_rx(Serial *serial) {
     if (serial->status & SERIAL_ST_RX_READY)
         return;
 
-    uint8_t ch;
+    uint8_t ch = 0;
+
+    if (serial->gui_enabled && serial_gui_rx_pop(serial, &ch)) {
+        serial->rx = ch;
+        serial->status |= SERIAL_ST_RX_READY;
+        return;
+    }
+
+    if (!serial->pty_enabled || serial->master_fd < 0)
+        return;
 
     ssize_t n = read(serial->master_fd, &ch, 1);
 
@@ -199,19 +296,9 @@ static void serial_poll_rx(Serial *serial) {
     }
 }
 
-static void serial_reset(Serial *serial) {
-    serial->rx = 0;
-    serial->status = 0;
-    if ((serial->control & (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) ==
-        (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) {
-        serial->status |= SERIAL_ST_TX_READY;
-    }
-}
-
 static int serial_open_pty(Serial *serial) {
-    memset(serial, 0, sizeof(*serial));
-    serial->master_fd = -1;
-    serial->slave_fd = -1;
+    if (!serial) return 0;
+    if (serial->pty_enabled) return 1;
 
     int master = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (master < 0) {
@@ -250,17 +337,16 @@ static int serial_open_pty(Serial *serial) {
        actually opens the slave side. */
     close(slave);
 
-    serial->enabled = true;
+    serial->pty_enabled = true;
     serial->master_fd = master;
     serial->slave_fd = -1;
     snprintf(serial->slave_name, sizeof(serial->slave_name), "%s", name);
-    serial->control = SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE | SERIAL_CTL_RX_ENABLE;
-    serial_reset(serial);
+    serial_refresh_enabled(serial);
     return 1;
 }
 
 static int serial_wait_for_client(Serial *serial) {
-    if (!serial || !serial->enabled || serial->master_fd < 0) return 0;
+    if (!serial || !serial->pty_enabled || serial->master_fd < 0) return 0;
 
     printf("Waiting for terminal connection...\n");
     fflush(stdout);
@@ -303,7 +389,7 @@ static int serial_wait_for_client(Serial *serial) {
 }
 
 static void serial_wait_for_disconnect(Serial *serial) {
-    if (!serial || !serial->enabled || serial->master_fd < 0) return;
+    if (!serial || !serial->pty_enabled || serial->master_fd < 0) return;
 
     printf("CPU stopped. Close the terminal connection to exit.\n");
     fflush(stdout);
@@ -328,13 +414,27 @@ static void serial_wait_for_disconnect(Serial *serial) {
     }
 }
 
-static void serial_close(Serial *serial) {
+static void serial_close_pty(Serial *serial) {
     if (!serial) return;
+
     if (serial->slave_fd >= 0) close(serial->slave_fd);
     if (serial->master_fd >= 0) close(serial->master_fd);
+
     serial->slave_fd = -1;
     serial->master_fd = -1;
-    serial->enabled = false;
+    serial->slave_name[0] = '\0';
+    serial->pty_enabled = false;
+    serial_refresh_enabled(serial);
+}
+
+static void serial_close(Serial *serial) {
+    if (!serial) return;
+
+    serial_close_pty(serial);
+    serial->gui_enabled = false;
+    serial->gui_rx_head = serial->gui_rx_tail = 0;
+    serial->gui_tx_head = serial->gui_tx_tail = 0;
+    serial_refresh_enabled(serial);
 }
 
 static uint8_t system_read8(Memory *memory, Serial *serial, uint16_t addr) {
@@ -380,8 +480,16 @@ static void system_write8(Memory *memory, Serial *serial, uint16_t addr, uint8_t
                     (SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE)) {
                     serial->status &= (uint8_t)~SERIAL_ST_TX_READY;
                     serial->status |= SERIAL_ST_TX_BUSY;
-                    ssize_t n = write(serial->master_fd, &v, 1);
-                    (void)n;
+
+                    if (serial->gui_enabled) {
+                        serial_gui_tx_push(serial, v);
+                    }
+
+                    if (serial->pty_enabled && serial->master_fd >= 0) {
+                        ssize_t n = write(serial->master_fd, &v, 1);
+                        (void)n;
+                    }
+
                     serial->status &= (uint8_t)~SERIAL_ST_TX_BUSY;
                     serial->status |= SERIAL_ST_TX_READY;
                 }
@@ -1400,19 +1508,25 @@ static void gui_backend_step_micro(void *ctx) {
     if (g->cpu->halted) g->running = false;
 }
 
-static void gui_backend_tick(void *ctx, int instruction_budget) {
+static void gui_backend_tick(void *ctx, int clock_edges) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->loaded || !g->powered || !g->running) return;
 
-    if (instruction_budget < 1) instruction_budget = 1;
-    if (instruction_budget > 5000) instruction_budget = 5000;
+    if (clock_edges < 1) clock_edges = 1;
+    if (clock_edges > 5000) clock_edges = 5000;
 
-    for (int i = 0; i < instruction_budget && g->running; i++) {
+    for (int i = 0; i < clock_edges && g->running; i++) {
         if (g->cpu->halted) {
             g->running = false;
             break;
         }
-        cpu_execute_instruction(g->cpu, g->memory, g->serial);
+
+        (void)cpu_microstep(g->cpu, g->memory, g->serial);
+
+        if (g->cpu->halted) {
+            g->running = false;
+            break;
+        }
     }
 }
 
@@ -1489,7 +1603,7 @@ static bool gui_backend_set_tty_enabled(void *ctx, bool enabled) {
 
     if (g->serial->enabled) {
         printf("GUI: PTY serial disabled: %s\n", g->serial->slave_name);
-        serial_close(g->serial);
+        serial_close_pty(g->serial);
     }
     return true;
 }
@@ -1503,6 +1617,38 @@ static const char *gui_backend_tty_name(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->serial || !g->serial->enabled) return "";
     return g->serial->slave_name;
+}
+
+static bool gui_backend_set_terminal_enabled(void *ctx, bool enabled) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->serial) return false;
+
+    g->serial->gui_enabled = enabled;
+    if (!enabled) {
+        g->serial->gui_rx_head = g->serial->gui_rx_tail = 0;
+        g->serial->gui_tx_head = g->serial->gui_tx_tail = 0;
+    }
+
+    serial_refresh_enabled(g->serial);
+    printf("GUI: built-in UART terminal %s\n", enabled ? "connected" : "disconnected");
+    return true;
+}
+
+static bool gui_backend_is_terminal_enabled(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return g && g->serial && g->serial->gui_enabled;
+}
+
+static size_t gui_backend_terminal_read_tx(void *ctx, uint8_t *dst, size_t capacity) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->serial) return 0;
+    return serial_gui_tx_read(g->serial, dst, capacity);
+}
+
+static bool gui_backend_terminal_write_rx(void *ctx, uint8_t value) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->serial) return false;
+    return serial_gui_rx_push(g->serial, value);
 }
 
 static bool gui_backend_is_loaded(void *ctx) {
@@ -1640,6 +1786,10 @@ int main(int argc, char **argv) {
             .set_tty_enabled = gui_backend_set_tty_enabled,
             .is_tty_enabled = gui_backend_is_tty_enabled,
             .tty_name = gui_backend_tty_name,
+            .set_terminal_enabled = gui_backend_set_terminal_enabled,
+            .is_terminal_enabled = gui_backend_is_terminal_enabled,
+            .terminal_read_tx = gui_backend_terminal_read_tx,
+            .terminal_write_rx = gui_backend_terminal_write_rx,
             .is_loaded = gui_backend_is_loaded,
             .is_powered = gui_backend_is_powered,
             .is_running = gui_backend_is_running,
