@@ -1590,7 +1590,7 @@ static bool gui_backend_set_tty_enabled(void *ctx, bool enabled) {
     if (!g || !g->serial) return false;
 
     if (enabled) {
-        if (g->serial->enabled) return true;
+        if (g->serial->pty_enabled) return true;
         if (!serial_open_pty(g->serial)) {
             printf("GUI: failed to create PTY serial terminal\n");
             return false;
@@ -1601,7 +1601,7 @@ static bool gui_backend_set_tty_enabled(void *ctx, bool enabled) {
         return true;
     }
 
-    if (g->serial->enabled) {
+    if (g->serial->pty_enabled) {
         printf("GUI: PTY serial disabled: %s\n", g->serial->slave_name);
         serial_close_pty(g->serial);
     }
@@ -1610,12 +1610,12 @@ static bool gui_backend_set_tty_enabled(void *ctx, bool enabled) {
 
 static bool gui_backend_is_tty_enabled(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    return g && g->serial && g->serial->enabled;
+    return g && g->serial && g->serial->pty_enabled;
 }
 
 static const char *gui_backend_tty_name(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->serial || !g->serial->enabled) return "";
+    if (!g || !g->serial || !g->serial->pty_enabled) return "";
     return g->serial->slave_name;
 }
 
