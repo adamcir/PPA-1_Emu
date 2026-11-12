@@ -1574,6 +1574,17 @@ static void gui_backend_set_data_input(void *ctx, uint8_t value) {
     g->cpu->ABR = value;
 }
 
+static void gui_backend_load_bank(void *ctx, uint16_t bank) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->powered) return;
+
+    g->running = false;
+    g->cpu->BR = bank;
+
+    printf("GUI: LOAD BANK -> BR=%04X (AR=%04X)\n",
+           g->cpu->BR, g->cpu->AR);
+}
+
 static void gui_backend_load_address(void *ctx, uint16_t address) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->powered) return;
@@ -1845,6 +1856,7 @@ int main(int argc, char **argv) {
             .step_micro = gui_backend_step_micro,
             .tick = gui_backend_tick,
             .set_data_input = gui_backend_set_data_input,
+            .load_bank = gui_backend_load_bank,
             .load_address = gui_backend_load_address,
             .examine = gui_backend_examine,
             .deposit = gui_backend_deposit,
