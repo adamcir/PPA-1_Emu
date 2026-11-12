@@ -1477,11 +1477,16 @@ static void gui_backend_set_power(void *ctx, bool on) {
         g->powered = false;
         g->panel_data_bus = 0x00;
 
-        /* PWR=0 behaves like removing power from the CPU itself:
-           all volatile processor state is lost, while EEPROM/RAM image
-           ownership stays with the emulator. */
+        /* PWR=0 behaves like removing power from the machine:
+           CPU state and volatile memory are lost, EEPROM is preserved. */
         gui_cpu_reset_state(g);
-        printf("GUI: processor power OFF (CPU state lost/reset)\n");
+        if (g->memory) {
+            memset(g->memory->ram, 0x00, sizeof(g->memory->ram));
+            memset(g->memory->stack, 0x00, sizeof(g->memory->stack));
+            memset(g->memory->reserved, 0xFF, sizeof(g->memory->reserved));
+        }
+
+        printf("GUI: processor power OFF (CPU + volatile RAM cleared)\n");
         return;
     }
 
