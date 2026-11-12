@@ -601,27 +601,48 @@ static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
         (void)setsid();
 
         /*
-         * st / Simple Terminal can attach directly to a tty/PTY line.
-         * -T sets the window title, -l selects the line, final 9600 is
-         * the baud rate passed to stty by st.
+         * Prefer the desktop/system default terminal. The child shell sets
+         * the title using OSC 0, then replaces itself with screen attached
+         * directly to the PPA-1 PTY.
          */
-        execlp("st",
-               "st",
-               "-T", "PPA-1 UART TERMINAL",
-               "-l", tty, "9600",
+        const char *script =
+            "printf '\\033]0;PPA-1 UART TERMINAL\\007'; "
+            "exec screen \"$1\" 9600";
+
+        execlp("x-terminal-emulator",
+               "x-terminal-emulator",
+               "-e", "sh", "-lc", script, "sh", tty,
                (char *)NULL);
 
-        /* Debian/Ubuntu package name commonly exposes the binary as stterm. */
-        execlp("stterm",
-               "stterm",
+        execlp("xfce4-terminal",
+               "xfce4-terminal",
+               "--title=PPA-1 UART TERMINAL",
+               "-e", "sh -lc 'exec screen \"$1\" 9600' sh",
+               tty,
+               (char *)NULL);
+
+        execlp("gnome-terminal",
+               "gnome-terminal",
+               "--title=PPA-1 UART TERMINAL",
+               "--", "screen", tty, "9600",
+               (char *)NULL);
+
+        execlp("konsole",
+               "konsole",
+               "--title", "PPA-1 UART TERMINAL",
+               "-e", "screen", tty, "9600",
+               (char *)NULL);
+
+        execlp("xterm",
+               "xterm",
                "-T", "PPA-1 UART TERMINAL",
-               "-l", tty, "9600",
+               "-e", "screen", tty, "9600",
                (char *)NULL);
 
         _exit(127);
     }
 
-    ppa_log_printf("GUI: opened Simple Terminal UART monitor on %s at 9600 baud.\n",
+    ppa_log_printf("GUI: opened default UART terminal on %s at 9600 baud.\n",
                    tty);
     return true;
 }
