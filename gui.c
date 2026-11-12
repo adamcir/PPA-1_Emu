@@ -932,8 +932,8 @@ int ppa_gui_run_panel(const char *initial_rom,
     const int clock_count = (int)(sizeof(clock_rates) / sizeof(clock_rates[0]));
     int clock_index = 9;
 
-    const char *data_source_labels[] = {"BUS", "REGISTER"};
-    const char *data_source_tick_labels[] = {"BUS", "REG"};
+    const char *data_source_labels[] = {"DATA BUS", "REGISTER OUTPUT"};
+    const char *data_source_tick_labels[] = {"BUS", "REG OUT"};
     int data_source_index = 0;
 
     const char *register_labels[] = {
@@ -1483,7 +1483,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text_center(renderer, fonts.label,
                          (SDL_FRect){840, 344, 130, 18},
                          (SDL_Color){212, 207, 185, 255},
-                         "DATA SOURCE");
+                         "DATA OUTPUT");
         draw_labeled_knob(renderer, &fonts,
                           data_source_cx, data_source_cy,
                           data_source_radius,
