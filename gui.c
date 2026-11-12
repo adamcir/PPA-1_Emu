@@ -8,7 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 #define PANEL_W 1280
 #define PANEL_H 760
@@ -78,6 +80,12 @@ typedef struct {
     int line;
     int col;
 } TerminalWindow;
+
+typedef struct {
+    bool active;
+    pid_t launcher_pid;
+    char screen_session[64];
+} UartTerminalState;
 
 typedef struct {
     bool auto_run;
@@ -699,8 +707,59 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     SDL_RenderPresent(term->renderer);
 }
 
-static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
-    if (!backend || !backend->set_tty_enabled ||
+static void uart_terminal_reap_launcher(UartTerminalState *state)
+{
+    if (!state || state->launcher_pid <= 0) return;
+
+    int status = 0;
+    pid_t r = waitpid(state->launcher_pid, &status, WNOHANG);
+    if (r == state->launcher_pid) {
+        state->launcher_pid = -1;
+    }
+}
+
+static void stop_uart_terminal(UartTerminalState *state)
+{
+    if (!state || !state->active) return;
+
+    /*
+     * screen owns the serial attachment. Asking that exact named session to
+     * quit detaches it from the PTY and makes the terminal command exit too.
+     * The emulator PTY itself intentionally remains enabled and keeps the same
+     * /dev/pts/N name for the next UART MONITOR click.
+     */
+    if (state->screen_session[0]) {
+        pid_t ctl = fork();
+        if (ctl == 0) {
+            execlp("screen", "screen",
+                   "-S", state->screen_session,
+                   "-X", "quit",
+                   (char *)NULL);
+            _exit(127);
+        } else if (ctl > 0) {
+            while (waitpid(ctl, NULL, 0) < 0) {
+                if (errno != EINTR) break;
+            }
+        }
+    }
+
+    uart_terminal_reap_launcher(state);
+    if (state->launcher_pid > 0) {
+        /* The launcher called setsid(), so its negative PID addresses only
+           the terminal process group created for this UART window. */
+        (void)kill(-state->launcher_pid, SIGTERM);
+        (void)waitpid(state->launcher_pid, NULL, WNOHANG);
+        state->launcher_pid = -1;
+    }
+
+    state->active = false;
+    ppa_log_printf("GUI: UART terminal closed; PTY kept active for reuse.\n");
+}
+
+static bool start_uart_terminal(const PPA1GuiBackend *backend,
+                                UartTerminalState *state)
+{
+    if (!backend || !state || !backend->set_tty_enabled ||
         !backend->is_tty_enabled || !backend->tty_name) {
         return false;
     }
@@ -718,6 +777,11 @@ static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
         return false;
     }
 
+    if (!state->screen_session[0]) {
+        snprintf(state->screen_session, sizeof(state->screen_session),
+                 "ppa1_uart_%ld", (long)getpid());
+    }
+
     pid_t pid = fork();
     if (pid < 0) {
         ppa_log_printf("GUI: fork() failed while opening UART terminal.\n");
@@ -729,16 +793,18 @@ static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
 
         const char *script =
             "printf '\\033]0;PPA-1 UART TERMINAL\\007'; "
-            "exec screen \"$1\" 9600";
+            "exec screen -S \"$1\" \"$2\" 9600";
 
         execlp("x-terminal-emulator",
                "x-terminal-emulator",
-               "-e", "sh", "-lc", script, "sh", tty,
+               "-e", "sh", "-lc", script, "sh",
+               state->screen_session, tty,
                (char *)NULL);
 
-        char xfce_command[256];
+        char xfce_command[384];
         snprintf(xfce_command, sizeof(xfce_command),
-                 "screen %s 9600", tty);
+                 "screen -S %s %s 9600",
+                 state->screen_session, tty);
 
         execlp("xfce4-terminal",
                "xfce4-terminal",
@@ -748,28 +814,52 @@ static bool launch_uart_terminal(const PPA1GuiBackend *backend) {
 
         execlp("gnome-terminal",
                "gnome-terminal",
+               "--wait",
                "--title=PPA-1 UART TERMINAL",
-               "--", "screen", tty, "9600",
+               "--", "screen",
+               "-S", state->screen_session,
+               tty, "9600",
                (char *)NULL);
 
         execlp("konsole",
                "konsole",
                "--title", "PPA-1 UART TERMINAL",
-               "-e", "screen", tty, "9600",
+               "-e", "screen",
+               "-S", state->screen_session,
+               tty, "9600",
                (char *)NULL);
 
         execlp("xterm",
                "xterm",
                "-T", "PPA-1 UART TERMINAL",
-               "-e", "screen", tty, "9600",
+               "-e", "screen",
+               "-S", state->screen_session,
+               tty, "9600",
                (char *)NULL);
 
         _exit(127);
     }
 
-    ppa_log_printf("GUI: opened default UART terminal on %s at 9600 baud.\n",
-                   tty);
+    state->launcher_pid = pid;
+    state->active = true;
+
+    ppa_log_printf(
+        "GUI: UART terminal opened: screen session=%s PTY=%s baud=9600.\n",
+        state->screen_session, tty);
     return true;
+}
+
+static bool toggle_uart_terminal(const PPA1GuiBackend *backend,
+                                 UartTerminalState *state)
+{
+    if (!state) return false;
+
+    if (state->active) {
+        stop_uart_terminal(state);
+        return true;
+    }
+
+    return start_uart_terminal(backend, state);
 }
 
 static void destroy_aux(AuxWindow *aux) {
@@ -984,6 +1074,11 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
     AuxWindow log_window = {0};
+    UartTerminalState uart_terminal = {
+        .active = false,
+        .launcher_pid = -1,
+        .screen_session = {0}
+    };
 
     bool switches[16] = {0};
     bool panel_running = true;
@@ -1244,7 +1339,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_terminal)) {
-                            (void)launch_uart_terminal(backend);
+                            (void)toggle_uart_terminal(
+                                backend, &uart_terminal);
                             continue;
                         }
 
@@ -1822,6 +1918,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     }
 
     backend->set_running(backend->ctx, false);
+    stop_uart_terminal(&uart_terminal);
 
     destroy_aux(&prefs_window);
     destroy_aux(&view_window);
