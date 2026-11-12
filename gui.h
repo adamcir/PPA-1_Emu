@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 
 typedef struct {
     bool requested;
@@ -29,6 +30,11 @@ typedef struct {
     bool (*set_tty_enabled)(void *ctx, bool enabled);
     bool (*is_tty_enabled)(void *ctx);
     const char *(*tty_name)(void *ctx);
+
+    bool (*set_terminal_enabled)(void *ctx, bool enabled);
+    bool (*is_terminal_enabled)(void *ctx);
+    size_t (*terminal_read_tx)(void *ctx, uint8_t *dst, size_t capacity);
+    bool (*terminal_write_rx)(void *ctx, uint8_t value);
 
     bool (*is_loaded)(void *ctx);
     bool (*is_powered)(void *ctx);
