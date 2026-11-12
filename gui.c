@@ -1175,23 +1175,78 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 backend->reset(backend->ctx);
                                 manual_address = 0x0000;
                             } else if (point_in_rect(x, y, &power_btn)) {
-                                backend->set_power(
-                                    backend->ctx,
-                                    !backend->is_powered(backend->ctx));
-                            } else if (point_in_circle(x, y, clock_cx, clock_cy, clock_radius + 12)) {
-                                int old_clock_index = clock_index;
-                                if (x < clock_cx) {
-                                    if (clock_index > 0) clock_index--;
-                                } else {
-                                    if (clock_index + 1 < clock_count) clock_index++;
-                                }
+                                bool new_power =
+                                    !backend->is_powered(backend->ctx);
+                                backend->set_power(backend->ctx, new_power);
 
-                                if (clock_index != old_clock_index) {
+                                if (!new_power) {
+                                    manual_address = 0x0000;
+                                    clock_phase = 0.0;
+                                } else {
+                                    uint8_t data_value = 0;
+                                    for (int bit = 0; bit < 8; bit++) {
+                                        if (switches[bit])
+                                            data_value |= (uint8_t)(1u << bit);
+                                    }
+                                    backend->set_data_input(
+                                        backend->ctx, data_value);
+                                }
+                            } else if (point_in_circle(
+                                           x, y,
+                                           clock_cx, clock_cy,
+                                           clock_radius + 18.0f)) {
+                                int old = clock_index;
+                                if (x < clock_cx) clock_index--;
+                                else clock_index++;
+
+                                if (clock_index < 0) clock_index = 0;
+                                if (clock_index >= clock_count)
+                                    clock_index = clock_count - 1;
+
+                                if (clock_index != old) {
                                     clock_phase = 0.0;
                                     last_ticks = SDL_GetTicks();
-                                    ppa_log_printf("GUI: live CPU clock -> %s\n",
-                                                   clock_values[clock_index]);
+                                    ppa_log_printf(
+                                        "GUI: live CPU clock -> %s\n",
+                                        clock_values[clock_index]);
                                 }
+                            } else if (point_in_circle(
+                                           x, y,
+                                           data_source_cx, data_source_cy,
+                                           data_source_radius + 18.0f)) {
+                                if (x < data_source_cx)
+                                    data_source_index--;
+                                else
+                                    data_source_index++;
+
+                                if (data_source_index < 0)
+                                    data_source_index = 0;
+                                if (data_source_index > 1)
+                                    data_source_index = 1;
+
+                                ppa_log_printf(
+                                    "GUI: DATA display source -> %s\n",
+                                    data_source_labels[data_source_index]);
+                            } else if (point_in_circle(
+                                           x, y,
+                                           register_cx, register_cy,
+                                           register_radius + 22.0f)) {
+                                if (x < register_cx)
+                                    register_index--;
+                                else
+                                    register_index++;
+
+                                if (register_index < 0)
+                                    register_index = 0;
+                                if (register_index >= register_count)
+                                    register_index = register_count - 1;
+
+                                ppa_log_printf(
+                                    "GUI: register selector -> %s%s\n",
+                                    register_labels[register_index],
+                                    data_source_index == 1
+                                        ? ""
+                                        : " (not routed to DATA)");
                             } else {
                                 for (int i = 0; i < 16; i++) {
                                     SDL_FRect hit = {62.0f + i * 31.0f, 507.0f, 28.0f, 72.0f};
