@@ -341,12 +341,9 @@ static void draw_screw(SDL_Renderer *r, float x, float y) {
 }
 
 static void draw_section(SDL_Renderer *r, PanelFonts *fonts,
-                         SDL_FRect rect, const char *title,
-                         bool high_contrast)
+                         SDL_FRect rect, const char *title)
 {
-    SDL_Color fill = high_contrast
-        ? (SDL_Color){45, 47, 46, 255}
-        : (SDL_Color){39, 41, 40, 255};
+    SDL_Color fill = {39, 41, 40, 255};
 
     draw_bevel_panel(r, rect, fill,
         (SDL_Color){129, 130, 121, 255},
@@ -818,6 +815,8 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!aux->window) return;
 
+    SDL_SetWindowMinimumSize(aux->window, w, h);
+
     aux->renderer = SDL_CreateRenderer(aux->window, NULL);
     if (!aux->renderer) {
         SDL_DestroyWindow(aux->window);
@@ -933,7 +932,7 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->small, 236, 88, muted,
                   "DESIGNED & DEVELOPED BY");
         draw_text(r, fonts->section, 236, 112, cream,
-                  "Adam Cir (Adava)");
+                  "Adam Cír (Adava)");
         draw_text(r, fonts->small, 236, 142, muted,
                   "Adava Electronics / Adava Development");
 
@@ -947,7 +946,7 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->small, 24, 264, muted,
                   "Frontend: SDL3 + SDL3_ttf");
         draw_text(r, fonts->small, 24, 290, muted,
-                  "(c) 2026 Adam Cir (Adava)");
+                  "(c) 2026 Adam Cír (Adava)");
 
         SDL_FRect footer = {24, 326, 512, 1};
         SDL_SetRenderDrawColor(r, 73, 77, 74, 255);
