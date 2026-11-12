@@ -4,14 +4,11 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <math.h>
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <signal.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 
 #define PANEL_W 1280
 #define PANEL_H 760
@@ -81,11 +78,6 @@ typedef struct {
     int line;
     int col;
 } TerminalWindow;
-
-typedef struct {
-    pid_t launcher_pid;
-    char screen_session[64];
-} UartTerminalState;
 
 typedef struct {
     bool auto_run;
@@ -707,255 +699,6 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     SDL_RenderPresent(term->renderer);
 }
 
-static void uart_terminal_reap_launcher(UartTerminalState *state)
-{
-    if (!state || state->launcher_pid <= 0) return;
-
-    int status = 0;
-    pid_t r = waitpid(state->launcher_pid, &status, WNOHANG);
-    if (r == state->launcher_pid) {
-        state->launcher_pid = -1;
-    }
-}
-
-enum {
-    UART_SCREEN_NONE = 0,
-    UART_SCREEN_DETACHED = 1,
-    UART_SCREEN_ATTACHED = 2
-};
-
-static int uart_screen_state(const UartTerminalState *state)
-{
-    if (!state || !state->screen_session[0]) return UART_SCREEN_NONE;
-
-    char command[192];
-    snprintf(command, sizeof(command),
-             "screen -ls %s 2>/dev/null",
-             state->screen_session);
-
-    FILE *pipe = popen(command, "r");
-    if (!pipe) return UART_SCREEN_NONE;
-
-    int result = UART_SCREEN_NONE;
-    char line[256];
-
-    while (fgets(line, sizeof(line), pipe)) {
-        if (!strstr(line, state->screen_session)) continue;
-
-        if (strstr(line, "(Attached)")) {
-            result = UART_SCREEN_ATTACHED;
-            break;
-        }
-
-        if (strstr(line, "(Detached)")) {
-            result = UART_SCREEN_DETACHED;
-        }
-    }
-
-    (void)pclose(pipe);
-    return result;
-}
-
-static bool create_uart_screen(const PPA1GuiBackend *backend,
-                               UartTerminalState *state)
-{
-    if (!backend || !state || !backend->tty_name) return false;
-
-    const char *tty = backend->tty_name(backend->ctx);
-    if (!tty || !*tty) return false;
-
-    if (!state->screen_session[0]) {
-        snprintf(state->screen_session, sizeof(state->screen_session),
-                 "ppa1_uart_%ld", (long)getpid());
-    }
-
-    /*
-     * Create the serial screen independently of any terminal window.
-     * It survives a manually closed terminal in Detached state and remains
-     * attached to the same emulator-owned PTY.
-     */
-    pid_t pid = fork();
-    if (pid < 0) return false;
-
-    if (pid == 0) {
-        execlp("screen", "screen",
-               "-DmS", state->screen_session,
-               tty, "9600",
-               (char *)NULL);
-        _exit(127);
-    }
-
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0) {
-        if (errno != EINTR) return false;
-    }
-
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        ppa_log_printf("GUI: failed to create UART screen session.\n");
-        return false;
-    }
-
-    /* screen daemonizes; give the session a brief chance to register. */
-    for (int i = 0; i < 20; i++) {
-        if (uart_screen_state(state) != UART_SCREEN_NONE) {
-            ppa_log_printf(
-                "GUI: UART screen created: session=%s PTY=%s baud=9600.\n",
-                state->screen_session, tty);
-            return true;
-        }
-        usleep(10000);
-    }
-
-    ppa_log_printf(
-        "GUI: UART screen did not appear after creation: session=%s.\n",
-        state->screen_session);
-    return false;
-}
-
-static void stop_uart_terminal(UartTerminalState *state)
-{
-    if (!state || !state->screen_session[0]) return;
-
-    int screen_state = uart_screen_state(state);
-    if (screen_state != UART_SCREEN_NONE) {
-        pid_t ctl = fork();
-
-        if (ctl == 0) {
-            execlp("screen", "screen",
-                   "-S", state->screen_session,
-                   "-X", "quit",
-                   (char *)NULL);
-            _exit(127);
-        } else if (ctl > 0) {
-            while (waitpid(ctl, NULL, 0) < 0) {
-                if (errno != EINTR) break;
-            }
-        }
-    }
-
-    /*
-     * The attached terminal command is 'screen -r'. Quitting the screen
-     * session makes that command exit, so a normal terminal emulator closes
-     * its UART window as well. Reap only the launcher we actually own.
-     */
-    for (int i = 0; i < 20; i++) {
-        uart_terminal_reap_launcher(state);
-        if (state->launcher_pid <= 0) break;
-        usleep(10000);
-    }
-
-    ppa_log_printf(
-        "GUI: UART monitor closed: session=%s; emulator PTY remains active.\n",
-        state->screen_session);
-}
-
-static bool attach_uart_terminal(UartTerminalState *state)
-{
-    if (!state || !state->screen_session[0]) return false;
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        ppa_log_printf(
-            "GUI: fork() failed while attaching UART terminal.\n");
-        return false;
-    }
-
-    if (pid == 0) {
-        (void)setsid();
-
-        const char *script =
-            "printf '\\033]0;PPA-1 UART TERMINAL\\007'; "
-            "exec screen -r \"$1\"";
-
-        execlp("x-terminal-emulator",
-               "x-terminal-emulator",
-               "-e", "sh", "-lc", script, "sh",
-               state->screen_session,
-               (char *)NULL);
-
-        char xfce_command[256];
-        snprintf(xfce_command, sizeof(xfce_command),
-                 "screen -r %s", state->screen_session);
-
-        execlp("xfce4-terminal",
-               "xfce4-terminal",
-               "--disable-server",
-               "--title=PPA-1 UART TERMINAL",
-               "-e", xfce_command,
-               (char *)NULL);
-
-        execlp("gnome-terminal",
-               "gnome-terminal",
-               "--wait",
-               "--title=PPA-1 UART TERMINAL",
-               "--", "screen", "-r",
-               state->screen_session,
-               (char *)NULL);
-
-        execlp("konsole",
-               "konsole",
-               "--title", "PPA-1 UART TERMINAL",
-               "-e", "screen", "-r",
-               state->screen_session,
-               (char *)NULL);
-
-        execlp("xterm",
-               "xterm",
-               "-T", "PPA-1 UART TERMINAL",
-               "-e", "screen", "-r",
-               state->screen_session,
-               (char *)NULL);
-
-        _exit(127);
-    }
-
-    state->launcher_pid = pid;
-
-    ppa_log_printf(
-        "GUI: UART terminal attached to screen session=%s.\n",
-        state->screen_session);
-    return true;
-}
-
-static bool toggle_uart_terminal(const PPA1GuiBackend *backend,
-                                 UartTerminalState *state)
-{
-    if (!backend || !state || !backend->set_tty_enabled ||
-        !backend->is_tty_enabled || !backend->tty_name) {
-        return false;
-    }
-
-    if (!backend->is_tty_enabled(backend->ctx)) {
-        if (!backend->set_tty_enabled(backend->ctx, true)) {
-            ppa_log_printf("GUI: failed to enable UART PTY.\n");
-            return false;
-        }
-    }
-
-    uart_terminal_reap_launcher(state);
-
-    int screen_state = uart_screen_state(state);
-
-    if (screen_state == UART_SCREEN_ATTACHED) {
-        /* Re-click while the UART terminal is actually open: close it. */
-        stop_uart_terminal(state);
-        return true;
-    }
-
-    if (screen_state == UART_SCREEN_NONE) {
-        if (!create_uart_screen(backend, state)) {
-            return false;
-        }
-    }
-
-    /*
-     * Detached means the user closed the terminal window manually.
-     * Re-click simply opens a fresh terminal attached to the same screen,
-     * which is still connected to exactly the same PTY.
-     */
-    return attach_uart_terminal(state);
-}
-
 static void destroy_aux(AuxWindow *aux) {
     if (!aux) return;
     if (aux->renderer) SDL_DestroyRenderer(aux->renderer);
@@ -1168,10 +911,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
     AuxWindow log_window = {0};
-    UartTerminalState uart_terminal = {
-        .launcher_pid = -1,
-        .screen_session = {0}
-    };
+    TerminalWindow uart_terminal = {0};
 
     bool switches[16] = {0};
     bool panel_running = true;
@@ -1326,6 +1066,57 @@ int ppa_gui_run_panel(const char *initial_rom,
                     destroy_aux(&view_window);
                 } else if (log_window.window && id == SDL_GetWindowID(log_window.window)) {
                     destroy_aux(&log_window);
+                } else if (uart_terminal.window &&
+                           id == SDL_GetWindowID(uart_terminal.window)) {
+                    close_terminal(&uart_terminal, backend);
+                    ppa_log_printf("GUI: built-in UART terminal window closed.\n");
+                }
+                continue;
+            }
+
+            if (uart_terminal.window &&
+                event.type == SDL_EVENT_TEXT_INPUT &&
+                event.text.windowID == SDL_GetWindowID(uart_terminal.window)) {
+                if (backend->terminal_write_rx) {
+                    const char *p = event.text.text;
+                    while (p && *p) {
+                        backend->terminal_write_rx(
+                            backend->ctx, (uint8_t)(unsigned char)*p);
+                        p++;
+                    }
+                }
+                continue;
+            }
+
+            if (uart_terminal.window &&
+                event.type == SDL_EVENT_KEY_DOWN &&
+                event.key.windowID == SDL_GetWindowID(uart_terminal.window)) {
+                if (backend->terminal_write_rx) {
+                    uint8_t ch = 0;
+                    bool send = true;
+
+                    switch (event.key.key) {
+                        case SDLK_RETURN:
+                        case SDLK_KP_ENTER:
+                            ch = '\r';
+                            break;
+                        case SDLK_BACKSPACE:
+                            ch = 0x08;
+                            break;
+                        case SDLK_TAB:
+                            ch = '\t';
+                            break;
+                        case SDLK_ESCAPE:
+                            ch = 0x1B;
+                            break;
+                        default:
+                            send = false;
+                            break;
+                    }
+
+                    if (send) {
+                        backend->terminal_write_rx(backend->ctx, ch);
+                    }
                 }
                 continue;
             }
@@ -1432,8 +1223,17 @@ int ppa_gui_run_panel(const char *initial_rom,
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_terminal)) {
-                            (void)toggle_uart_terminal(
-                                backend, &uart_terminal);
+                            if (uart_terminal.window) {
+                                close_terminal(&uart_terminal, backend);
+                                ppa_log_printf(
+                                    "GUI: built-in UART terminal closed by UART MONITOR toggle.\n");
+                            } else if (open_terminal(&uart_terminal, backend)) {
+                                ppa_log_printf(
+                                    "GUI: built-in UART terminal opened.\n");
+                            } else {
+                                ppa_log_printf(
+                                    "GUI: failed to open built-in UART terminal.\n");
+                            }
                             continue;
                         }
 
@@ -2008,10 +1808,11 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
         draw_aux_window(&view_window, &fonts, &prefs, backend);
         draw_aux_window(&log_window, &fonts, &prefs, backend);
+        draw_terminal(&uart_terminal, &fonts, backend);
     }
 
     backend->set_running(backend->ctx, false);
-    stop_uart_terminal(&uart_terminal);
+    close_terminal(&uart_terminal, backend);
 
     destroy_aux(&prefs_window);
     destroy_aux(&view_window);
