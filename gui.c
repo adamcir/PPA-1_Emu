@@ -1562,7 +1562,7 @@ int ppa_gui_run_panel(const char *initial_rom,
          * Its box is an independent white-outline nameplate; the manufacturer
          * label sits immediately below it, outside the rectangle.
          */
-        SDL_FRect a1_box = {1038, 18, 190, 62};
+        SDL_FRect a1_box = {1038, 18, 190, 68};
         SDL_SetRenderDrawColor(renderer,
                                COL_DARK_GRAY.r,
                                COL_DARK_GRAY.g,
@@ -1583,11 +1583,11 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_RenderRect(renderer, &a1_inner);
 
         draw_text_stretched(renderer, panel_fonts.badge,
-            (SDL_FRect){1046, 20, 174, 56},
+            (SDL_FRect){1046, 18, 174, 68},
             COL_WHITE, "A-1");
 
         draw_text_center(renderer, panel_fonts.small,
-            (SDL_FRect){1038, 81, 190, 20},
+            (SDL_FRect){1038, 87, 190, 18},
             COL_WHITE, "Adava Electronics");
 
         SDL_SetRenderDrawColor(
