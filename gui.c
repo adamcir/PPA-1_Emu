@@ -150,7 +150,10 @@ static bool load_fonts_scaled(PanelFonts *f, float scale) {
 
     if (scale < 1.0f) scale = 1.0f;
 
-    f->title   = TTF_OpenFont(regular, 39.0f * scale);
+    /* The front-panel model name is intentionally large and heavy.
+       Re-open it at the panel supersampling scale so it is never just
+       a low-resolution bitmap stretched with the window. */
+    f->title   = TTF_OpenFont(bold, 46.0f * scale);
     f->badge   = TTF_OpenFont(bold, 34.0f * scale);
     f->section = TTF_OpenFont(bold, 17.0f * scale);
     f->label   = TTF_OpenFont(bold, 13.5f * scale);
@@ -182,6 +185,9 @@ static SDL_Texture *make_text_texture(SDL_Renderer *r, TTF_Font *font,
     if (!surface) return NULL;
 
     SDL_Texture *texture = SDL_CreateTextureFromSurface(r, surface);
+    if (texture) {
+        SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+    }
     if (w) *w = surface->w;
     if (h) *h = surface->h;
     SDL_DestroySurface(surface);
@@ -1052,7 +1058,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         float desired_render_scale = panel_scale > 1.0f
             ? ceilf(panel_scale * 4.0f) / 4.0f
             : 1.0f;
-        if (desired_render_scale > 3.0f) desired_render_scale = 3.0f;
+        if (desired_render_scale > 4.0f) desired_render_scale = 4.0f;
 
         if (fabsf(desired_render_scale - panel_render_scale) > 0.01f) {
             int target_w = (int)ceilf((float)PANEL_W * desired_render_scale);
@@ -1515,7 +1521,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_screw(renderer, 1256, 736);
 
         /* One continuous metal panel: only engraved separator lines, no modular cards. */
-        SDL_FRect title_rect = {46, 27, 940, 50};
+        SDL_FRect title_rect = {36, 20, 992, 64};
         draw_text_fit(renderer, panel_fonts.title, title_rect,
                       COL_WHITE,
                       "PROGRAMBLE PROCESSOR");
