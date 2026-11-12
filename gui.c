@@ -1028,22 +1028,47 @@ int ppa_gui_run_panel(const char *initial_rom,
                     my >= panel_origin_y && my <= panel_origin_y + panel_screen_h) {
                     float px = (mx - panel_origin_x) / panel_scale;
                     float py = (my - panel_origin_y) / panel_scale;
+                    int dir = event.wheel.y > 0.0f ? 1 :
+                              event.wheel.y < 0.0f ? -1 : 0;
 
-                    if (point_in_circle(px, py, clock_cx, clock_cy, clock_radius + 18)) {
-                        int old_clock_index = clock_index;
+                    if (dir != 0 &&
+                        point_in_circle(px, py, clock_cx, clock_cy,
+                                        clock_radius + 22.0f)) {
+                        int old = clock_index;
+                        clock_index += dir;
+                        if (clock_index < 0) clock_index = 0;
+                        if (clock_index >= clock_count) clock_index = clock_count - 1;
 
-                        if (event.wheel.y > 0.0f) {
-                            if (clock_index + 1 < clock_count) clock_index++;
-                        } else if (event.wheel.y < 0.0f) {
-                            if (clock_index > 0) clock_index--;
-                        }
-
-                        if (clock_index != old_clock_index) {
+                        if (clock_index != old) {
                             clock_phase = 0.0;
                             last_ticks = SDL_GetTicks();
                             ppa_log_printf("GUI: live CPU clock -> %s\n",
                                            clock_values[clock_index]);
                         }
+                    } else if (dir != 0 &&
+                               point_in_circle(px, py,
+                                               data_source_cx, data_source_cy,
+                                               data_source_radius + 22.0f)) {
+                        data_source_index += dir;
+                        if (data_source_index < 0) data_source_index = 0;
+                        if (data_source_index > 1) data_source_index = 1;
+
+                        ppa_log_printf("GUI: DATA display source -> %s\n",
+                                       data_source_labels[data_source_index]);
+                    } else if (dir != 0 &&
+                               point_in_circle(px, py,
+                                               register_cx, register_cy,
+                                               register_radius + 26.0f)) {
+                        register_index += dir;
+                        if (register_index < 0) register_index = 0;
+                        if (register_index >= register_count)
+                            register_index = register_count - 1;
+
+                        ppa_log_printf("GUI: register selector -> %s%s\n",
+                                       register_labels[register_index],
+                                       data_source_index == 1
+                                           ? ""
+                                           : " (not routed to DATA)");
                     }
                 }
                 continue;
