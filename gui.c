@@ -616,14 +616,19 @@ int ppa_gui_run_panel(const char *initial_rom,
     uint16_t manual_address = 0x0000;
 
     const char *clock_values[] = {
-        "1 Hz", "10 Hz", "100 Hz", "1 kHz",
-        "10 kHz", "50 kHz", "100 kHz"
+        "1 Hz", "2 Hz", "5 Hz", "10 Hz",
+        "20 Hz", "50 Hz", "100 Hz", "200 Hz",
+        "500 Hz", "1 kHz", "2 kHz", "5 kHz",
+        "10 kHz", "20 kHz", "50 kHz", "100 kHz"
     };
     const double clock_rates[] = {
-        1.0, 10.0, 100.0, 1000.0,
-        10000.0, 50000.0, 100000.0
+        1.0, 2.0, 5.0, 10.0,
+        20.0, 50.0, 100.0, 200.0,
+        500.0, 1000.0, 2000.0, 5000.0,
+        10000.0, 20000.0, 50000.0, 100000.0
     };
-    int clock_index = 3;
+    const int clock_count = (int)(sizeof(clock_rates) / sizeof(clock_rates[0]));
+    int clock_index = 9;
 
     /* Menu lives in real window coordinates and always spans the whole window. */
     SDL_FRect menu_open = {10, 5, 72, 28};
@@ -694,6 +699,36 @@ int ppa_gui_run_panel(const char *initial_rom,
                 } else if (log_window.window && id == SDL_GetWindowID(log_window.window)) {
                     destroy_aux(&log_window);
                                 }
+                continue;
+            }
+
+            if (event.type == SDL_EVENT_MOUSE_WHEEL &&
+                event.wheel.windowID == main_window_id) {
+                float mx = 0.0f, my = 0.0f;
+                SDL_GetMouseState(&mx, &my);
+
+                if (mx >= panel_origin_x && mx <= panel_origin_x + panel_screen_w &&
+                    my >= panel_origin_y && my <= panel_origin_y + panel_screen_h) {
+                    float px = (mx - panel_origin_x) / panel_scale;
+                    float py = (my - panel_origin_y) / panel_scale;
+
+                    if (point_in_circle(px, py, clock_cx, clock_cy, clock_radius + 18)) {
+                        int old_clock_index = clock_index;
+
+                        if (event.wheel.y > 0.0f) {
+                            if (clock_index + 1 < clock_count) clock_index++;
+                        } else if (event.wheel.y < 0.0f) {
+                            if (clock_index > 0) clock_index--;
+                        }
+
+                        if (clock_index != old_clock_index) {
+                            instruction_accum = 0.0;
+                            last_ticks = SDL_GetTicks();
+                            ppa_log_printf("GUI: live CPU clock -> %s\n",
+                                           clock_values[clock_index]);
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -799,12 +834,19 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     backend->ctx,
                                     !backend->is_powered(backend->ctx));
                             } else if (point_in_circle(x, y, clock_cx, clock_cy, clock_radius + 12)) {
+                                int old_clock_index = clock_index;
                                 if (x < clock_cx) {
                                     if (clock_index > 0) clock_index--;
                                 } else {
-                                    if (clock_index < 6) clock_index++;
+                                    if (clock_index + 1 < clock_count) clock_index++;
                                 }
-                                ppa_log_printf("GUI: clock selector -> %s\n", clock_values[clock_index]);
+
+                                if (clock_index != old_clock_index) {
+                                    instruction_accum = 0.0;
+                                    last_ticks = SDL_GetTicks();
+                                    ppa_log_printf("GUI: live CPU clock -> %s\n",
+                                                   clock_values[clock_index]);
+                                }
                             } else {
                                 for (int i = 0; i < 16; i++) {
                                     SDL_FRect hit = {62.0f + i * 31.0f, 507.0f, 28.0f, 72.0f};
@@ -1004,11 +1046,6 @@ int ppa_gui_run_panel(const char *initial_rom,
             draw_toggle(renderer, &fonts,
                         62.0f + i * 31.0f, 475.0f, label, switches[i]);
         }
-        draw_text(renderer, fonts.small, 58, 570,
-                  (SDL_Color){178, 175, 160, 255}, "0");
-        draw_text(renderer, fonts.small, 548, 570,
-                  (SDL_Color){178, 175, 160, 255}, "1");
-
         /* Hardware clock control. */
         draw_text(renderer, fonts.section, 646, 321,
                   (SDL_Color){229, 221, 194, 255}, "CLOCK CONTROL");
@@ -1016,7 +1053,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text(renderer, fonts.label, 704, 360,
                   (SDL_Color){212, 207, 185, 255}, "CPU CLOCK");
         draw_knob(renderer, &fonts, clock_cx, clock_cy, clock_radius,
-                  clock_index, 7, clock_values[clock_index]);
+                  clock_index, clock_count, clock_values[clock_index]);
 
         /* Hardware programming and execution controls. */
         draw_text(renderer, fonts.section, 646, 520,
