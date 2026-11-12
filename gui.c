@@ -646,7 +646,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_FRect op_ustep = {902, 596, 84, 40};
     SDL_FRect op_reset = {994, 596, 76, 40};
 
-    SDL_FRect power_btn = {1184, 546, 48, 104};
+    SDL_FRect power_btn = {1184, 548, 48, 108};
 
     const float clock_cx = 838.0f, clock_cy = 406.0f, clock_radius = 38.0f;
 
@@ -692,9 +692,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                     destroy_aux(&view_window);
                 } else if (log_window.window && id == SDL_GetWindowID(log_window.window)) {
                     destroy_aux(&log_window);
-                } else if (help_window.window && id == SDL_GetWindowID(help_window.window)) {
-                    destroy_aux(&help_window);
-                }
+                                }
                 continue;
             }
 
@@ -723,9 +721,6 @@ int ppa_gui_run_panel(const char *initial_rom,
                         } else if (point_in_rect(wx, wy, &menu_log)) {
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_help)) {
-                            open_aux(&help_window, AUX_HELP, "PPA-1 Help", 620, 360);
-                            continue;
                         }
 
                         /* Convert window coordinates into the immutable front-panel design space. */
@@ -735,6 +730,9 @@ int ppa_gui_run_panel(const char *initial_rom,
                             float y = (wy - panel_origin_y) / panel_scale;
 
                             if (point_in_rect(x, y, &fp_load_addr)) {
+                                pressed_button = BTN_LOAD_ADDR;
+                                pressed_until = SDL_GetTicks() + 140;
+
                                 uint16_t address_value = 0;
                                 for (int i = 0; i < 16; i++) {
                                     if (switches[i]) address_value |= (uint16_t)(1u << i);
@@ -747,63 +745,58 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     if (switches[i]) data_value |= (uint8_t)(1u << i);
                                 }
                                 backend->set_data_input(backend->ctx, data_value);
-                            } else if (point_in_rect(x, y, &fp_exam)) {
-                                (void)backend->examine(backend->ctx, manual_address);
-                            } else if (point_in_rect(x, y, &fp_exam_next)) {
+                            } else if (point_in_rect(x, y, &fp_addr_dec)) {
+                                pressed_button = BTN_ADDR_DEC;
+                                pressed_until = SDL_GetTicks() + 140;
+                                manual_address--;
+                                backend->load_address(backend->ctx, manual_address);
+                            } else if (point_in_rect(x, y, &fp_addr_inc)) {
+                                pressed_button = BTN_ADDR_INC;
+                                pressed_until = SDL_GetTicks() + 140;
                                 manual_address++;
+                                backend->load_address(backend->ctx, manual_address);
+                            } else if (point_in_rect(x, y, &fp_exam)) {
+                                pressed_button = BTN_EXAM;
+                                pressed_until = SDL_GetTicks() + 140;
                                 (void)backend->examine(backend->ctx, manual_address);
                             } else if (point_in_rect(x, y, &fp_dep)) {
+                                pressed_button = BTN_DEPOSIT;
+                                pressed_until = SDL_GetTicks() + 140;
+
                                 uint8_t data_value = 0;
                                 for (int i = 0; i < 8; i++) {
                                     if (switches[i]) data_value |= (uint8_t)(1u << i);
                                 }
-                                backend->deposit(backend->ctx, manual_address, data_value);
-                            } else if (point_in_rect(x, y, &fp_dep_next)) {
-                                uint8_t data_value = 0;
-                                for (int i = 0; i < 8; i++) {
-                                    if (switches[i]) data_value |= (uint8_t)(1u << i);
-                                }
-                                manual_address++;
                                 backend->deposit(backend->ctx, manual_address, data_value);
                             } else if (point_in_rect(x, y, &fp_start)) {
+                                pressed_button = BTN_START;
+                                pressed_until = SDL_GetTicks() + 140;
                                 backend->start_at(backend->ctx, manual_address);
                             } else if (point_in_rect(x, y, &op_cont)) {
+                                pressed_button = BTN_CONT;
+                                pressed_until = SDL_GetTicks() + 140;
                                 backend->set_running(backend->ctx, true);
                             } else if (point_in_rect(x, y, &op_stop)) {
+                                pressed_button = BTN_STOP;
+                                pressed_until = SDL_GetTicks() + 140;
                                 backend->set_running(backend->ctx, false);
                             } else if (point_in_rect(x, y, &op_step)) {
+                                pressed_button = BTN_STEP;
+                                pressed_until = SDL_GetTicks() + 140;
                                 backend->step_instruction(backend->ctx);
                             } else if (point_in_rect(x, y, &op_ustep)) {
+                                pressed_button = BTN_MICRO;
+                                pressed_until = SDL_GetTicks() + 140;
                                 backend->step_micro(backend->ctx);
                             } else if (point_in_rect(x, y, &op_reset)) {
+                                pressed_button = BTN_RESET;
+                                pressed_until = SDL_GetTicks() + 140;
                                 backend->reset(backend->ctx);
                                 manual_address = 0x0000;
                             } else if (point_in_rect(x, y, &power_btn)) {
                                 backend->set_power(
                                     backend->ctx,
                                     !backend->is_powered(backend->ctx));
-                            } else if (point_in_rect(x, y, &load_btn)) {
-                                if (!file_state.rom_path[0]) {
-                                    if (!file_state.dialog_open) {
-                                        file_state.dialog_open = true;
-                                        SDL_ShowOpenFileDialog(
-                                            file_dialog_callback, &file_state, window,
-                                            filters, 2, NULL, false);
-                                    }
-                                } else if (backend->load_rom(backend->ctx, file_state.rom_path)) {
-                                    backend->set_power(backend->ctx, true);
-
-                                    uint8_t data_value = 0;
-                                    for (int bit = 0; bit < 8; bit++) {
-                                        if (switches[bit]) data_value |= (uint8_t)(1u << bit);
-                                    }
-                                    backend->set_data_input(backend->ctx, data_value);
-
-                                    manual_address = 0x0000;
-                                    if (prefs.auto_run) {
-                                        backend->set_running(backend->ctx, true);
-                                    }
-                                }
                             } else if (point_in_circle(x, y, clock_cx, clock_cy, clock_radius + 12)) {
                                 if (x < clock_cx) {
                                     if (clock_index > 0) clock_index--;
@@ -811,10 +804,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     if (clock_index < 6) clock_index++;
                                 }
                                 ppa_log_printf("GUI: clock selector -> %s\n", clock_values[clock_index]);
-                            } else if (point_in_circle(x, y, output_cx, output_cy, output_radius + 12)) {
-                                if (x < output_cx) {
-                                    output_index = (output_index + 3) % 4;
-                                } else {
+                            } else {
                                     output_index = (output_index + 1) % 4;
                                 }
                                 ppa_log_printf("GUI: data output -> %s\n", output_values[output_index]);
@@ -855,6 +845,24 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 : desired;
                         }
                     }
+                }
+            }
+        }
+
+        if (file_state.load_requested && file_state.rom_path[0]) {
+            file_state.load_requested = false;
+            if (backend->load_rom(backend->ctx, file_state.rom_path)) {
+                backend->set_power(backend->ctx, true);
+                manual_address = 0x0000;
+
+                uint8_t data_value = 0;
+                for (int bit = 0; bit < 8; bit++) {
+                    if (switches[bit]) data_value |= (uint8_t)(1u << bit);
+                }
+                backend->set_data_input(backend->ctx, data_value);
+
+                if (prefs.auto_run) {
+                    backend->set_running(backend->ctx, true);
                 }
             }
         }
@@ -930,7 +938,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_RenderLine(renderer, 620, 132, 620, 565);
         SDL_RenderLine(renderer, 46, 350, 592, 350);
         SDL_RenderLine(renderer, 646, 300, 1228, 300);
-        SDL_RenderLine(renderer, 646, 535, 1228, 535);
+        SDL_RenderLine(renderer, 646, 500, 1228, 500);
 
         /* Left upper: bus lamps. */
         draw_text(renderer, fonts.section, 52, 126,
@@ -1019,74 +1027,60 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text(renderer, fonts.small, 520, 570,
                   (SDL_Color){178, 175, 160, 255}, "UP = 1");
 
-        /* Right middle: interactive selectors. */
+        /* Hardware clock control. */
         draw_text(renderer, fonts.section, 646, 321,
-                  (SDL_Color){229, 221, 194, 255}, "CLOCK & DATA OUTPUT");
+                  (SDL_Color){229, 221, 194, 255}, "CLOCK CONTROL");
 
-        draw_text(renderer, fonts.label, 672, 358,
-                  (SDL_Color){212, 207, 185, 255}, "CLOCK RATE");
+        draw_text(renderer, fonts.label, 704, 360,
+                  (SDL_Color){212, 207, 185, 255}, "CPU CLOCK");
         draw_knob(renderer, &fonts, clock_cx, clock_cy, clock_radius,
                   clock_index, 7, clock_values[clock_index]);
 
-        draw_text(renderer, fonts.label, 846, 358,
-                  (SDL_Color){212, 207, 185, 255}, "DATA OUTPUT");
-        draw_knob(renderer, &fonts, output_cx, output_cy, output_radius,
-                  output_index, 4, output_values[output_index]);
+        draw_text(renderer, fonts.small, 900, 386,
+                  (SDL_Color){176, 174, 160, 255},
+                  "Front-panel programming operates with CPU stopped.");
 
-        draw_text(renderer, fonts.label, 1046, 358,
-                  (SDL_Color){212, 207, 185, 255}, "DISPLAY FORMAT");
-        SDL_SetRenderDrawColor(renderer, 98, 100, 94, 255);
-        SDL_RenderRect(renderer, &format_hit);
-        draw_text_center(renderer, fonts.label, format_hit,
-                         (SDL_Color){235, 225, 198, 255},
-                         format_values[format_index]);
-
-        /* Bottom right: PDP-style manual programming + execution controls. */
-        draw_text(renderer, fonts.section, 646, 554,
+        /* Hardware programming and execution controls. */
+        draw_text(renderer, fonts.section, 646, 520,
                   (SDL_Color){229, 221, 194, 255}, "PROGRAMMING & CONTROL");
 
-        char fp_state[128];
-        snprintf(fp_state, sizeof(fp_state),
-                 "FP ADDRESS %04X   DATA %02X   %s",
-                 manual_address,
-                 (unsigned)(data),
-                 loaded ? "IMAGE LOADED" : "NO EEPROM IMAGE");
-        draw_text(renderer, fonts.small, 646, 574,
-                  (SDL_Color){176, 174, 160, 255}, fp_state);
-
         draw_push_button(renderer, &fonts, fp_load_addr, "LOAD ADDR",
-                         (SDL_Color){126, 91, 38, 255}, false);
+                         (SDL_Color){126, 91, 38, 255}, false,
+                         button_pressed(pressed_button, BTN_LOAD_ADDR, pressed_until));
+        draw_push_button(renderer, &fonts, fp_addr_dec, "ADDR -",
+                         (SDL_Color){99, 96, 86, 255}, false,
+                         button_pressed(pressed_button, BTN_ADDR_DEC, pressed_until));
+        draw_push_button(renderer, &fonts, fp_addr_inc, "ADDR +",
+                         (SDL_Color){99, 96, 86, 255}, false,
+                         button_pressed(pressed_button, BTN_ADDR_INC, pressed_until));
         draw_push_button(renderer, &fonts, fp_exam, "EXAM",
-                         (SDL_Color){99, 96, 86, 255}, false);
-        draw_push_button(renderer, &fonts, fp_exam_next, "EXAM +",
-                         (SDL_Color){99, 96, 86, 255}, false);
+                         (SDL_Color){99, 96, 86, 255}, false,
+                         button_pressed(pressed_button, BTN_EXAM, pressed_until));
         draw_push_button(renderer, &fonts, fp_dep, "DEPOSIT",
-                         (SDL_Color){99, 96, 86, 255}, false);
-        draw_push_button(renderer, &fonts, fp_dep_next, "DEP +",
-                         (SDL_Color){99, 96, 86, 255}, false);
+                         (SDL_Color){99, 96, 86, 255}, false,
+                         button_pressed(pressed_button, BTN_DEPOSIT, pressed_until));
         draw_push_button(renderer, &fonts, fp_start, "START",
-                         (SDL_Color){41, 112, 55, 255}, powered && running);
+                         (SDL_Color){41, 112, 55, 255}, powered && running,
+                         button_pressed(pressed_button, BTN_START, pressed_until));
 
         draw_push_button(renderer, &fonts, op_cont, "CONT",
-                         (SDL_Color){41, 112, 55, 255}, powered && running);
+                         (SDL_Color){41, 112, 55, 255}, powered && running,
+                         button_pressed(pressed_button, BTN_CONT, pressed_until));
         draw_push_button(renderer, &fonts, op_stop, "STOP",
-                         (SDL_Color){135, 45, 39, 255}, powered && !running);
+                         (SDL_Color){135, 45, 39, 255}, powered && !running,
+                         button_pressed(pressed_button, BTN_STOP, pressed_until));
         draw_push_button(renderer, &fonts, op_step, "STEP",
-                         (SDL_Color){99, 96, 86, 255}, false);
+                         (SDL_Color){99, 96, 86, 255}, false,
+                         button_pressed(pressed_button, BTN_STEP, pressed_until));
         draw_push_button(renderer, &fonts, op_ustep, "MICRO",
-                         (SDL_Color){99, 96, 86, 255}, false);
+                         (SDL_Color){99, 96, 86, 255}, false,
+                         button_pressed(pressed_button, BTN_MICRO, pressed_until));
         draw_push_button(renderer, &fonts, op_reset, "RESET",
-                         (SDL_Color){99, 96, 86, 255}, false);
-        draw_push_button(renderer, &fonts, load_btn,
-                         loaded ? "RELOAD IMAGE" :
-                         (file_state.rom_path[0] ? "LOAD IMAGE" : "OPEN IMAGE"),
-                         file_state.rom_path[0]
-                             ? (SDL_Color){170, 112, 30, 255}
-                             : (SDL_Color){84, 84, 78, 255},
-                         false);
+                         (SDL_Color){99, 96, 86, 255}, false,
+                         button_pressed(pressed_button, BTN_RESET, pressed_until));
 
         /* PWR remains part of the same physical plate. */
-        draw_text(renderer, fonts.label, 1188, 570,
+        draw_text(renderer, fonts.label, 1188, 520,
                   (SDL_Color){219, 212, 190, 255}, "PWR");
         SDL_SetRenderDrawColor(renderer, 18, 18, 17, 255);
         SDL_RenderFillRect(renderer, &power_btn);
@@ -1095,7 +1089,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         SDL_FRect rocker = {
             1195,
-            powered ? 651.0f : 684.0f,
+            powered ? 558.0f : 600.0f,
             28, 42
         };
         SDL_SetRenderDrawColor(renderer,
@@ -1106,20 +1100,6 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text_center(renderer, fonts.label, rocker,
                          (SDL_Color){244, 231, 205, 255},
                          powered ? "I" : "O");
-
-        /* Status line is engraved into the same panel, not a separate block. */
-        SDL_SetRenderDrawColor(renderer, 176, 166, 132, 255);
-        SDL_RenderLine(renderer, 46, 708, 1228, 708);
-
-        char status_text[1160];
-        snprintf(status_text, sizeof(status_text),
-                 "%s   |   CLOCK %s   |   OUTPUT %s / %s   |   LOG latest.log",
-                 file_state.rom_path[0] ? file_state.rom_path : "No EEPROM image selected",
-                 clock_values[clock_index],
-                 output_values[output_index],
-                 format_values[format_index]);
-        draw_text(renderer, fonts.small, 52, 718,
-                  (SDL_Color){193, 190, 174, 255}, status_text);
 
         /* Composite the fixed panel into the actual resizable window. */
         SDL_SetRenderTarget(renderer, NULL);
@@ -1136,7 +1116,6 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
         draw_menu_button(renderer, &fonts, menu_view, "VIEW");
         draw_menu_button(renderer, &fonts, menu_log, "LOG");
-        draw_menu_button(renderer, &fonts, menu_help, "HELP");
 
         SDL_FRect panel_dst = {
             panel_origin_x, panel_origin_y,
@@ -1148,7 +1127,6 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
         draw_aux_window(&view_window, &fonts, &prefs, backend);
         draw_aux_window(&log_window, &fonts, &prefs, backend);
-        draw_aux_window(&help_window, &fonts, &prefs, backend);
     }
 
     backend->set_running(backend->ctx, false);
@@ -1156,7 +1134,6 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&prefs_window);
     destroy_aux(&view_window);
     destroy_aux(&log_window);
-    destroy_aux(&help_window);
     SDL_DestroyTexture(panel_texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
