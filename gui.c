@@ -805,13 +805,6 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 }
                                 ppa_log_printf("GUI: clock selector -> %s\n", clock_values[clock_index]);
                             } else {
-                                    output_index = (output_index + 1) % 4;
-                                }
-                                ppa_log_printf("GUI: data output -> %s\n", output_values[output_index]);
-                            } else if (point_in_rect(x, y, &format_hit)) {
-                                format_index = (format_index + 1) % 3;
-                                ppa_log_printf("GUI: data format -> %s\n", format_values[format_index]);
-                            } else {
                                 for (int i = 0; i < 16; i++) {
                                     SDL_FRect hit = {62.0f + i * 31.0f, 507.0f, 28.0f, 72.0f};
                                     if (point_in_rect(x, y, &hit)) {
