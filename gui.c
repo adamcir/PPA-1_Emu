@@ -1618,8 +1618,10 @@ int ppa_gui_run_panel(const char *initial_rom,
                                         : " (not routed to DATA)");
                             } else {
                                 for (int pos = 0; pos < 16; pos++) {
+                                    float nibble_gap =
+                                        (float)(pos / 4) * 10.0f;
                                     SDL_FRect hit = {
-                                        62.0f + pos * 31.0f,
+                                        62.0f + pos * 31.0f + nibble_gap,
                                         507.0f, 28.0f, 72.0f
                                     };
                                     if (point_in_rect(x, y, &hit)) {
@@ -1854,7 +1856,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                 (powered && ((data >> bit_index) & 1u));
 
             /* Two physical 4-bit nibbles: D7-D4 | D3-D0. */
-            float nibble_gap = pos >= 4 ? 16.0f : 0.0f;
+            float nibble_gap = pos >= 4 ? 20.0f : 0.0f;
             draw_led(renderer, &panel_fonts,
                      58.0f + pos * 49.0f + nibble_gap,
                      302.0f, label, bit,
