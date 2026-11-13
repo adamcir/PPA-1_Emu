@@ -1825,39 +1825,36 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         draw_text(renderer, panel_fonts.label, 54, 148,
                   COL_LIGHT_GRAY,
-                  "ADDRESS BUS  A15-A12 | A11-A8 | A7-A4 | A3-A0");
+                  "ADDRESS BUS");
         for (int pos = 0; pos < 16; pos++) {
             int bit_index = 15 - pos;
-            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
             bool bit = prefs.lamp_test ||
                 (powered && ((address >> bit_index) & 1u));
             float nibble_gap = (float)(pos / 4) * 10.0f;
             draw_led(renderer, &panel_fonts,
                      58.0f + pos * 31.0f + nibble_gap,
-                     166.0f, label, bit,
+                     166.0f, "", bit,
                      COL_ORANGE);
         }
 
         draw_text(renderer, panel_fonts.label, 54, 216,
                   COL_LIGHT_GRAY,
-                  "BANK REGISTER  B15-B12 | B11-B8 | B7-B4 | B3-B0");
+                  "BANK BUS");
         for (int pos = 0; pos < 16; pos++) {
             int bit_index = 15 - pos;
-            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
             bool bit = prefs.lamp_test ||
                 (powered && ((bank >> bit_index) & 1u));
             float nibble_gap = (float)(pos / 4) * 10.0f;
             draw_led(renderer, &panel_fonts,
                      58.0f + pos * 31.0f + nibble_gap,
-                     234.0f, label, bit,
+                     234.0f, "", bit,
                      COL_BLUE);
         }
 
         draw_text(renderer, panel_fonts.label, 54, 284,
-                  COL_LIGHT_GRAY, "DATA BUS  D7-D4   D3-D0");
+                  COL_LIGHT_GRAY, "DATA BUS");
         for (int pos = 0; pos < 8; pos++) {
             int bit_index = 7 - pos;
-            char label[2] = {(char)('0' + bit_index), 0};
             bool bit = prefs.lamp_test ||
                 (powered && ((data >> bit_index) & 1u));
 
@@ -1865,7 +1862,7 @@ int ppa_gui_run_panel(const char *initial_rom,
             float nibble_gap = pos >= 4 ? 10.0f : 0.0f;
             draw_led(renderer, &panel_fonts,
                      58.0f + pos * 31.0f + nibble_gap,
-                     302.0f, label, bit,
+                     302.0f, "", bit,
                      COL_GREEN);
         }
 
@@ -1918,11 +1915,9 @@ int ppa_gui_run_panel(const char *initial_rom,
                   COL_WHITE, "FRONT PANEL INPUT");
         draw_text(renderer, panel_fonts.label, 54, 407,
                   COL_LIGHT_GRAY,
-                  "DATA D7-D4 | D3-D0 / ADDRESS A15-A0");
+                  "DATA / ADDRESS");
         for (int pos = 0; pos < 16; pos++) {
             int bit_index = 15 - pos;
-            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
-
             /*
              * Front-panel switches are grouped in 4-bit nibbles.
              * For DATA, the rightmost two groups are D7-D4 | D3-D0;
@@ -1931,7 +1926,7 @@ int ppa_gui_run_panel(const char *initial_rom,
             float nibble_gap = (float)(pos / 4) * 10.0f;
             draw_toggle(renderer, &panel_fonts,
                         62.0f + pos * 31.0f + nibble_gap,
-                        475.0f, label, switches[bit_index]);
+                        475.0f, "", switches[bit_index]);
         }
         /* Physical clock and DATA display selectors. */
         draw_text(renderer, panel_fonts.section, 646, 321,
