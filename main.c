@@ -1810,6 +1810,87 @@ static uint8_t gui_backend_status_register(void *ctx) {
     return g->cpu->SR;
 }
 
+static void gui_backend_cpu_snapshot(void *ctx, PPA1CpuSnapshot *out) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!out) return;
+
+    memset(out, 0, sizeof(*out));
+    if (!g || !g->cpu) return;
+
+    out->A = g->cpu->A;
+    out->B = g->cpu->B;
+    out->C = g->cpu->C;
+    out->D = g->cpu->D;
+    out->X = g->cpu->X;
+    out->Y = g->cpu->Y;
+    out->BR = g->cpu->BR;
+
+    out->IMM = g->cpu->IMM;
+    out->DST = g->cpu->DST;
+    out->STEP = g->cpu->STEP;
+    out->AOS = g->cpu->AOS;
+    out->AAR = g->cpu->AAR;
+    out->ABR = g->cpu->ABR;
+    out->RS = g->cpu->RS;
+    out->IR = g->cpu->IR;
+    out->SR = g->cpu->SR;
+    out->SP = g->cpu->SP;
+
+    out->AR = g->cpu->AR;
+    out->PC = g->cpu->PC;
+    out->halted = g->cpu->halted;
+    out->error = g->cpu->error;
+}
+
+static uint8_t gui_backend_memory_inspect(void *ctx,
+                                         uint16_t bank,
+                                         uint16_t address)
+{
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->memory || !g->loaded) return 0xFF;
+
+    if (bank <= ROM_BANK_LAST) {
+        uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
+        return g->memory->rom[physical];
+    }
+
+    if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
+        uint32_t physical =
+            (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
+        return g->memory->ram[physical];
+    }
+
+    if (bank == SYSTEM_BANK) {
+        if (address >= STACK_PAGE && address <= 0xFEFFu) {
+            return g->memory->stack[address & 0x00FFu];
+        }
+
+        if (address >= SYSTEM_IO_START && address <= SYSTEM_IO_END) {
+            /*
+             * Inspector reads must be side-effect free. In particular, viewing
+             * FF01 must not consume RX_READY or remove a waiting UART byte.
+             */
+            if (!g->serial || !g->serial->enabled) return 0;
+
+            switch (address) {
+                case SERIAL_TX:      return 0;
+                case SERIAL_RX:      return g->serial->rx;
+                case SERIAL_STATUS:  return g->serial->status;
+                case SERIAL_CONTROL: return g->serial->control;
+                default:             return 0;
+            }
+        }
+
+        if (address >= SYSTEM_RSVD_START) {
+            return g->memory->reserved[address - SYSTEM_RSVD_START];
+        }
+
+        return 0xFF;
+    }
+
+    return 0xFF;
+}
+
 static uint8_t gui_backend_register_value(void *ctx, int selector) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->powered || !g->cpu) return 0;
@@ -1947,7 +2028,9 @@ int main(int argc, char **argv) {
             .address_bus = gui_backend_address_bus,
             .data_bus = gui_backend_data_bus,
             .status_register = gui_backend_status_register,
-            .register_value = gui_backend_register_value
+            .register_value = gui_backend_register_value,
+            .cpu_snapshot = gui_backend_cpu_snapshot,
+            .memory_inspect = gui_backend_memory_inspect
         };
 
         (void)ppa_gui_run_panel(rom_path, tty_enabled, &gui_backend);
