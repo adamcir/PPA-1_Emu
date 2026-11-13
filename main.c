@@ -130,7 +130,10 @@ typedef struct {
     uint8_t ram[RAM_SIZE];
     uint8_t stack[0x100];
     uint8_t reserved[0x80];
+
+    /* Optional backing file for the in-memory EEPROM contents. */
     FILE *rom_file;
+    char rom_path[1024];
 } Memory;
 
 typedef struct {
@@ -164,12 +167,28 @@ static inline void set_Z(CPU *cpu, uint8_t v) {
     set_flag(cpu, FL_Z, v == 0);
 }
 
+static bool memory_detach_image(Memory *memory) {
+    if (!memory || !memory->rom_file) return false;
+
+    FILE *file = memory->rom_file;
+    memory->rom_file = NULL;
+    memory->rom_path[0] = '\0';
+
+    /*
+     * fclose() flushes pending stdio writes before closing. The EEPROM is
+     * already mirrored in memory, so even a close error must not invalidate
+     * the emulated EEPROM contents.
+     */
+    return fclose(file) == 0;
+}
+
 static void memory_init_blank(Memory *memory) {
     if (!memory) return;
 
     if (memory->rom_file) {
-        fclose(memory->rom_file);
-        memory->rom_file = NULL;
+        (void)memory_detach_image(memory);
+    } else {
+        memory->rom_path[0] = '\0';
     }
 
     memset(memory->rom, 0xFF, sizeof(memory->rom));
@@ -230,8 +249,7 @@ static int load_rom(Memory *memory, const char *path, uint16_t base) {
     }
 
     if (memory->rom_file) {
-        fclose(memory->rom_file);
-        memory->rom_file = NULL;
+        (void)memory_detach_image(memory);
     }
 
     memcpy(memory->rom, image, ROM_SIZE);
@@ -242,6 +260,7 @@ static int load_rom(Memory *memory, const char *path, uint16_t base) {
     memset(memory->reserved, 0xFF, sizeof(memory->reserved));
 
     memory->rom_file = f;
+    snprintf(memory->rom_path, sizeof(memory->rom_path), "%s", path);
     return (int)n;
 }
 
@@ -1570,7 +1589,6 @@ typedef struct {
     Memory *memory;
     Serial *serial;
     bool loaded;
-    bool image_attached;
     bool powered;
     bool running;
     uint8_t panel_data_bus;
@@ -1614,7 +1632,6 @@ static bool gui_backend_load_rom(void *ctx, const char *path) {
     gui_cpu_reset_state(g);
 
     g->loaded = true;
-    g->image_attached = true;
     g->powered = false;
     g->running = false;
     g->panel_data_bus = 0x00;
@@ -1627,16 +1644,30 @@ static bool gui_backend_load_rom(void *ctx, const char *path) {
 
 static bool gui_backend_detach_image(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->memory) return false;
-
-    if (g->memory->rom_file) {
-        fclose(g->memory->rom_file);
-        g->memory->rom_file = NULL;
+    if (!g || !g->memory || !g->memory->rom_file) {
+        printf("GUI: DETACH ignored; no EEPROM image is attached\n");
+        return false;
     }
 
-    g->image_attached = false;
+    char old_path[sizeof(g->memory->rom_path)];
+    snprintf(old_path, sizeof(old_path), "%s", g->memory->rom_path);
 
-    printf("GUI: EEPROM image detached; in-memory EEPROM contents preserved\n");
+    bool clean_close = memory_detach_image(g->memory);
+
+    if (clean_close) {
+        printf("GUI: detached EEPROM image: %s "
+               "(in-memory EEPROM preserved)\n",
+               old_path[0] ? old_path : "<unknown>");
+    } else {
+        printf("GUI: detached EEPROM image with close/flush warning: %s "
+               "(in-memory EEPROM preserved)\n",
+               old_path[0] ? old_path : "<unknown>");
+    }
+
+    /*
+     * The backing file is detached either way. A flush error is reported,
+     * but must not silently reattach a FILE* that fclose() has consumed.
+     */
     return true;
 }
 
@@ -1672,7 +1703,13 @@ static bool gui_backend_export_image(void *ctx, const char *path) {
 
 static bool gui_backend_is_image_attached(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    return g && g->image_attached && g->memory && g->memory->rom_file;
+    return g && g->memory && g->memory->rom_file != NULL;
+}
+
+static const char *gui_backend_image_path(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->memory || !g->memory->rom_file) return "";
+    return g->memory->rom_path;
 }
 
 static void gui_backend_set_power(void *ctx, bool on) {
@@ -2226,7 +2263,6 @@ int main(int argc, char **argv) {
             .memory = &memory,
             .serial = &serial,
             .loaded = true,
-            .image_attached = false,
             .powered = false,
             .running = false
         };
@@ -2237,6 +2273,7 @@ int main(int argc, char **argv) {
             .detach_image = gui_backend_detach_image,
             .export_image = gui_backend_export_image,
             .is_image_attached = gui_backend_is_image_attached,
+            .image_path = gui_backend_image_path,
             .set_power = gui_backend_set_power,
             .set_running = gui_backend_set_running,
             .reset = gui_backend_reset,
@@ -2274,7 +2311,7 @@ int main(int argc, char **argv) {
         (void)ppa_gui_run_panel(rom_path, tty_enabled, &gui_backend);
 
         serial_close(&serial);
-        if (memory.rom_file) fclose(memory.rom_file);
+        if (memory.rom_file) (void)memory_detach_image(&memory);
         ppa_log_close();
         return 0;
     }
@@ -2341,7 +2378,7 @@ int main(int argc, char **argv) {
     }
 
     serial_close(&serial);
-    if (memory.rom_file) fclose(memory.rom_file);
+    if (memory.rom_file) (void)memory_detach_image(&memory);
     ppa_log_close();
     return 0;
 }
