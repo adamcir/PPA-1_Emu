@@ -1668,6 +1668,21 @@ static void gui_backend_reset_emulation(void *ctx) {
 
     gui_cpu_reset_state(g);
 
+    if (g->serial) {
+        g->serial->gui_rx_head = g->serial->gui_rx_tail = 0;
+        g->serial->gui_tx_head = g->serial->gui_tx_tail = 0;
+
+        if (g->serial->enabled) {
+            g->serial->control =
+                SERIAL_CTL_ENABLE | SERIAL_CTL_TX_ENABLE | SERIAL_CTL_RX_ENABLE;
+            serial_reset(g->serial);
+        } else {
+            g->serial->control = 0;
+            g->serial->status = 0;
+            g->serial->rx = 0;
+        }
+    }
+
     g->loaded = true;
     g->powered = false;
     g->running = false;
