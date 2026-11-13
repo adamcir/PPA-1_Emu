@@ -101,6 +101,8 @@ typedef struct {
     int col;
     int max_line;
 
+    Uint64 last_output_ticks;
+
     uint8_t current_color;
     uint8_t ansi_state;
     char csi[24];
@@ -960,8 +962,20 @@ static void terminal_draw_cursor(TerminalWindow *term,
 {
     if (!term || !term->renderer || !font) return;
 
-    /* 500 ms on / 500 ms off. */
-    if (((SDL_GetTicks() / 500u) & 1u) != 0u) return;
+    /*
+     * Behave like a normal terminal cursor: while UART TX is actively
+     * producing output the cursor is hidden. Once output has been idle for
+     * a short period, blinking starts from the beginning of that idle state.
+     */
+    const Uint64 cursor_idle_delay_ms = 250u;
+    const Uint64 cursor_blink_ms = 500u;
+    Uint64 now = SDL_GetTicks();
+    Uint64 idle_ms = now - term->last_output_ticks;
+
+    if (idle_ms < cursor_idle_delay_ms) return;
+
+    Uint64 blink_time = idle_ms - cursor_idle_delay_ms;
+    if (((blink_time / cursor_blink_ms) & 1u) != 0u) return;
 
     if (term->line < first_visible_line) return;
 
@@ -1161,6 +1175,7 @@ static bool open_terminal(TerminalWindow *term,
 
     SDL_SetRenderVSync(term->renderer, 1);
     SDL_StartTextInput(term->window);
+    term->last_output_ticks = SDL_GetTicks();
 
     if (backend->set_terminal_enabled) {
         backend->set_terminal_enabled(backend->ctx, true);
@@ -1193,6 +1208,11 @@ static void update_terminal(TerminalWindow *term,
     size_t n;
     do {
         n = backend->terminal_read_tx(backend->ctx, buf, sizeof(buf));
+
+        if (n > 0) {
+            term->last_output_ticks = SDL_GetTicks();
+        }
+
         for (size_t i = 0; i < n; i++) {
             terminal_put_byte(term, buf[i]);
         }
