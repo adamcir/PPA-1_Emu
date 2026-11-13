@@ -41,6 +41,7 @@ typedef struct {
     bool (*is_powered)(void *ctx);
     bool (*is_running)(void *ctx);
     bool (*is_halted)(void *ctx);
+    bool (*is_error)(void *ctx);
 
     uint16_t (*address_bus)(void *ctx);
     uint8_t (*data_bus)(void *ctx);
