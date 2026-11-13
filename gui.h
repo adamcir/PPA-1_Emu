@@ -29,7 +29,7 @@ typedef struct {
     void *ctx;
 
     bool (*load_rom)(void *ctx, const char *path);
-    bool (*detach_image)(void *ctx);
+    void (*reset_emulation)(void *ctx);
     bool (*export_image)(void *ctx, const char *path);
     bool (*is_image_attached)(void *ctx);
     const char *(*image_path)(void *ctx);
