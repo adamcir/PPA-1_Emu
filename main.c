@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <termios.h>
+#include <time.h>
 
 #include "logger.h"
 #include "gui.h"
@@ -2218,12 +2219,104 @@ static uint8_t gui_backend_register_value(void *ctx, int selector) {
     }
 }
 
+typedef struct {
+    double hz;
+    const char *label;
+} CpuClockSetting;
+
+static const CpuClockSetting CPU_CLOCK_SETTINGS[] = {
+    {1.0,      "1 Hz"},
+    {2.0,      "2 Hz"},
+    {5.0,      "5 Hz"},
+    {10.0,     "10 Hz"},
+    {20.0,     "20 Hz"},
+    {50.0,     "50 Hz"},
+    {100.0,    "100 Hz"},
+    {200.0,    "200 Hz"},
+    {500.0,    "500 Hz"},
+    {1000.0,   "1 kHz"},
+    {2000.0,   "2 kHz"},
+    {5000.0,   "5 kHz"},
+    {10000.0,  "10 kHz"},
+    {20000.0,  "20 kHz"},
+    {50000.0,  "50 kHz"},
+    {100000.0, "100 kHz"}
+};
+
+static bool parse_cpu_clock(const char *text,
+                            bool *turbo,
+                            double *hz,
+                            const char **label)
+{
+    if (!text || !*text || !turbo || !hz || !label) return false;
+
+    if (strcasecmp(text, "turbo") == 0) {
+        *turbo = true;
+        *hz = 0.0;
+        *label = "TURBO";
+        return true;
+    }
+
+    char *end = NULL;
+    double value = strtod(text, &end);
+    if (end == text || value <= 0.0) return false;
+
+    while (*end == ' ' || *end == '\t') end++;
+
+    if (strcasecmp(end, "k") == 0 ||
+        strcasecmp(end, "khz") == 0) {
+        value *= 1000.0;
+    } else if (*end == '\0' || strcasecmp(end, "hz") == 0) {
+        /* Plain numbers are interpreted as Hz. */
+    } else {
+        return false;
+    }
+
+    const size_t count =
+        sizeof(CPU_CLOCK_SETTINGS) / sizeof(CPU_CLOCK_SETTINGS[0]);
+
+    for (size_t i = 0; i < count; i++) {
+        double delta = value - CPU_CLOCK_SETTINGS[i].hz;
+        if (delta < 0.0) delta = -delta;
+
+        if (delta < 0.0001) {
+            *turbo = false;
+            *hz = CPU_CLOCK_SETTINGS[i].hz;
+            *label = CPU_CLOCK_SETTINGS[i].label;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static uint64_t monotonic_time_ns(void) {
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+
+    return (uint64_t)ts.tv_sec * 1000000000ull +
+           (uint64_t)ts.tv_nsec;
+}
+
+static void sleep_until_ns(uint64_t target_ns) {
+    struct timespec deadline = {
+        .tv_sec = (time_t)(target_ns / 1000000000ull),
+        .tv_nsec = (long)(target_ns % 1000000000ull)
+    };
+
+    while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME,
+                          &deadline, NULL) == EINTR) {
+    }
+}
+
 static void usage(const char *prog) {
     printf("Usage:\n");
-    printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--dump HEX LEN] [--tty] [--nogui]\n", prog);
+    printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--clock RATE] [--dump HEX LEN] [--tty] [--nogui]\n", prog);
     printf("\n");
     printf("Without --steps, execution continues until HLT or Ctrl+C.\n");
     printf("--steps limits the number of complete CPU instructions, not microsteps.\n");
+    printf("--clock sets --nogui CPU clock: 1,2,5,10,20,50,100,200,500 Hz; 1k,2k,5k,10k,20k,50k,100k; or turbo.\n");
+    printf("        Default for --nogui is turbo (maximum host-CPU-dependent speed).\n");
     printf("--tty creates a pseudo-terminal for SYSTEM bank 0050, SERIAL FF00-FF03.\n");
     printf("--nogui disables the graphical frontend and runs console mode.\n");
 }
@@ -2259,6 +2352,11 @@ int main(int argc, char **argv) {
     bool do_dump = false;
     bool tty_enabled = false;
     bool no_gui = false;
+
+    bool nogui_clock_turbo = true;
+    double nogui_clock_hz = 0.0;
+    const char *nogui_clock_label = "TURBO";
+
     uint16_t dump_start = 0;
     uint16_t dump_len = 0;
     const char *rom_path = NULL;
@@ -2276,6 +2374,19 @@ int main(int argc, char **argv) {
             cpu.PC = (uint16_t)parse_hex(argv[++i]);
         } else if (strcmp(argv[i], "--steps") == 0 && i + 1 < argc) {
             steps = strtoll(argv[++i], NULL, 10);
+        } else if (strcmp(argv[i], "--clock") == 0 && i + 1 < argc) {
+            const char *clock_arg = argv[++i];
+
+            if (!parse_cpu_clock(
+                    clock_arg,
+                    &nogui_clock_turbo,
+                    &nogui_clock_hz,
+                    &nogui_clock_label)) {
+                printf("Invalid --clock value: %s\n", clock_arg);
+                usage(argv[0]);
+                ppa_log_close();
+                return 1;
+            }
         } else if (strcmp(argv[i], "--tty") == 0) {
             tty_enabled = true;
         } else if (strcmp(argv[i], "--dump") == 0 && i + 2 < argc) {
@@ -2394,19 +2505,73 @@ int main(int argc, char **argv) {
     uint64_t instruction_count = 0;
     uint64_t microcycle_count = 0;
 
+    printf("NOGUI clock: %s\n", nogui_clock_label);
+
+    /*
+     * --nogui defaults to TURBO, preserving the historical behavior.
+     * Fixed clock rates pace individual CPU microsteps/clock edges, matching
+     * the CLOCK selector semantics used by the graphical front panel.
+     */
+    long double next_clock_ns = (long double)monotonic_time_ns();
+    const long double clock_period_ns = nogui_clock_turbo
+        ? 0.0L
+        : 1000000000.0L / (long double)nogui_clock_hz;
+
     while (!cpu.halted &&
            (steps < 0 || instruction_count < (uint64_t)steps)) {
-        bool complete = false;
+        int microstep_budget = 1;
 
-        while (!complete && !cpu.halted) {
-            complete = cpu_microstep(&cpu, &memory, &serial);
-            microcycle_count++;
+        if (!nogui_clock_turbo) {
+            uint64_t now_ns = monotonic_time_ns();
+
+            if ((long double)now_ns < next_clock_ns) {
+                sleep_until_ns((uint64_t)next_clock_ns);
+                now_ns = monotonic_time_ns();
+            }
+
+            long double behind_ns =
+                (long double)now_ns - next_clock_ns;
+
+            if (behind_ns > 0.0L) {
+                long double due = behind_ns / clock_period_ns;
+                if (due > 4999.0L) due = 4999.0L;
+                microstep_budget += (int)due;
+            }
         }
 
-        if (complete) {
-            instruction_count++;
-            trace_cpu_state("NOGUI", "RUN / INSTRUCTION COMPLETE",
-                            instruction_count, microcycle_count, &cpu);
+        for (int i = 0;
+             i < microstep_budget &&
+             !cpu.halted &&
+             (steps < 0 || instruction_count < (uint64_t)steps);
+             i++) {
+            bool complete =
+                cpu_microstep(&cpu, &memory, &serial);
+            microcycle_count++;
+
+            if (!nogui_clock_turbo) {
+                next_clock_ns += clock_period_ns;
+            }
+
+            if (complete) {
+                instruction_count++;
+                trace_cpu_state(
+                    "NOGUI", "RUN / INSTRUCTION COMPLETE",
+                    instruction_count, microcycle_count, &cpu);
+            }
+        }
+
+        /*
+         * If the host was paused for a long time (debugger/suspend), do not
+         * spend seconds running an old backlog at maximum speed.
+         */
+        if (!nogui_clock_turbo) {
+            uint64_t now_ns = monotonic_time_ns();
+            long double lag_ns =
+                (long double)now_ns - next_clock_ns;
+
+            if (lag_ns > 100000000.0L) {
+                next_clock_ns = (long double)now_ns;
+            }
         }
     }
 
