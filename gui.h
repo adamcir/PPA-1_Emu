@@ -37,7 +37,8 @@ typedef struct {
     void (*reset)(void *ctx);
     void (*step_instruction)(void *ctx);
     void (*step_micro)(void *ctx);
-    void (*tick)(void *ctx, int instruction_budget);
+    void (*tick)(void *ctx, int clock_edges);
+    void (*tick_turbo)(void *ctx, int microstep_budget);
 
     void (*set_data_input)(void *ctx, uint8_t value);
     void (*load_bank)(void *ctx, uint16_t bank);
