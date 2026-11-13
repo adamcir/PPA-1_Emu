@@ -1642,33 +1642,39 @@ static bool gui_backend_load_rom(void *ctx, const char *path) {
     return true;
 }
 
-static bool gui_backend_detach_image(void *ctx) {
+static void gui_backend_reset_emulation(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->memory || !g->memory->rom_file) {
-        printf("GUI: DETACH ignored; no EEPROM image is attached\n");
-        return false;
-    }
+    if (!g || !g->memory) return;
 
     char old_path[sizeof(g->memory->rom_path)];
-    snprintf(old_path, sizeof(old_path), "%s", g->memory->rom_path);
+    old_path[0] = '\0';
 
-    bool clean_close = memory_detach_image(g->memory);
-
-    if (clean_close) {
-        printf("GUI: detached EEPROM image: %s "
-               "(in-memory EEPROM preserved)\n",
-               old_path[0] ? old_path : "<unknown>");
-    } else {
-        printf("GUI: detached EEPROM image with close/flush warning: %s "
-               "(in-memory EEPROM preserved)\n",
-               old_path[0] ? old_path : "<unknown>");
+    if (g->memory->rom_file) {
+        snprintf(old_path, sizeof(old_path), "%s", g->memory->rom_path);
+        (void)memory_detach_image(g->memory);
     }
 
     /*
-     * The backing file is detached either way. A flush error is reported,
-     * but must not silently reattach a FILE* that fclose() has consumed.
+     * Full emulator reset from the toolbar:
+     *   - detach the backing EEPROM image without modifying its contents
+     *   - replace emulated EEPROM with a blank erased 4 MiB image (0xFF)
+     *   - clear volatile RAM/SYSTEM memory
+     *   - reset CPU/controller state and power the processor off
      */
-    return true;
+    memset(g->memory->rom, 0xFF, sizeof(g->memory->rom));
+    memset(g->memory->ram, 0x00, sizeof(g->memory->ram));
+    memset(g->memory->stack, 0x00, sizeof(g->memory->stack));
+    memset(g->memory->reserved, 0xFF, sizeof(g->memory->reserved));
+
+    gui_cpu_reset_state(g);
+
+    g->loaded = true;
+    g->powered = false;
+    g->running = false;
+    g->panel_data_bus = 0x00;
+
+    printf("GUI: emulation RESET; EEPROM erased in memory, backing image %s\n",
+           old_path[0] ? "detached unchanged" : "was not attached");
 }
 
 static bool gui_backend_export_image(void *ctx, const char *path) {
@@ -2270,7 +2276,7 @@ int main(int argc, char **argv) {
         PPA1GuiBackend gui_backend = {
             .ctx = &gui_backend_ctx,
             .load_rom = gui_backend_load_rom,
-            .detach_image = gui_backend_detach_image,
+            .reset_emulation = gui_backend_reset_emulation,
             .export_image = gui_backend_export_image,
             .is_image_attached = gui_backend_is_image_attached,
             .image_path = gui_backend_image_path,
