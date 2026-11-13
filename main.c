@@ -2078,6 +2078,48 @@ static uint8_t gui_backend_memory_inspect(void *ctx,
     return 0xFF;
 }
 
+static bool gui_backend_memory_edit(void *ctx,
+                                    uint16_t bank,
+                                    uint16_t address,
+                                    uint8_t value)
+{
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->memory || !g->loaded || g->powered) {
+        return false;
+    }
+
+    if (bank <= ROM_BANK_LAST) {
+        uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
+        g->memory->rom[physical] = value;
+        persist_rom_byte(g->memory, physical, value);
+        return true;
+    }
+
+    if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
+        uint32_t physical =
+            (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
+        g->memory->ram[physical] = value;
+        return true;
+    }
+
+    if (bank == SYSTEM_BANK) {
+        if (address >= STACK_PAGE && address <= 0xFEFFu) {
+            g->memory->stack[address & 0x00FFu] = value;
+            return true;
+        }
+
+        if (address >= SYSTEM_RSVD_START) {
+            g->memory->reserved[address - SYSTEM_RSVD_START] = value;
+            return true;
+        }
+
+        /* FF00-FF7F is live I/O, and the unused SYSTEM area has no backing RAM. */
+        return false;
+    }
+
+    return false;
+}
+
 static uint8_t gui_backend_register_value(void *ctx, int selector) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->powered || !g->cpu) return 0;
@@ -2225,7 +2267,8 @@ int main(int argc, char **argv) {
             .status_register = gui_backend_status_register,
             .register_value = gui_backend_register_value,
             .cpu_snapshot = gui_backend_cpu_snapshot,
-            .memory_inspect = gui_backend_memory_inspect
+            .memory_inspect = gui_backend_memory_inspect,
+            .memory_edit = gui_backend_memory_edit
         };
 
         (void)ppa_gui_run_panel(rom_path, tty_enabled, &gui_backend);
