@@ -873,7 +873,7 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
     aux->kind = kind;
 
     Uint64 flags = SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    if (kind == AUX_LOG) {
+    if (kind == AUX_LOG || kind == AUX_VIEW) {
         flags |= SDL_WINDOW_RESIZABLE;
     }
 
@@ -882,6 +882,8 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
 
     if (kind == AUX_LOG) {
         SDL_SetWindowMinimumSize(aux->window, 560, 300);
+    } else if (kind == AUX_VIEW) {
+        SDL_SetWindowMinimumSize(aux->window, 680, 520);
     }
 
     aux->renderer = SDL_CreateRenderer(aux->window, NULL);
@@ -951,6 +953,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_aux_header(r, fonts, "PROCESSOR VIEW",
                         "LIVE CPU STATE / REGISTERS / MEMORY");
 
+        int view_w = 760, view_h = 610;
+        SDL_GetCurrentRenderOutputSize(r, &view_w, &view_h);
+
         bool loaded = backend->is_loaded(backend->ctx);
         bool power = backend->is_powered(backend->ctx);
         bool running = backend->is_running(backend->ctx);
@@ -1019,7 +1024,7 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->mono, 24, 274, muted, line);
 
         SDL_SetRenderDrawColor(r, 73, 77, 74, 255);
-        SDL_RenderLine(r, 24, 314, 736, 314);
+        SDL_RenderLine(r, 24, 314, (float)view_w - 24.0f, 314);
 
         draw_text(r, fonts->label, 24, 326, cream,
                   "MEMORY INSPECT");
@@ -1058,13 +1063,27 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                  aux->inspect_address, current_value);
         draw_text(r, fonts->mono, 24, 408, COL_BLUE, line);
 
-        SDL_FRect mem_box = {24, 434, 712, 126};
+        float mem_box_h = (float)view_h - 476.0f;
+        if (mem_box_h < 38.0f) mem_box_h = 38.0f;
+        if (mem_box_h > 126.0f) mem_box_h = 126.0f;
+
+        SDL_FRect mem_box = {
+            24.0f, 434.0f,
+            (float)view_w - 48.0f,
+            mem_box_h
+        };
+        if (mem_box.w < 1.0f) mem_box.w = 1.0f;
+
         SDL_SetRenderDrawColor(r, 22, 24, 24, 255);
         SDL_RenderFillRect(r, &mem_box);
         SDL_SetRenderDrawColor(r, 63, 67, 64, 255);
         SDL_RenderRect(r, &mem_box);
 
-        for (int row = 0; row < 4; row++) {
+        int visible_rows = (int)((mem_box.h - 14.0f) / 25.0f);
+        if (visible_rows < 1) visible_rows = 1;
+        if (visible_rows > 4) visible_rows = 4;
+
+        for (int row = 0; row < visible_rows; row++) {
             uint16_t row_addr =
                 (uint16_t)(aux->inspect_address + row * 16);
 
@@ -1085,7 +1104,8 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                       (SDL_Color){201, 230, 208, 255}, line);
         }
 
-        draw_text(r, fonts->small, 24, 578, muted,
+        draw_text(r, fonts->small, 24,
+                  (float)view_h - 28.0f, muted,
                   "ADDR +/- = 1 byte   PAGE +/- = 64 bytes   inspector reads are side-effect free.");
     } else if (aux->kind == AUX_LOG) {
         draw_aux_header(r, fonts, "LATEST.LOG",
