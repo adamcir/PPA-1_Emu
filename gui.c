@@ -1047,10 +1047,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->mono, 24, 250, muted, line);
 
         snprintf(line, sizeof(line),
-                 "AAR=%02X  ABR=%02X    ADDRESS BUS=%04X  DATA BUS=%02X",
+                 "AAR=%02X  ABR=%02X    BUS=%04X:%04X  DATA=%02X",
                  cpu.AAR, cpu.ABR,
-                 backend->address_bus(backend->ctx),
-                 backend->data_bus(backend->ctx));
+                 cpu.bus_bank, cpu.bus_address, cpu.bus_data);
         draw_text(r, fonts->mono, 24, 274, muted, line);
 
         SDL_SetRenderDrawColor(r, 73, 77, 74, 255);
@@ -2025,15 +2024,14 @@ int ppa_gui_run_panel(const char *initial_rom,
             clock_level = false;
         }
 
-        Uint16 address = backend->address_bus(backend->ctx);
-        Uint16 bank = 0;
-        if (backend->register_value) {
-            bank = (Uint16)(
-                ((Uint16)backend->register_value(backend->ctx, 8) << 8) |
-                (Uint16)backend->register_value(backend->ctx, 9));
-        }
+        Uint16 address = backend->address_bus
+            ? backend->address_bus(backend->ctx)
+            : 0;
+        Uint16 bank = backend->bank_bus
+            ? backend->bank_bus(backend->ctx)
+            : 0;
 
-        Uint8 bus_data = running
+        Uint8 bus_data = backend->data_bus
             ? backend->data_bus(backend->ctx)
             : (exam_held ? exam_data : front_data_latch);
         Uint8 data = bus_data;
