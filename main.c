@@ -600,9 +600,6 @@ static inline void bus_publish(CPU *cpu,
     cpu->bus.address = address;
     cpu->bus.data = data;
     cpu->bus.operation = operation;
-
-    /* AR is the physical A0-A15 address register. */
-    cpu->AR = address;
 }
 
 static uint8_t bus_read_bank8(CPU *cpu,
@@ -695,6 +692,7 @@ static inline void push8(CPU *cpu,
                          uint8_t value)
 {
     uint16_t address = stack_addr(cpu);
+    cpu->AR = address;
     bus_write_bank8(cpu, memory, serial,
                     SYSTEM_BANK, address, value, BUS_OP_WRITE);
     cpu->SP--;
@@ -706,6 +704,7 @@ static inline uint8_t pop8(CPU *cpu,
 {
     cpu->SP++;
     uint16_t address = stack_addr(cpu);
+    cpu->AR = address;
     return bus_read_bank8(cpu, memory, serial,
                           SYSTEM_BANK, address, BUS_OP_READ);
 }
@@ -1824,6 +1823,7 @@ static void gui_backend_load_address(void *ctx, uint16_t address) {
     if (!g || !g->powered) return;
 
     g->running = false;
+    g->cpu->AR = address;
     bus_publish(g->cpu, g->cpu->BR, address,
                 g->panel_data_bus, BUS_OP_NONE);
     printf("GUI: LOAD ADDRESS -> AR=%04X (BR=%04X)\n", address, g->cpu->BR);
@@ -1834,6 +1834,7 @@ static uint8_t gui_backend_examine(void *ctx, uint16_t address) {
     if (!g || !g->memory || !g->powered) return 0xFF;
 
     g->running = false;
+    g->cpu->AR = address;
     g->cpu->ABR = bus_read8(g->cpu, g->memory, g->serial, address);
     g->panel_data_bus = g->cpu->ABR;
 
@@ -1847,6 +1848,7 @@ static void gui_backend_deposit(void *ctx, uint16_t address, uint8_t value) {
     if (!g || !g->memory || !g->powered) return;
 
     g->running = false;
+    g->cpu->AR = address;
     g->panel_data_bus = value;
     g->cpu->ABR = value;
 
@@ -1866,6 +1868,7 @@ static void gui_backend_start_at(void *ctx, uint16_t address) {
     if (!g || !g->loaded || !g->powered) return;
 
     g->cpu->PC = address;
+    g->cpu->AR = address;
     g->cpu->STEP = 0;
     g->cpu->halted = false;
     g->cpu->error = false;
