@@ -50,6 +50,11 @@ typedef struct {
     SDL_Texture *down;
 } ToggleTextures;
 
+typedef struct {
+    SDL_Texture *base;
+    SDL_Texture *rotor;
+} KnobTextures;
+
 static float g_text_pixel_scale = 1.0f;
 
 typedef enum {
@@ -598,6 +603,39 @@ static bool load_toggle_textures(SDL_Renderer *renderer,
     return true;
 }
 
+static void destroy_knob_textures(KnobTextures *textures) {
+    if (!textures) return;
+
+    if (textures->base) SDL_DestroyTexture(textures->base);
+    if (textures->rotor) SDL_DestroyTexture(textures->rotor);
+    textures->base = NULL;
+    textures->rotor = NULL;
+}
+
+static bool load_knob_textures(SDL_Renderer *renderer,
+                               KnobTextures *textures)
+{
+    if (!renderer || !textures) return false;
+
+    destroy_knob_textures(textures);
+
+    textures->base = load_panel_texture(
+        renderer, "assets/textures/knob_base.png");
+    textures->rotor = load_panel_texture(
+        renderer, "assets/textures/knob_rotor.png");
+
+    if (!textures->base || !textures->rotor) {
+        ppa_log_printf(
+            "GUI: knob textures unavailable; using procedural fallback.\n");
+        destroy_knob_textures(textures);
+        return false;
+    }
+
+    ppa_log_printf(
+        "GUI: loaded knob base and rotor textures.\n");
+    return true;
+}
+
 static void draw_toggle(SDL_Renderer *r, PanelFonts *fonts,
                         const ToggleTextures *textures,
                         float x, float y, const char *label, bool on)
@@ -707,6 +745,7 @@ static void draw_knob(SDL_Renderer *r, PanelFonts *fonts,
 }
 
 static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
+                              const KnobTextures *textures,
                               float cx, float cy, float radius,
                               int index, int count,
                               const char * const *labels,
@@ -738,6 +777,37 @@ static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
         }
     }
 
+    if (textures && textures->base && textures->rotor) {
+        /*
+         * The source PNGs are 256x256. The visible base occupies roughly
+         * 80 % of that canvas, so a 70x70 logical destination produces a
+         * physical knob about 56 px wide, matching the old 58 px diameter.
+         */
+        const float knob_size = 70.0f;
+        SDL_FRect dst = {
+            cx - knob_size * 0.5f,
+            cy - knob_size * 0.5f,
+            knob_size,
+            knob_size
+        };
+
+        SDL_RenderTexture(r, textures->base, NULL, &dst);
+
+        /*
+         * knob_rotor.png points straight up at 0 degrees. The old panel
+         * selector spans mathematical 225..-45 degrees, so the equivalent
+         * SDL clockwise rotation is -135..+135 degrees.
+         */
+        float t = count > 1 ? (float)index / (float)(count - 1) : 0.0f;
+        double rotation = -135.0 + (double)t * 270.0;
+
+        SDL_RenderTextureRotated(
+            r, textures->rotor, NULL, &dst,
+            rotation, NULL, SDL_FLIP_NONE);
+        return;
+    }
+
+    /* Procedural fallback when knob textures cannot be loaded. */
     SDL_SetRenderDrawColor(
         r, COL_BLACK.r, COL_BLACK.g, COL_BLACK.b, 255);
     fill_circle(r, cx, cy, radius + 4.0f);
@@ -1971,6 +2041,9 @@ int ppa_gui_run_panel(const char *initial_rom,
     ToggleTextures toggle_textures = {0};
     (void)load_toggle_textures(renderer, &toggle_textures);
 
+    KnobTextures knob_textures = {0};
+    (void)load_knob_textures(renderer, &knob_textures);
+
     SDL_Texture *panel_texture = SDL_CreateTexture(
         renderer,
         SDL_PIXELFORMAT_RGBA8888,
@@ -1978,6 +2051,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         PANEL_W, PANEL_H);
     if (!panel_texture) {
         ppa_log_printf("GUI: failed to create panel render target: %s\n", SDL_GetError());
+        destroy_knob_textures(&knob_textures);
         destroy_toggle_textures(&toggle_textures);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
@@ -3115,7 +3189,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text_center(renderer, panel_fonts.label,
                          (SDL_FRect){660, 346, 120, 18},
                          COL_WHITE, "CLOCK");
-        draw_labeled_knob(renderer, &panel_fonts,
+        draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
                           clock_cx, clock_cy, clock_radius,
                           clock_index, clock_count,
                           clock_tick_labels, true);
@@ -3123,7 +3197,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text_center(renderer, panel_fonts.label,
                          (SDL_FRect){838, 346, 134, 18},
                          COL_WHITE, "DATA OUTPUT");
-        draw_labeled_knob(renderer, &panel_fonts,
+        draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
                           data_source_cx, data_source_cy,
                           data_source_radius,
                           data_source_index, 2,
@@ -3133,7 +3207,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                          (SDL_FRect){1015, 346, 160, 18},
                          COL_WHITE,
                          "REGISTER SELECT");
-        draw_labeled_knob(renderer, &panel_fonts,
+        draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
                           register_cx, register_cy,
                           register_radius,
                           register_index, register_count,
@@ -3250,6 +3324,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&log_window);
     destroy_aux(&credits_window);
     SDL_DestroyTexture(panel_texture);
+    destroy_knob_textures(&knob_textures);
     destroy_toggle_textures(&toggle_textures);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
