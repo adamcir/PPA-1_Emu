@@ -14,7 +14,7 @@ SRC = main.c logger.c gui.c src/ppa_module.c
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 
-.PHONY: all clean run test-modules
+.PHONY: all clean run test-modules sound-examples
 
 all: asm emu
 
@@ -36,3 +36,10 @@ clean:
 test-modules: out
 	$(CC) -Isrc src/ppa_module.c src/ppa_module_test.c -lm -o out/ppa_module_test
 	./out/ppa_module_test
+
+# Assemble each sound example, including the library-based Moskau demo.
+sound-examples: asm
+	@set -e; for song in sound_tone sound_chord sound_sweep sound_waveforms moskau; do \
+		echo "Assembling examples/$$song.asm"; \
+		$(ASM) examples/$$song.asm out/$$song.bin; \
+	done
