@@ -1824,26 +1824,32 @@ int ppa_gui_run_panel(const char *initial_rom,
                   COL_WHITE, "BUS INDICATORS");
 
         draw_text(renderer, panel_fonts.label, 54, 148,
-                  COL_LIGHT_GRAY, "ADDRESS BUS  A15-A0");
+                  COL_LIGHT_GRAY,
+                  "ADDRESS BUS  A15-A12 | A11-A8 | A7-A4 | A3-A0");
         for (int pos = 0; pos < 16; pos++) {
             int bit_index = 15 - pos;
             char label[2] = {"0123456789ABCDEF"[bit_index], 0};
             bool bit = prefs.lamp_test ||
                 (powered && ((address >> bit_index) & 1u));
+            float nibble_gap = (float)(pos / 4) * 10.0f;
             draw_led(renderer, &panel_fonts,
-                     58.0f + pos * 31.0f, 166.0f, label, bit,
+                     58.0f + pos * 31.0f + nibble_gap,
+                     166.0f, label, bit,
                      COL_ORANGE);
         }
 
         draw_text(renderer, panel_fonts.label, 54, 216,
-                  COL_LIGHT_GRAY, "BANK REGISTER  B15-B0");
+                  COL_LIGHT_GRAY,
+                  "BANK REGISTER  B15-B12 | B11-B8 | B7-B4 | B3-B0");
         for (int pos = 0; pos < 16; pos++) {
             int bit_index = 15 - pos;
             char label[2] = {"0123456789ABCDEF"[bit_index], 0};
             bool bit = prefs.lamp_test ||
                 (powered && ((bank >> bit_index) & 1u));
+            float nibble_gap = (float)(pos / 4) * 10.0f;
             draw_led(renderer, &panel_fonts,
-                     58.0f + pos * 31.0f, 234.0f, label, bit,
+                     58.0f + pos * 31.0f + nibble_gap,
+                     234.0f, label, bit,
                      COL_BLUE);
         }
 
@@ -1855,10 +1861,10 @@ int ppa_gui_run_panel(const char *initial_rom,
             bool bit = prefs.lamp_test ||
                 (powered && ((data >> bit_index) & 1u));
 
-            /* Two physical 4-bit nibbles: D7-D4 | D3-D0. */
-            float nibble_gap = pos >= 4 ? 20.0f : 0.0f;
+            /* Same 31 px pitch as ADDRESS/BANK, with one nibble gap. */
+            float nibble_gap = pos >= 4 ? 10.0f : 0.0f;
             draw_led(renderer, &panel_fonts,
-                     58.0f + pos * 49.0f + nibble_gap,
+                     58.0f + pos * 31.0f + nibble_gap,
                      302.0f, label, bit,
                      COL_GREEN);
         }
@@ -1883,8 +1889,10 @@ int ppa_gui_run_panel(const char *initial_rom,
             false
         };
         for (int i = 0; i < 7; i++) {
+            float group_gap = i >= 4 ? 18.0f : 0.0f;
             draw_led(renderer, &panel_fonts,
-                     650.0f + i * 78.0f, 175.0f,
+                     650.0f + i * 75.0f + group_gap,
+                     175.0f,
                      sys_labels[i],
                      prefs.lamp_test || sys_on[i],
                      sys_colors[i]);
