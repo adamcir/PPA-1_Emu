@@ -50,6 +50,7 @@ typedef enum {
     AUX_NONE = 0,
     AUX_PREFERENCES,
     AUX_VIEW,
+    AUX_HEX_MEMORY,
     AUX_LOG,
     AUX_CREDITS
 } AuxKind;
@@ -82,6 +83,11 @@ typedef struct {
     uint16_t inspect_address;
     bool inspect_initialized;
     bool inspect_follow_ar;
+
+    uint16_t edit_bank;
+    uint16_t edit_base;
+    uint16_t edit_address;
+    int edit_high_nibble;
 } AuxWindow;
 
 typedef struct {
@@ -109,6 +115,46 @@ static const SDL_FRect VIEW_ADDR_DEC      = {328, 356, 72, 34};
 static const SDL_FRect VIEW_ADDR_INC      = {408, 356, 72, 34};
 static const SDL_FRect VIEW_PAGE_DEC      = {500, 356, 72, 34};
 static const SDL_FRect VIEW_PAGE_INC      = {580, 356, 72, 34};
+static const SDL_FRect VIEW_EDIT_HEX      = {508, 320, 144, 28};
+
+static const SDL_FRect HEX_BANK_DEC       = {24, 78, 82, 32};
+static const SDL_FRect HEX_BANK_INC       = {114, 78, 82, 32};
+static const SDL_FRect HEX_PAGE_DEC       = {216, 78, 82, 32};
+static const SDL_FRect HEX_PAGE_INC       = {306, 78, 82, 32};
+
+static int hex_digit_value(char ch) {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    return -1;
+}
+
+static uint16_t hex_page_base(uint16_t address) {
+    return (uint16_t)(address & 0xFF00u);
+}
+
+static void hex_editor_select(AuxWindow *aux, uint16_t address) {
+    if (!aux) return;
+    aux->edit_address = address;
+    aux->edit_base = hex_page_base(address);
+    aux->edit_high_nibble = -1;
+}
+
+static void hex_editor_move(AuxWindow *aux, int delta) {
+    if (!aux) return;
+    hex_editor_select(aux, (uint16_t)(aux->edit_address + delta));
+}
+
+static void hex_editor_change_bank(AuxWindow *aux, int delta) {
+    if (!aux) return;
+
+    int bank = (int)aux->edit_bank + delta;
+    if (bank < 0) bank = 0x0050;
+    if (bank > 0x0050) bank = 0x0000;
+
+    aux->edit_bank = (uint16_t)bank;
+    aux->edit_high_nibble = -1;
+}
 
 static bool point_in_rect(float x, float y, const SDL_FRect *r) {
     return x >= r->x && y >= r->y && x < r->x + r->w && y < r->y + r->h;
@@ -885,6 +931,11 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
 
 static void destroy_aux(AuxWindow *aux) {
     if (!aux) return;
+
+    if (aux->window && aux->kind == AUX_HEX_MEMORY) {
+        SDL_StopTextInput(aux->window);
+    }
+
     if (aux->renderer) SDL_DestroyRenderer(aux->renderer);
     if (aux->window) SDL_DestroyWindow(aux->window);
     memset(aux, 0, sizeof(*aux));
@@ -899,7 +950,7 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
     aux->kind = kind;
 
     Uint64 flags = SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    if (kind == AUX_LOG || kind == AUX_VIEW) {
+    if (kind == AUX_LOG || kind == AUX_VIEW || kind == AUX_HEX_MEMORY) {
         flags |= SDL_WINDOW_RESIZABLE;
     }
 
@@ -910,6 +961,10 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
         SDL_SetWindowMinimumSize(aux->window, 560, 300);
     } else if (kind == AUX_VIEW) {
         SDL_SetWindowMinimumSize(aux->window, 680, 520);
+    } else if (kind == AUX_HEX_MEMORY) {
+        SDL_SetWindowMinimumSize(aux->window, 760, 390);
+        aux->edit_high_nibble = -1;
+        SDL_StartTextInput(aux->window);
     }
 
     aux->renderer = SDL_CreateRenderer(aux->window, NULL);
@@ -1058,6 +1113,26 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->label, 24, 326, cream,
                   "MEMORY INSPECT");
 
+        SDL_FRect edit_hex_button = VIEW_EDIT_HEX;
+        SDL_SetRenderDrawColor(
+            r,
+            power ? 42 : 47,
+            power ? 43 : 49,
+            power ? 43 : 48,
+            255);
+        SDL_RenderFillRect(r, &edit_hex_button);
+        SDL_SetRenderDrawColor(
+            r,
+            power ? 70 : COL_GREEN.r,
+            power ? 72 : COL_GREEN.g,
+            power ? 70 : COL_GREEN.b,
+            255);
+        SDL_RenderRect(r, &edit_hex_button);
+        draw_text_center(
+            r, fonts->small, edit_hex_button,
+            power ? muted : cream,
+            "EDIT HEX MEMORY");
+
         char follow_label[32];
         snprintf(follow_label, sizeof(follow_label),
                  "FOLLOW AR %s",
@@ -1136,6 +1211,118 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->small, 24,
                   (float)view_h - 28.0f, muted,
                   "ADDR +/- = 1 byte   PAGE +/- = 64 bytes   inspector reads are side-effect free.");
+    } else if (aux->kind == AUX_HEX_MEMORY) {
+        draw_aux_header(r, fonts, "HEX MEMORY EDITOR",
+                        "POWER-OFF MEMORY EDITING");
+
+        int hex_w = 840, hex_h = 620;
+        SDL_GetCurrentRenderOutputSize(r, &hex_w, &hex_h);
+
+        bool power = backend->is_powered(backend->ctx);
+
+        draw_menu_button(r, fonts, HEX_BANK_DEC, "BANK -");
+        draw_menu_button(r, fonts, HEX_BANK_INC, "BANK +");
+        draw_menu_button(r, fonts, HEX_PAGE_DEC, "PAGE -");
+        draw_menu_button(r, fonts, HEX_PAGE_INC, "PAGE +");
+
+        const char *bank_type = "INVALID";
+        if (aux->edit_bank <= 0x003Fu) {
+            bank_type = "EEPROM";
+        } else if (aux->edit_bank <= 0x004Fu) {
+            bank_type = "RAM";
+        } else if (aux->edit_bank == 0x0050u) {
+            bank_type = "SYSTEM";
+        }
+
+        uint8_t selected_value = backend->memory_inspect
+            ? backend->memory_inspect(
+                  backend->ctx, aux->edit_bank, aux->edit_address)
+            : 0xFF;
+
+        char line[256];
+        snprintf(line, sizeof(line),
+                 "BANK=%04X (%s)  PAGE=%04X  SELECTED=%04X  VALUE=%02X",
+                 aux->edit_bank, bank_type, aux->edit_base,
+                 aux->edit_address, selected_value);
+        draw_text(r, fonts->mono, 410, 86, COL_BLUE, line);
+
+        if (power) {
+            draw_text(r, fonts->label, 24, 122, COL_RED,
+                      "LOCKED - TURN PWR OFF TO EDIT MEMORY");
+        } else if (aux->edit_high_nibble >= 0) {
+            snprintf(line, sizeof(line),
+                     "ENTER BYTE: %X_   (second hex digit writes)",
+                     aux->edit_high_nibble);
+            draw_text(r, fonts->mono, 24, 122, COL_GREEN, line);
+        } else {
+            draw_text(r, fonts->small, 24, 122, muted,
+                      "Click a byte or use arrows. Type two hex digits to write.");
+        }
+
+        const float grid_x = 92.0f;
+        const float grid_y = 166.0f;
+        const float cell_w = 42.0f;
+        const float row_h = 25.0f;
+
+        draw_text(r, fonts->mono, 24, 146, muted, "ADDR");
+        for (int col = 0; col < 16; col++) {
+            char col_label[2] = {"0123456789ABCDEF"[col], 0};
+            SDL_FRect cr = {
+                grid_x + col * cell_w, 142.0f,
+                cell_w - 2.0f, 20.0f
+            };
+            draw_text_center(r, fonts->mono, cr, muted, col_label);
+        }
+
+        int visible_rows = (int)(((float)hex_h - grid_y - 44.0f) / row_h);
+        if (visible_rows < 1) visible_rows = 1;
+        if (visible_rows > 16) visible_rows = 16;
+
+        for (int row = 0; row < visible_rows; row++) {
+            uint16_t row_address =
+                (uint16_t)(aux->edit_base + row * 16u);
+
+            snprintf(line, sizeof(line), "%04X", row_address);
+            draw_text(r, fonts->mono, 24,
+                      grid_y + row * row_h + 4.0f,
+                      muted, line);
+
+            for (int col = 0; col < 16; col++) {
+                uint16_t address =
+                    (uint16_t)(row_address + (uint16_t)col);
+                uint8_t value = backend->memory_inspect
+                    ? backend->memory_inspect(
+                          backend->ctx, aux->edit_bank, address)
+                    : 0xFF;
+
+                SDL_FRect cell = {
+                    grid_x + col * cell_w,
+                    grid_y + row * row_h,
+                    cell_w - 2.0f,
+                    row_h - 2.0f
+                };
+
+                bool selected = address == aux->edit_address;
+                if (selected) {
+                    SDL_SetRenderDrawColor(r, 56, 63, 58, 255);
+                    SDL_RenderFillRect(r, &cell);
+                    SDL_SetRenderDrawColor(
+                        r, COL_GREEN.r, COL_GREEN.g, COL_GREEN.b, 255);
+                    SDL_RenderRect(r, &cell);
+                }
+
+                char byte_text[3];
+                snprintf(byte_text, sizeof(byte_text), "%02X", value);
+                draw_text_center(
+                    r, fonts->mono, cell,
+                    selected ? COL_WHITE : (SDL_Color){201, 230, 208, 255},
+                    byte_text);
+            }
+        }
+
+        draw_text(r, fonts->small, 24, (float)hex_h - 26.0f, muted,
+                  "Arrows = move | PgUp/PgDn = page | two hex digits = write | SYSTEM FF00-FF7F is I/O and read-only.");
+
     } else if (aux->kind == AUX_LOG) {
         draw_aux_header(r, fonts, "LATEST.LOG",
                         "LIVE EMULATOR TRACE");
@@ -1323,6 +1510,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
+    AuxWindow hex_window = {0};
     AuxWindow log_window = {0};
     AuxWindow credits_window = {0};
     TerminalWindow uart_terminal = {0};
@@ -1481,6 +1669,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                     destroy_aux(&prefs_window);
                 } else if (view_window.window && id == SDL_GetWindowID(view_window.window)) {
                     destroy_aux(&view_window);
+                } else if (hex_window.window && id == SDL_GetWindowID(hex_window.window)) {
+                    destroy_aux(&hex_window);
                 } else if (log_window.window && id == SDL_GetWindowID(log_window.window)) {
                     destroy_aux(&log_window);
                 } else if (credits_window.window &&
@@ -1503,6 +1693,46 @@ int ppa_gui_run_panel(const char *initial_rom,
                         backend->terminal_write_rx(
                             backend->ctx, (uint8_t)(unsigned char)*p);
                         p++;
+                    }
+                }
+                continue;
+            }
+
+            if (hex_window.window &&
+                event.type == SDL_EVENT_TEXT_INPUT &&
+                event.text.windowID == SDL_GetWindowID(hex_window.window)) {
+                if (!backend->is_powered(backend->ctx) &&
+                    backend->memory_edit) {
+                    const char *p = event.text.text;
+                    while (p && *p) {
+                        int digit = hex_digit_value(*p++);
+                        if (digit < 0) continue;
+
+                        if (hex_window.edit_high_nibble < 0) {
+                            hex_window.edit_high_nibble = digit;
+                        } else {
+                            uint8_t value = (uint8_t)(
+                                (hex_window.edit_high_nibble << 4) | digit);
+
+                            if (backend->memory_edit(
+                                    backend->ctx,
+                                    hex_window.edit_bank,
+                                    hex_window.edit_address,
+                                    value)) {
+                                ppa_log_printf(
+                                    "GUI: HEX MEMORY %04X:%04X <- %02X\n",
+                                    hex_window.edit_bank,
+                                    hex_window.edit_address,
+                                    value);
+                                hex_editor_move(&hex_window, 1);
+                            } else {
+                                hex_window.edit_high_nibble = -1;
+                                ppa_log_printf(
+                                    "GUI: HEX MEMORY write rejected at %04X:%04X\n",
+                                    hex_window.edit_bank,
+                                    hex_window.edit_address);
+                            }
+                        }
                     }
                 }
                 continue;
@@ -1537,6 +1767,38 @@ int ppa_gui_run_panel(const char *initial_rom,
                     if (send) {
                         backend->terminal_write_rx(backend->ctx, ch);
                     }
+                }
+                continue;
+            }
+
+            if (hex_window.window &&
+                event.type == SDL_EVENT_KEY_DOWN &&
+                event.key.windowID == SDL_GetWindowID(hex_window.window)) {
+                switch (event.key.key) {
+                    case SDLK_LEFT:
+                        hex_editor_move(&hex_window, -1);
+                        break;
+                    case SDLK_RIGHT:
+                        hex_editor_move(&hex_window, 1);
+                        break;
+                    case SDLK_UP:
+                        hex_editor_move(&hex_window, -16);
+                        break;
+                    case SDLK_DOWN:
+                        hex_editor_move(&hex_window, 16);
+                        break;
+                    case SDLK_PAGEUP:
+                        hex_editor_move(&hex_window, -0x100);
+                        break;
+                    case SDLK_PAGEDOWN:
+                        hex_editor_move(&hex_window, 0x100);
+                        break;
+                    case SDLK_BACKSPACE:
+                    case SDLK_ESCAPE:
+                        hex_window.edit_high_nibble = -1;
+                        break;
+                    default:
+                        break;
                 }
                 continue;
             }
@@ -1881,7 +2143,24 @@ int ppa_gui_run_panel(const char *initial_rom,
                     float x = event.button.x;
                     float y = event.button.y;
 
-                    if (point_in_rect(x, y, &VIEW_FOLLOW_BUTTON)) {
+                    if (point_in_rect(x, y, &VIEW_EDIT_HEX)) {
+                        if (!backend->is_powered(backend->ctx)) {
+                            open_aux(&hex_window, AUX_HEX_MEMORY,
+                                     "PPA-1 Hex Memory Editor", 840, 620);
+
+                            if (hex_window.window) {
+                                hex_window.edit_bank =
+                                    view_window.inspect_bank;
+                                hex_editor_select(
+                                    &hex_window,
+                                    view_window.inspect_address);
+                                SDL_RaiseWindow(hex_window.window);
+                            }
+                        } else {
+                            ppa_log_printf(
+                                "GUI: HEX MEMORY editor requires PWR OFF.\n");
+                        }
+                    } else if (point_in_rect(x, y, &VIEW_FOLLOW_BUTTON)) {
                         view_window.inspect_follow_ar =
                             !view_window.inspect_follow_ar;
                     } else if (point_in_rect(x, y, &VIEW_BANK_DEC)) {
@@ -1912,6 +2191,50 @@ int ppa_gui_run_panel(const char *initial_rom,
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_address =
                             (uint16_t)(view_window.inspect_address + 0x40u);
+                    }
+                } else if (hex_window.window &&
+                           id == SDL_GetWindowID(hex_window.window) &&
+                           event.button.button == SDL_BUTTON_LEFT) {
+                    float x = event.button.x;
+                    float y = event.button.y;
+
+                    if (point_in_rect(x, y, &HEX_BANK_DEC)) {
+                        hex_editor_change_bank(&hex_window, -1);
+                    } else if (point_in_rect(x, y, &HEX_BANK_INC)) {
+                        hex_editor_change_bank(&hex_window, 1);
+                    } else if (point_in_rect(x, y, &HEX_PAGE_DEC)) {
+                        hex_editor_move(&hex_window, -0x100);
+                    } else if (point_in_rect(x, y, &HEX_PAGE_INC)) {
+                        hex_editor_move(&hex_window, 0x100);
+                    } else {
+                        const float grid_x = 92.0f;
+                        const float grid_y = 166.0f;
+                        const float cell_w = 42.0f;
+                        const float row_h = 25.0f;
+
+                        if (x >= grid_x && y >= grid_y) {
+                            int col = (int)((x - grid_x) / cell_w);
+                            int row = (int)((y - grid_y) / row_h);
+
+                            int hex_w = 840, hex_h = 620;
+                            SDL_GetCurrentRenderOutputSize(
+                                hex_window.renderer, &hex_w, &hex_h);
+                            (void)hex_w;
+
+                            int visible_rows =
+                                (int)(((float)hex_h - grid_y - 44.0f) / row_h);
+                            if (visible_rows < 1) visible_rows = 1;
+                            if (visible_rows > 16) visible_rows = 16;
+
+                            if (col >= 0 && col < 16 &&
+                                row >= 0 && row < visible_rows) {
+                                uint16_t address = (uint16_t)(
+                                    hex_window.edit_base +
+                                    row * 16 + col);
+                                hex_window.edit_address = address;
+                                hex_window.edit_high_nibble = -1;
+                            }
+                        }
                     }
                 } else if (uart_terminal.window &&
                            id == SDL_GetWindowID(uart_terminal.window) &&
@@ -2350,6 +2673,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
         draw_aux_window(&view_window, &fonts, &prefs, backend);
+        draw_aux_window(&hex_window, &fonts, &prefs, backend);
         draw_aux_window(&log_window, &fonts, &prefs, backend);
         draw_aux_window(&credits_window, &fonts, &prefs, backend);
         draw_terminal(&uart_terminal, &fonts, backend);
@@ -2360,6 +2684,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     destroy_aux(&prefs_window);
     destroy_aux(&view_window);
+    destroy_aux(&hex_window);
     destroy_aux(&log_window);
     destroy_aux(&credits_window);
     SDL_DestroyTexture(panel_texture);
