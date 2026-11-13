@@ -75,3 +75,36 @@ The unit test is `make test-modules`.
 `modules/light_demo.asm` sets BR to the base bank for SLOT 1,
 writes 01 to register 0010, waits and repeats. Assemble with
 `make asm` followed by `out/asm/ppa-1_asm modules/light_demo.asm light.bin`.
+
+## PPA-SOUND/1
+
+`modules/ppa-sound-1.ppamod` has a PPAM header with device type 2.
+It uses the PPAMOD host's safe built-in synthesizer (not native VST
+or arbitrary executable code). Loading it into SLOT 1 maps:
+
+| Offset | Meaning |
+|---|---|
+| `0010` | MASTER enable (bit 0) |
+| `0011` | MASTER volume 0..255 |
+| `0020` | Voice 1 frequency low byte |
+| `0021` | Voice 1 frequency high byte |
+| `0022` | Voice 1 waveform: 0 square, 1 saw, 2 triangle, 3 sine, 4 noise |
+| `0023` | Voice 1 volume 0..255 |
+| `0024` | Voice 1 enable (bit 0) |
+
+Voice 2 is at 0030-0034, voice 3 at 0040-0044 and
+voice 4 at 0050-0054. All offsets are relative to the slot base
+bank (2000 for SLOT 1, 3000 for SLOT 2, etc).
+
+PPA-SOUND/1 has a separate VST-like SDL window with a virtual
+speaker, 64x24 pixel waveform monitor, and per-channel readouts.
+A single SDL audio stream mixes all active SOUND cards to 44.1 kHz
+16-bit mono PCM. The sound output depends on the CPU-written
+registers; audio sample generation is independent of host-frame
+rendering and from the emulated CPU clock.
+
+This is an internal PPAM host UI/audio API, not a real VST
+plugin or a binary VST loader. LIGHT uses the same separate
+module-host window mechanism. Module insert/eject/activation,
+EEPROM reload and memory sizing are disabled visibly when
+processor POWER is ON.

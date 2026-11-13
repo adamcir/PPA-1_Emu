@@ -34,5 +34,5 @@ clean:
 
 # Minimal regression test for binary PPAM loader and LIGHT card.
 test-modules: out
-	$(CC) -Isrc src/ppa_module.c src/ppa_module_test.c -o out/ppa_module_test
+	$(CC) -Isrc src/ppa_module.c src/ppa_module_test.c -lm -o out/ppa_module_test
 	./out/ppa_module_test
