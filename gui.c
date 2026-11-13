@@ -3,6 +3,7 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <SDL3_image/SDL_image.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +44,11 @@ typedef struct {
     TTF_Font *small;
     TTF_Font *mono;
 } PanelFonts;
+
+typedef struct {
+    SDL_Texture *up;
+    SDL_Texture *down;
+} ToggleTextures;
 
 static float g_text_pixel_scale = 1.0f;
 
@@ -491,13 +497,69 @@ static void draw_led(SDL_Renderer *r, PanelFonts *fonts,
     }
 }
 
+static void destroy_toggle_textures(ToggleTextures *textures) {
+    if (!textures) return;
+
+    if (textures->up) SDL_DestroyTexture(textures->up);
+    if (textures->down) SDL_DestroyTexture(textures->down);
+    textures->up = NULL;
+    textures->down = NULL;
+}
+
+static bool load_toggle_textures(SDL_Renderer *renderer,
+                                 ToggleTextures *textures)
+{
+    if (!renderer || !textures) return false;
+
+    destroy_toggle_textures(textures);
+
+    textures->up = IMG_LoadTexture(
+        renderer, "assets/textures/switch_up.png");
+    textures->down = IMG_LoadTexture(
+        renderer, "assets/textures/switch_down.png");
+
+    if (!textures->up || !textures->down) {
+        ppa_log_printf(
+            "GUI: switch textures unavailable; using procedural fallback: %s\n",
+            SDL_GetError());
+        destroy_toggle_textures(textures);
+        return false;
+    }
+
+    SDL_SetTextureScaleMode(textures->up, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureScaleMode(textures->down, SDL_SCALEMODE_LINEAR);
+
+    ppa_log_printf(
+        "GUI: loaded switch textures "
+        "assets/textures/switch_up.png and switch_down.png\n");
+    return true;
+}
+
 static void draw_toggle(SDL_Renderer *r, PanelFonts *fonts,
+                        const ToggleTextures *textures,
                         float x, float y, const char *label, bool on)
 {
     draw_text_center(r, fonts->small,
         (SDL_FRect){x - 4, y, 34, 17},
         (SDL_Color){221, 217, 199, 255}, label);
 
+    SDL_Texture *texture = NULL;
+    if (textures) {
+        texture = on ? textures->up : textures->down;
+    }
+
+    if (texture) {
+        /*
+         * Source artwork is 112x192 (4x). Render at 28x48 logical pixels.
+         * Keeping the full transparent canvas preserves the common pivot
+         * position between the UP and DOWN artwork.
+         */
+        SDL_FRect dst = {x - 1.0f, y + 18.0f, 28.0f, 48.0f};
+        SDL_RenderTexture(r, texture, NULL, &dst);
+        return;
+    }
+
+    /* Procedural fallback if SDL_image or either PNG cannot be loaded. */
     SDL_SetRenderDrawColor(r, 124, 125, 119, 255);
     fill_circle(r, x + 13, y + 42, 8.5f);
     SDL_SetRenderDrawColor(r, 20, 21, 21, 255);
@@ -1835,6 +1897,9 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_SetRenderVSync(renderer, 1);
     SDL_SetWindowMinimumSize(window, 480, 320);
 
+    ToggleTextures toggle_textures = {0};
+    (void)load_toggle_textures(renderer, &toggle_textures);
+
     SDL_Texture *panel_texture = SDL_CreateTexture(
         renderer,
         SDL_PIXELFORMAT_RGBA8888,
@@ -1842,6 +1907,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         PANEL_W, PANEL_H);
     if (!panel_texture) {
         ppa_log_printf("GUI: failed to create panel render target: %s\n", SDL_GetError());
+        destroy_toggle_textures(&toggle_textures);
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         close_fonts(&panel_fonts);
@@ -2967,7 +3033,7 @@ int ppa_gui_run_panel(const char *initial_rom,
              * for ADDRESS, all four groups form A15-A0.
              */
             float nibble_gap = (float)(pos / 4) * 10.0f;
-            draw_toggle(renderer, &panel_fonts,
+            draw_toggle(renderer, &panel_fonts, &toggle_textures,
                         62.0f + pos * 31.0f + nibble_gap,
                         475.0f, label, switches[bit_index]);
         }
@@ -3113,6 +3179,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&log_window);
     destroy_aux(&credits_window);
     SDL_DestroyTexture(panel_texture);
+    destroy_toggle_textures(&toggle_textures);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     close_fonts(&panel_fonts);
