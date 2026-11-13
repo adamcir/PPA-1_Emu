@@ -913,6 +913,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         bool power = backend->is_powered(backend->ctx);
         bool running = backend->is_running(backend->ctx);
         bool halted = backend->is_halted(backend->ctx);
+        bool error = backend->is_error
+            ? backend->is_error(backend->ctx)
+            : false;
         char line[128];
 
         snprintf(line, sizeof(line), "Image loaded: %s", loaded ? "YES" : "NO");
@@ -921,8 +924,11 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->small, 24, 102, muted, line);
         snprintf(line, sizeof(line), "Run state: %s", running ? "RUNNING" : "STOPPED");
         draw_text(r, fonts->small, 24, 128, muted, line);
-        snprintf(line, sizeof(line), "HALT: %s", halted ? "ACTIVE" : "CLEAR");
+        snprintf(line, sizeof(line), "HALT: %s",
+                 (halted && !error) ? "ACTIVE" : "CLEAR");
         draw_text(r, fonts->small, 24, 154, muted, line);
+        snprintf(line, sizeof(line), "ERROR: %s", error ? "ACTIVE" : "CLEAR");
+        draw_text(r, fonts->small, 220, 154, muted, line);
         snprintf(line, sizeof(line), "ADDRESS BUS: %04X", backend->address_bus(backend->ctx));
         draw_text(r, fonts->small, 24, 196, cream, line);
         snprintf(line, sizeof(line), "DATA BUS: %02X", backend->data_bus(backend->ctx));
@@ -1701,6 +1707,9 @@ int ppa_gui_run_panel(const char *initial_rom,
         bool powered = backend->is_powered(backend->ctx);
         bool running = backend->is_running(backend->ctx);
         bool halted = backend->is_halted(backend->ctx);
+        bool error = backend->is_error
+            ? backend->is_error(backend->ctx)
+            : false;
 
         bool clock_level = false;
 
@@ -1725,6 +1734,9 @@ int ppa_gui_run_panel(const char *initial_rom,
         powered = backend->is_powered(backend->ctx);
         running = backend->is_running(backend->ctx);
         halted = backend->is_halted(backend->ctx);
+        error = backend->is_error
+            ? backend->is_error(backend->ctx)
+            : false;
 
         if (!powered || !running || halted) {
             clock_level = false;
@@ -1873,22 +1885,20 @@ int ppa_gui_run_panel(const char *initial_rom,
         draw_text(renderer, panel_fonts.section, 646, 126,
                   COL_WHITE, "SYSTEM STATUS");
 
-        const char *sys_labels[] = {"POWER", "RUN", "HALT", "ERROR", "CLOCK", "MEMORY", "I/O"};
+        const char *sys_labels[] = {
+            "POWER", "RUN", "HALT", "ERROR", "CLOCK"
+        };
         SDL_Color sys_colors[] = {
-            COL_GREEN, COL_GREEN, COL_RED,
-            COL_RED, COL_ORANGE, COL_GREEN,
-            COL_BLUE
+            COL_GREEN, COL_GREEN, COL_RED, COL_RED, COL_ORANGE
         };
         bool sys_on[] = {
             powered,
             powered && running,
-            loaded && halted,
-            false,
-            clock_level,
-            loaded,
-            false
+            loaded && powered && halted && !error,
+            loaded && powered && error,
+            clock_level
         };
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < 5; i++) {
             float group_gap = i >= 4 ? 18.0f : 0.0f;
             draw_led(renderer, &panel_fonts,
                      650.0f + i * 75.0f + group_gap,
