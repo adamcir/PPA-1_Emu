@@ -12,6 +12,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <setjmp.h>
 
 #define MAX_SOURCE_LINES 8192
 #define MAX_LINE_LEN     1024
@@ -71,6 +72,18 @@ typedef struct {
 
 static const SourceLine *g_current_source = NULL;
 
+/* Continue after source-line errors and report them together. */
+static jmp_buf g_line_recovery;
+static bool g_can_recover = false;
+static size_t g_error_count = 0;
+static bool g_invalid_lines[MAX_SOURCE_LINES];
+
+static void abort_source_line(void) {
+    g_error_count++;
+    if (g_can_recover) longjmp(g_line_recovery, 1);
+    exit(1); /* Source loading / fatal errors outside a pass. */
+}
+
 static int first_nonspace_column(const char *s) {
     int col = 1;
     while (*s && isspace((unsigned char)*s)) {
@@ -117,7 +130,7 @@ static void print_source_error(const char *kind, int line, int column, const cha
 static void fatal_line(int line, const char *msg) {
     int col = g_current_source ? first_nonspace_column(g_current_source->text) : 1;
     print_source_error("error", line, col, msg);
-    exit(1);
+    abort_source_line();
 }
 
 static void fatal_linef(int line, const char *fmt, const char *arg) {
@@ -1259,7 +1272,13 @@ static void pass1(Assembler *a) {
     a->current_global[0] = '\0';
 
     for (size_t i = 0; i < a->line_count; i++) {
-        process_line(a, &a->lines[i], 1);
+        g_can_recover = true;
+        if (setjmp(g_line_recovery) == 0) {
+            process_line(a, &a->lines[i], 1);
+        } else {
+            g_invalid_lines[i] = true;
+        }
+        g_can_recover = false;
     }
 }
 
@@ -1272,7 +1291,14 @@ static void pass2(Assembler *a) {
     a->current_global[0] = '\0';
 
     for (size_t i = 0; i < a->line_count; i++) {
-        process_line(a, &a->lines[i], 2);
+        /* Already diagnosed in pass 1; avoid duplicate errors. */
+        if (g_invalid_lines[i]) continue;
+
+        g_can_recover = true;
+        if (setjmp(g_line_recovery) == 0) {
+            process_line(a, &a->lines[i], 2);
+        }
+        g_can_recover = false;
     }
 }
 
@@ -1378,6 +1404,14 @@ int main(int argc, char **argv) {
     load_source(&a, argv[1]);
     pass1(&a);
     pass2(&a);
+
+    if (g_error_count != 0) {
+        fprintf(stderr, "\nAssembly failed: %zu error%s. No binary written.\n",
+                g_error_count, g_error_count == 1 ? "" : "s");
+        free_source(&a);
+        return 1;
+    }
+
     write_output(&a, argv[2]);
 
     if (show_symbols) {
