@@ -143,11 +143,22 @@ static inline void set_Z(CPU *cpu, uint8_t v) {
     set_flag(cpu, FL_Z, v == 0);
 }
 
-static int load_rom(Memory *memory, const char *path, uint16_t base) {
+static void memory_init_blank(Memory *memory) {
+    if (!memory) return;
+
+    if (memory->rom_file) {
+        fclose(memory->rom_file);
+        memory->rom_file = NULL;
+    }
+
     memset(memory->rom, 0xFF, sizeof(memory->rom));
     memset(memory->ram, 0x00, sizeof(memory->ram));
     memset(memory->stack, 0x00, sizeof(memory->stack));
     memset(memory->reserved, 0xFF, sizeof(memory->reserved));
+}
+
+static int load_rom(Memory *memory, const char *path, uint16_t base) {
+    if (!memory || !path || !*path) return 0;
 
     FILE *f = fopen(path, "r+b");
     if (!f) {
@@ -160,27 +171,54 @@ static int load_rom(Memory *memory, const char *path, uint16_t base) {
         fclose(f);
         return 0;
     }
+
     long file_size = ftell(f);
     if (file_size < 0) {
         perror("ftell");
         fclose(f);
         return 0;
     }
+
     if ((unsigned long)file_size > ROM_SIZE) {
-        fprintf(stderr, "ROM image is larger than 4 MiB (%ld bytes)\n", file_size);
+        fprintf(stderr, "ROM image is larger than 4 MiB (%ld bytes)\n",
+                file_size);
         fclose(f);
         return 0;
     }
+
     rewind(f);
+
+    uint8_t *image = malloc(ROM_SIZE);
+    if (!image) {
+        fprintf(stderr, "Out of memory while loading EEPROM image\n");
+        fclose(f);
+        return 0;
+    }
+
+    memset(image, 0xFF, ROM_SIZE);
 
     size_t offset = (size_t)base;
     size_t max_read = ROM_SIZE - offset;
-    size_t n = fread(memory->rom + offset, 1, max_read, f);
+    size_t n = fread(image + offset, 1, max_read, f);
+
     if (ferror(f)) {
         perror("fread");
+        free(image);
         fclose(f);
         return 0;
     }
+
+    if (memory->rom_file) {
+        fclose(memory->rom_file);
+        memory->rom_file = NULL;
+    }
+
+    memcpy(memory->rom, image, ROM_SIZE);
+    free(image);
+
+    memset(memory->ram, 0x00, sizeof(memory->ram));
+    memset(memory->stack, 0x00, sizeof(memory->stack));
+    memset(memory->reserved, 0xFF, sizeof(memory->reserved));
 
     memory->rom_file = f;
     return (int)n;
@@ -1447,6 +1485,7 @@ typedef struct {
     Memory *memory;
     Serial *serial;
     bool loaded;
+    bool image_attached;
     bool powered;
     bool running;
     uint8_t panel_data_bus;
@@ -1479,30 +1518,76 @@ static void gui_dump_cpu_state(const GuiBackendContext *g,
 
 static bool gui_backend_load_rom(void *ctx, const char *path) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !path || !*path) return false;
+    if (!g || !g->memory || !path || !*path) return false;
+
+    int loaded = load_rom(g->memory, path, 0x0000);
+    if (!loaded) {
+        printf("GUI: failed to load EEPROM image: %s\n", path);
+        return false;
+    }
+
+    gui_cpu_reset_state(g);
+
+    g->loaded = true;
+    g->image_attached = true;
+    g->powered = false;
+    g->running = false;
+    g->panel_data_bus = 0x00;
+
+    printf("GUI: loaded %d EEPROM bytes and attached image: %s "
+           "(processor power OFF)\n",
+           loaded, path);
+    return true;
+}
+
+static bool gui_backend_detach_image(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->memory) return false;
 
     if (g->memory->rom_file) {
         fclose(g->memory->rom_file);
         g->memory->rom_file = NULL;
     }
 
-    gui_cpu_reset_state(g);
+    g->image_attached = false;
 
-    int loaded = load_rom(g->memory, path, 0x0000);
-    if (!loaded) {
-        g->loaded = false;
-        g->running = false;
-        printf("GUI: failed to load ROM: %s\n", path);
+    printf("GUI: EEPROM image detached; in-memory EEPROM contents preserved\n");
+    return true;
+}
+
+static bool gui_backend_export_image(void *ctx, const char *path) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->memory || !path || !*path) return false;
+
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        perror("fopen");
+        printf("GUI: failed to export EEPROM image: %s\n", path);
         return false;
     }
 
-    g->loaded = true;
-    g->powered = false;
-    g->running = false;
-    g->panel_data_bus = 0x00;
+    size_t written = fwrite(g->memory->rom, 1, ROM_SIZE, f);
+    bool ok = written == ROM_SIZE && fflush(f) == 0;
 
-    printf("GUI: loaded %d EEPROM bytes: %s (processor power OFF)\n", loaded, path);
+    if (fclose(f) != 0) {
+        ok = false;
+    }
+
+    if (!ok) {
+        printf("GUI: failed to export complete EEPROM image: %s "
+               "(%zu/%u bytes)\n",
+               path, written, (unsigned)ROM_SIZE);
+        return false;
+    }
+
+    printf("GUI: exported EEPROM image: %s (%u bytes)\n",
+           path, (unsigned)ROM_SIZE);
     return true;
+}
+
+static bool gui_backend_is_image_attached(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return g && g->image_attached && g->memory && g->memory->rom_file;
 }
 
 static void gui_backend_set_power(void *ctx, bool on) {
@@ -1768,6 +1853,7 @@ static bool gui_backend_terminal_write_rx(void *ctx, uint8_t value) {
 
 static bool gui_backend_is_loaded(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
+    /* GUI always has a 4 MiB in-memory EEPROM, even with no image attached. */
     return g && g->loaded;
 }
 
@@ -1935,6 +2021,9 @@ int main(int argc, char **argv) {
     CPU cpu = {0};
     Memory memory = {0};
     Serial serial = {0};
+
+    memory_init_blank(&memory);
+
     serial.master_fd = -1;
     serial.slave_fd = -1;
 
@@ -1993,7 +2082,8 @@ int main(int argc, char **argv) {
             .cpu = &cpu,
             .memory = &memory,
             .serial = &serial,
-            .loaded = false,
+            .loaded = true,
+            .image_attached = false,
             .powered = false,
             .running = false
         };
@@ -2001,6 +2091,9 @@ int main(int argc, char **argv) {
         PPA1GuiBackend gui_backend = {
             .ctx = &gui_backend_ctx,
             .load_rom = gui_backend_load_rom,
+            .detach_image = gui_backend_detach_image,
+            .export_image = gui_backend_export_image,
+            .is_image_attached = gui_backend_is_image_attached,
             .set_power = gui_backend_set_power,
             .set_running = gui_backend_set_running,
             .reset = gui_backend_reset,
