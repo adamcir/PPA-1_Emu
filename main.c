@@ -1845,6 +1845,33 @@ static void gui_backend_tick(void *ctx, int clock_edges) {
     }
 }
 
+static void gui_backend_tick_turbo(void *ctx, int microstep_budget) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->loaded || !g->powered || !g->running) return;
+
+    if (microstep_budget < 1) microstep_budget = 1;
+    if (microstep_budget > 50000) microstep_budget = 50000;
+
+    for (int i = 0; i < microstep_budget && g->running; i++) {
+        if (g->cpu->halted) {
+            g->running = false;
+            break;
+        }
+
+        bool complete = cpu_microstep(g->cpu, g->memory, g->serial);
+        g->microcycle_count++;
+
+        if (complete) {
+            g->instruction_count++;
+        }
+
+        if (g->cpu->halted) {
+            g->running = false;
+            break;
+        }
+    }
+}
+
 static void gui_backend_set_data_input(void *ctx, uint8_t value) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->powered || g->running) return;
@@ -2294,6 +2321,7 @@ int main(int argc, char **argv) {
             .step_instruction = gui_backend_step_instruction,
             .step_micro = gui_backend_step_micro,
             .tick = gui_backend_tick,
+            .tick_turbo = gui_backend_tick_turbo,
             .set_data_input = gui_backend_set_data_input,
             .load_bank = gui_backend_load_bank,
             .load_address = gui_backend_load_address,
