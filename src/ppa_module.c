@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 /*
  * PPAM 1.0: binary, little-endian. No native executable code is loaded.
@@ -50,7 +51,7 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
     uint32_t data_len = ok ? le32(h + 12) : 0;
     uint32_t pulse = ok ? le32(h + 16) : 0;
     ok = ok && !memcmp(h, "PPAM", 4) && le16(h + 4) == PPAM_VERSION &&
-         type == PPAM_TYPE_LIGHT && code_len <= PPAM_MAX_CODE &&
+         (type == PPAM_TYPE_LIGHT || type == PPAM_TYPE_SOUND) && code_len <= PPAM_MAX_CODE &&
          code_len % 8 == 0 && data_len <= PPAM_MAX_DATA &&
          le32(h + 20) == 0 && strlen(path) < sizeof(bus->slots[slot].path);
     uint8_t *code = NULL, *data = NULL;
@@ -82,7 +83,12 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
     m->code_size = code_len;
     m->data = data;
     m->data_size = data_len;
-    snprintf(m->name, sizeof(m->name), "LIGHT");
+    snprintf(m->name, sizeof(m->name), "%s",
+             type == PPAM_TYPE_SOUND ? "PPA-SOUND/1" : "LIGHT");
+    m->sound_volume = 255;
+    m->noise_state = 0x1A2B3C4Du;
+    for (int ch = 0; ch < PPAM_AUDIO_CHANNELS; ch++)
+        m->sound[ch].frequency = 440;
     snprintf(m->path, sizeof(m->path), "%s", path);
     return true;
 }
@@ -100,6 +106,12 @@ void ppam_reset(PpaModuleBus *bus) {
     for (int i = 0; i < PPAM_SLOTS; ++i) {
         bus->slots[i].light_on = false;
         bus->slots[i].remaining_cycles = 0;
+        bus->slots[i].sound_master = false;
+        for (int ch = 0; ch < PPAM_AUDIO_CHANNELS; ch++) {
+            bus->slots[i].sound[ch].enabled = false;
+            bus->slots[i].sound[ch].phase = 0.0f;
+        }
+        memset(bus->slots[i].scope, 0, sizeof(bus->slots[i].scope));
     }
 }
 void ppam_tick(PpaModuleBus *bus, uint32_t cycles) {
@@ -122,6 +134,23 @@ uint8_t ppam_read(PpaModuleBus *bus, uint16_t bank, uint16_t addr) {
     PpaModule *m = get_bank(bus, bank);
     if (!m) return 0xFF;
     uint32_t offset = (((uint32_t)bank & 0x0FFFu) << 16) | addr;
+    if (m->type == PPAM_TYPE_SOUND) {
+        if (offset == 0x10) return m->sound_master ? 1 : 0;
+        if (offset == 0x11) return m->sound_volume;
+        if (offset >= 0x20 && offset < 0x60) {
+            unsigned int ch = (unsigned int)((offset - 0x20) / 0x10);
+            unsigned int reg = (unsigned int)((offset - 0x20) % 0x10);
+            PpaSoundChannel *v = &m->sound[ch];
+            switch (reg) {
+                case 0: return (uint8_t)v->frequency;
+                case 1: return (uint8_t)(v->frequency >> 8);
+                case 2: return v->waveform;
+                case 3: return v->volume;
+                case 4: return v->enabled ? 1 : 0;
+                default: break;
+            }
+        }
+    }
     switch (offset) {
         case 0x00: return 'P';
         case 0x01: return 'P';
@@ -141,6 +170,24 @@ void ppam_write(PpaModuleBus *bus, uint16_t bank,
     PpaModule *m = get_bank(bus, bank);
     if (!m) return;
     uint32_t offset = (((uint32_t)bank & 0x0FFFu) << 16) | addr;
+    if (m->type == PPAM_TYPE_SOUND) {
+        if (offset == 0x10) { m->sound_master = (value & 1) != 0; return; }
+        if (offset == 0x11) { m->sound_volume = value; return; }
+        if (offset >= 0x20 && offset < 0x60) {
+            unsigned int ch = (unsigned int)((offset - 0x20) / 0x10);
+            unsigned int reg = (unsigned int)((offset - 0x20) % 0x10);
+            PpaSoundChannel *v = &m->sound[ch];
+            switch (reg) {
+                case 0: v->frequency = (v->frequency & 0xFF00u) | value; break;
+                case 1: v->frequency = (v->frequency & 0x00FFu) | ((uint16_t)value << 8); break;
+                case 2: v->waveform = value % 5; break;
+                case 3: v->volume = value; break;
+                case 4: v->enabled = (value & 1) != 0; break;
+                default: break;
+            }
+        }
+        return;
+    }
     for (uint32_t i = 0; i < m->code_size; i += 8) {
         const uint8_t *rule = m->code + i;
         if (rule[0] != 1 || rule[1] != 1 || le32(rule+2) != offset) continue;
@@ -152,4 +199,52 @@ void ppam_write(PpaModuleBus *bus, uint16_t bank,
 }
 const PpaModule *ppam_get(const PpaModuleBus *bus, int slot) {
     return bus && slot >= 0 && slot < PPAM_SLOTS ? &bus->slots[slot] : NULL;
+}
+
+/* 16-bit mono PCM synthesizer. Host audio sampling runs independently of
+ * emulated CPU instruction rate; control register changes are CPU-driven. */
+void ppam_mix_audio(PpaModuleBus *bus, int16_t *output, uint32_t frames,
+                    uint32_t sample_rate) {
+    if (!bus || !output || sample_rate == 0) return;
+    for (uint32_t i = 0; i < frames; i++) {
+        float mixed = 0.0f;
+        for (int s = 0; s < PPAM_SLOTS; s++) {
+            PpaModule *m = &bus->slots[s];
+            if (!m->installed || !m->active ||
+                m->type != PPAM_TYPE_SOUND || !m->sound_master) {
+                if (m->type == PPAM_TYPE_SOUND)
+                    m->scope[i % PPAM_SCOPE_SAMPLES] = 0;
+                continue;
+            }
+            float voice = 0.0f;
+            for (int ch = 0; ch < PPAM_AUDIO_CHANNELS; ch++) {
+                PpaSoundChannel *v = &m->sound[ch];
+                if (!v->enabled || !v->volume || !v->frequency) continue;
+                float t = v->phase;
+                float val;
+                switch (v->waveform) {
+                    case 1: val = 2.0f * t - 1.0f; break;
+                    case 2: val = 1.0f - 4.0f * fabsf(t - 0.5f); break;
+                    case 3: val = sinf(t * 6.28318530718f); break;
+                    case 4:
+                        m->noise_state ^= m->noise_state << 13;
+                        m->noise_state ^= m->noise_state >> 17;
+                        m->noise_state ^= m->noise_state << 5;
+                        val = (m->noise_state & 1u) ? 1.0f : -1.0f;
+                        break;
+                    default: val = t < 0.5f ? 1.0f : -1.0f; break;
+                }
+                voice += val * ((float)v->volume / 255.0f) * 0.20f;
+                t += (float)v->frequency / (float)sample_rate;
+                t -= floorf(t);
+                v->phase = t;
+            }
+            voice *= (float)m->sound_volume / 255.0f;
+            m->scope[i % PPAM_SCOPE_SAMPLES] =
+                (int8_t)fmaxf(-127.0f, fminf(127.0f, voice * 127.0f));
+            mixed += voice;
+        }
+        mixed = fmaxf(-1.0f, fminf(1.0f, mixed));
+        output[i] = (int16_t)(mixed * 24575.0f);
+    }
 }

@@ -1661,6 +1661,16 @@ static void gui_dump_cpu_state(const GuiBackendContext *g,
                     g->cpu);
 }
 
+static void gui_backend_module_audio(void *ctx, int16_t *out,
+                                     uint32_t frames, uint32_t sample_rate) {
+    GuiBackendContext *g = ctx;
+    if (!g || !g->powered) {
+        memset(out, 0, frames * sizeof(*out));
+        return;
+    }
+    ppam_mix_audio(&g_ppa_modules, out, frames, sample_rate);
+}
+
 static bool gui_backend_module_load(void *ctx, int slot, const char *path) {
     GuiBackendContext *g = ctx;
     return g && !g->powered && ppam_load(&g_ppa_modules, slot, path);
@@ -1685,6 +1695,15 @@ static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
     out->active = m->active;
     out->light_on = m->light_on;
     out->type = m->type;
+    out->sound_master = m->sound_master;
+    out->sound_volume = m->sound_volume;
+    for (int i = 0; i < PPAM_AUDIO_CHANNELS; i++) {
+        out->freq[i] = m->sound[i].frequency;
+        out->voice_volume[i] = m->sound[i].volume;
+        out->waveform[i] = m->sound[i].waveform;
+        out->voice_enabled[i] = m->sound[i].enabled;
+    }
+    memcpy(out->scope, m->scope, sizeof(out->scope));
     out->cycles_remaining = m->remaining_cycles;
     snprintf(out->name, sizeof(out->name), "%s", m->name);
     snprintf(out->path, sizeof(out->path), "%s", m->path);
@@ -2556,6 +2575,7 @@ int main(int argc, char **argv) {
             .cpu_snapshot = gui_backend_cpu_snapshot,
             .memory_size = gui_backend_memory_size,
             .set_memory_size = gui_backend_set_memory_size,
+            .module_audio = gui_backend_module_audio,
             .module_load = gui_backend_module_load,
             .module_eject = gui_backend_module_eject,
             .module_activate = gui_backend_module_activate,
