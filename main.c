@@ -101,6 +101,7 @@ typedef struct {
     uint16_t PC;
 
     bool halted;
+    bool error;
 } CPU;
 
 typedef struct {
@@ -602,7 +603,7 @@ static void trace_cpu_state(const char *frontend,
         "CPU [%s / %s] INST=%llu MICRO=%llu "
         "PC=%04X AR=%04X SP=%02X IR=%02X SR=%02X RS=%02X DST=%02X STEP=%02X "
         "AOS=%02X IMM=%02X AAR=%02X ABR=%02X A=%02X B=%02X C=%02X D=%02X "
-        "X=%04X Y=%04X BR=%04X HALT=%d\n",
+        "X=%04X Y=%04X BR=%04X HALT=%d ERROR=%d\n",
         frontend ? frontend : "CORE",
         reason ? reason : "STATE",
         (unsigned long long)instruction_count,
@@ -626,7 +627,8 @@ static void trace_cpu_state(const char *frontend,
         c->X,
         c->Y,
         c->BR,
-        c->halted ? 1 : 0
+        c->halted ? 1 : 0,
+        c->error ? 1 : 0
     );
 }
 
@@ -871,6 +873,12 @@ static inline void finish_instruction(CPU *cpu) {
     cpu->STEP = 0;
 }
 
+static inline void cpu_fault(CPU *cpu) {
+    if (!cpu) return;
+    cpu->error = true;
+    cpu->halted = true;
+}
+
 static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
     if (cpu->halted) return true;
 
@@ -888,6 +896,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
 
         case 0x01: /* HLT */
             cpu->halted = true;
+            cpu->error = false;
             finish_instruction(cpu);
             return true;
 
@@ -897,7 +906,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
                 cpu->RS  = (uint8_t)(rp & 0x0F);
                 if (!valid_reg(cpu->DST) || !valid_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -917,7 +926,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->DST)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -941,7 +950,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->DST)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -973,7 +982,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
                 cpu->RS  = (uint8_t)(rp & 0x0F);
                 if (!valid_reg(cpu->DST) || !valid_ptr_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1005,7 +1014,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 3) {
                 cpu->RS = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 4;
@@ -1024,7 +1033,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F); /* pointer */
                 cpu->RS  = (uint8_t)(rp & 0x0F);        /* source */
                 if (!valid_ptr_reg(cpu->DST) || !valid_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1044,7 +1053,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->RS = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1061,7 +1070,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->DST)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1087,7 +1096,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
                 cpu->RS  = (uint8_t)(rp & 0x0F);
                 if (!valid_reg(cpu->DST) || !valid_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1119,7 +1128,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->DST)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1154,7 +1163,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->RS = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1177,7 +1186,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->RS = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1202,7 +1211,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
                 cpu->DST = (uint8_t)((rp >> 4) & 0x0F);
                 cpu->RS  = (uint8_t)(rp & 0x0F);
                 if (!valid_reg(cpu->DST) || !valid_reg(cpu->RS)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1249,7 +1258,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->DST)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1302,7 +1311,7 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
             if (cpu->STEP == 1) {
                 cpu->DST = fetch_program8(cpu, memory, serial);
                 if (!valid_reg(cpu->DST)) {
-                    cpu->halted = true;
+                    cpu_fault(cpu);
                     return true;
                 }
                 cpu->STEP = 2;
@@ -1411,12 +1420,12 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
 
         default:
             printf("Unknown opcode %02X at %04X\n", cpu->IR, (uint16_t)(cpu->PC - 1));
-            cpu->halted = true;
+            cpu_fault(cpu);
             return true;
     }
 
     printf("Invalid microstep STEP=%02X for opcode %02X\n", cpu->STEP, cpu->IR);
-    cpu->halted = true;
+    cpu_fault(cpu);
     return true;
 }
 
@@ -1686,6 +1695,7 @@ static void gui_backend_start_at(void *ctx, uint16_t address) {
     g->cpu->AR = address;
     g->cpu->STEP = 0;
     g->cpu->halted = false;
+    g->cpu->error = false;
     g->running = true;
 
     printf("GUI: START at %04X\n", address);
@@ -1774,6 +1784,11 @@ static bool gui_backend_is_running(void *ctx) {
 static bool gui_backend_is_halted(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     return !g || !g->loaded || g->cpu->halted;
+}
+
+static bool gui_backend_is_error(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return g && g->loaded && g->cpu && g->cpu->error;
 }
 
 static uint16_t gui_backend_address_bus(void *ctx) {
@@ -1928,6 +1943,7 @@ int main(int argc, char **argv) {
             .is_powered = gui_backend_is_powered,
             .is_running = gui_backend_is_running,
             .is_halted = gui_backend_is_halted,
+            .is_error = gui_backend_is_error,
             .address_bus = gui_backend_address_bus,
             .data_bus = gui_backend_data_bus,
             .status_register = gui_backend_status_register,
