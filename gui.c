@@ -3029,10 +3029,14 @@ int ppa_gui_run_panel(const char *initial_rom,
                            event.button.button == SDL_BUTTON_LEFT) {
                     float x = event.button.x, y = event.button.y;
                     for (int slot = 0; slot < 8; ++slot) {
+                        SDL_FRect module_rects[4];
+                        for (int action = 0; action < 4; ++action) {
+                            module_rects[action] = module_button(slot, action);
+                        }
                         PPA1ModuleInfo info = {0};
                         if (backend->module_info)
                             backend->module_info(backend->ctx, slot, &info);
-                        if (point_in_rect(x, y, &module_button(slot, 0))) {
+                        if (point_in_rect(x, y, &module_rects[0])) {
                             if (!backend->is_powered(backend->ctx) &&
                                 !module_file.dialog_open) {
                                 module_file.slot = slot;
@@ -3047,7 +3051,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     NULL, false);
                             }
                             break;
-                        } else if (point_in_rect(x, y, &module_button(slot, 1))) {
+                        } else if (point_in_rect(x, y, &module_rects[1])) {
                             if (backend->module_activate &&
                                 backend->module_activate(
                                     backend->ctx, slot, !info.active))
@@ -3055,7 +3059,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                                slot + 1,
                                                info.active ? "OFF" : "ACTIVE");
                             break;
-                        } else if (point_in_rect(x, y, &module_button(slot, 2))) {
+                        } else if (point_in_rect(x, y, &module_rects[2])) {
                             if (backend->module_eject &&
                                 backend->module_eject(backend->ctx, slot))
                                 ppa_log_printf("GUI: MODULE SLOT %d EJECT\n",
@@ -3064,7 +3068,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 module_detail_window.slot_index == slot)
                                 destroy_aux(&module_detail_window);
                             break;
-                        } else if (point_in_rect(x, y, &module_button(slot, 3))) {
+                        } else if (point_in_rect(x, y, &module_rects[3])) {
                             if (info.installed && info.type == 1) {
                                 if (module_detail_window.window)
                                     destroy_aux(&module_detail_window);
