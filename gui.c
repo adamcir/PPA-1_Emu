@@ -93,9 +93,17 @@ typedef struct {
 typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
+
     char lines[TERM_LINES][TERM_COLS + 1];
+    uint8_t colors[TERM_LINES][TERM_COLS];
+
     int line;
     int col;
+
+    uint8_t current_color;
+    uint8_t ansi_state;
+    char csi[24];
+    int csi_len;
 } TerminalWindow;
 
 typedef struct {
@@ -737,6 +745,139 @@ static void read_log_tail(char lines[][160], int *line_count, int max_lines) {
     *line_count = count;
 }
 
+static SDL_Color terminal_color(uint8_t index) {
+    static const SDL_Color palette[] = {
+        {201, 230, 208, 255}, /* default */
+        {92, 96, 94, 255},    /* black */
+        {214, 82, 76, 255},   /* red */
+        {126, 226, 112, 255}, /* green */
+        {226, 193, 92, 255},  /* yellow */
+        {99, 151, 221, 255},  /* blue */
+        {190, 120, 205, 255}, /* magenta */
+        {99, 199, 221, 255},  /* cyan */
+        {224, 226, 220, 255}, /* white */
+        {132, 136, 134, 255}, /* bright black */
+        {244, 105, 96, 255},  /* bright red */
+        {160, 244, 145, 255}, /* bright green */
+        {246, 218, 120, 255}, /* bright yellow */
+        {132, 181, 246, 255}, /* bright blue */
+        {218, 151, 232, 255}, /* bright magenta */
+        {133, 226, 243, 255}, /* bright cyan */
+        {248, 250, 244, 255}  /* bright white */
+    };
+
+    if (index >= (uint8_t)(sizeof(palette) / sizeof(palette[0]))) {
+        index = 0;
+    }
+    return palette[index];
+}
+
+static void terminal_clear(TerminalWindow *term);
+
+static void terminal_apply_sgr(TerminalWindow *term, const char *params) {
+    if (!term) return;
+
+    if (!params || !*params) {
+        term->current_color = 0;
+        return;
+    }
+
+    const char *p = params;
+    while (*p) {
+        int value = 0;
+        bool have_digit = false;
+
+        while (*p >= '0' && *p <= '9') {
+            have_digit = true;
+            value = value * 10 + (*p - '0');
+            p++;
+        }
+
+        if (!have_digit) value = 0;
+
+        if (value == 0 || value == 39) {
+            term->current_color = 0;
+        } else if (value >= 30 && value <= 37) {
+            term->current_color = (uint8_t)(1 + value - 30);
+        } else if (value >= 90 && value <= 97) {
+            term->current_color = (uint8_t)(9 + value - 90);
+        }
+
+        if (*p == ';') p++;
+        else break;
+    }
+}
+
+static void terminal_finish_csi(TerminalWindow *term, uint8_t final_byte) {
+    if (!term) return;
+
+    term->csi[term->csi_len] = '\0';
+
+    if (final_byte == 'm') {
+        terminal_apply_sgr(term, term->csi);
+    } else if (final_byte == 'J') {
+        int mode = term->csi_len ? atoi(term->csi) : 0;
+        if (mode == 2) {
+            terminal_clear(term);
+        }
+    } else if (final_byte == 'H' || final_byte == 'f') {
+        term->line = 0;
+        term->col = 0;
+    }
+
+    term->ansi_state = 0;
+    term->csi_len = 0;
+}
+
+static void terminal_draw_colored_line(SDL_Renderer *renderer,
+                                       TTF_Font *font,
+                                       float x,
+                                       float y,
+                                       const TerminalWindow *term,
+                                       int line)
+{
+    if (!renderer || !font || !term ||
+        line < 0 || line >= TERM_LINES) {
+        return;
+    }
+
+    const char *text = term->lines[line];
+    int len = (int)strlen(text);
+    int start = 0;
+    float draw_x = x;
+
+    while (start < len) {
+        uint8_t color_index = term->colors[line][start];
+        int end = start + 1;
+
+        while (end < len &&
+               term->colors[line][end] == color_index) {
+            end++;
+        }
+
+        char segment[TERM_COLS + 1];
+        int count = end - start;
+        memcpy(segment, text + start, (size_t)count);
+        segment[count] = '\0';
+
+        int w = 0, h = 0;
+        SDL_Texture *texture = make_text_texture(
+            renderer, font, terminal_color(color_index),
+            segment, &w, &h);
+
+        if (texture) {
+            float logical_w = (float)w / g_text_pixel_scale;
+            float logical_h = (float)h / g_text_pixel_scale;
+            SDL_FRect dst = {draw_x, y, logical_w, logical_h};
+            SDL_RenderTexture(renderer, texture, NULL, &dst);
+            SDL_DestroyTexture(texture);
+            draw_x += logical_w;
+        }
+
+        start = end;
+    }
+}
+
 static void terminal_new_line(TerminalWindow *term) {
     if (!term) return;
 
@@ -746,48 +887,107 @@ static void terminal_new_line(TerminalWindow *term) {
     if (term->line >= TERM_LINES) {
         memmove(term->lines[0], term->lines[1],
                 sizeof(term->lines[0]) * (TERM_LINES - 1));
+        memmove(term->colors[0], term->colors[1],
+                sizeof(term->colors[0]) * (TERM_LINES - 1));
         term->line = TERM_LINES - 1;
     }
 
     memset(term->lines[term->line], 0, sizeof(term->lines[term->line]));
+    memset(term->colors[term->line], 0, sizeof(term->colors[term->line]));
 }
 
 static void terminal_put_byte(TerminalWindow *term, uint8_t value) {
     if (!term) return;
 
+    /*
+     * Minimal ANSI/ASCII terminal protocol:
+     *   ESC [ 30..37 m / 90..97 m = text color
+     *   ESC [ 0 m / 39 m           = default color
+     *   ESC [ 2 J                  = clear screen
+     *   ESC [ H                    = cursor home
+     *   ASCII FF (0x0C)            = clear screen
+     */
+    if (term->ansi_state == 1) {
+        if (value == '[') {
+            term->ansi_state = 2;
+            term->csi_len = 0;
+        } else {
+            term->ansi_state = 0;
+        }
+        return;
+    }
+
+    if (term->ansi_state == 2) {
+        if ((value >= '0' && value <= '9') || value == ';') {
+            if (term->csi_len < (int)sizeof(term->csi) - 1) {
+                term->csi[term->csi_len++] = (char)value;
+            }
+            return;
+        }
+
+        if (value >= 0x40 && value <= 0x7E) {
+            terminal_finish_csi(term, value);
+        } else {
+            term->ansi_state = 0;
+            term->csi_len = 0;
+        }
+        return;
+    }
+
+    if (value == 0x1B) {
+        term->ansi_state = 1;
+        return;
+    }
+
+    if (value == 0x0C) {
+        terminal_clear(term);
+        return;
+    }
+
     if (value == '\r') {
         term->col = 0;
         return;
     }
+
     if (value == '\n') {
         terminal_new_line(term);
         return;
     }
+
     if (value == '\b' || value == 0x7F) {
         if (term->col > 0) {
             term->col--;
             term->lines[term->line][term->col] = '\0';
+            term->colors[term->line][term->col] = 0;
         }
         return;
     }
+
     if (value == '\t') {
         int spaces = 4 - (term->col % 4);
         while (spaces-- > 0) terminal_put_byte(term, ' ');
         return;
     }
+
     if (value < 0x20) return;
 
     if (term->col >= TERM_COLS) terminal_new_line(term);
 
-    term->lines[term->line][term->col++] = (char)value;
+    term->lines[term->line][term->col] = (char)value;
+    term->colors[term->line][term->col] = term->current_color;
+    term->col++;
     term->lines[term->line][term->col] = '\0';
 }
 
 static void terminal_clear(TerminalWindow *term) {
     if (!term) return;
+
     memset(term->lines, 0, sizeof(term->lines));
+    memset(term->colors, 0, sizeof(term->colors));
     term->line = 0;
     term->col = 0;
+    term->ansi_state = 0;
+    term->csi_len = 0;
 }
 
 static SDL_FRect terminal_clear_button_rect(const TerminalWindow *term) {
@@ -920,9 +1120,8 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
 
     float y = 88.0f;
     for (int line = start; line <= term->line && line < TERM_LINES; line++) {
-        draw_text(term->renderer, fonts->mono, 36, y,
-                  (SDL_Color){201, 230, 208, 255},
-                  term->lines[line]);
+        terminal_draw_colored_line(
+            term->renderer, fonts->mono, 36, y, term, line);
         y += 18.0f;
     }
 
@@ -1562,13 +1761,13 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     /* Menu lives in real window coordinates and always spans the whole window. */
     SDL_FRect menu_open   = {10, 5, 72, 28};
-    SDL_FRect menu_detach = {86, 5, 86, 28};
-    SDL_FRect menu_export = {176, 5, 112, 28};
-    SDL_FRect menu_pref   = {292, 5, 112, 28};
-    SDL_FRect menu_view   = {408, 5, 72, 28};
-    SDL_FRect menu_log    = {484, 5, 64, 28};
-    SDL_FRect menu_terminal = {552, 5, 118, 28};
-    SDL_FRect menu_credits = {674, 5, 86, 28};
+    SDL_FRect menu_reset  = {86, 5, 116, 28};
+    SDL_FRect menu_export = {206, 5, 112, 28};
+    SDL_FRect menu_pref   = {322, 5, 112, 28};
+    SDL_FRect menu_view   = {438, 5, 72, 28};
+    SDL_FRect menu_log    = {514, 5, 64, 28};
+    SDL_FRect menu_terminal = {582, 5, 118, 28};
+    SDL_FRect menu_credits = {704, 5, 86, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
     /* Front-panel bank/address/memory programming row. */
@@ -1902,12 +2101,19 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 file_dialog_callback, &file_state, window,
                                 filters, 2, NULL, false);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_detach)) {
-                            if (backend->detach_image &&
-                                backend->detach_image(backend->ctx)) {
-                                ppa_log_printf(
-                                    "GUI: EEPROM backing image detached.\n");
+                        } else if (point_in_rect(wx, wy, &menu_reset)) {
+                            if (backend->reset_emulation) {
+                                backend->reset_emulation(backend->ctx);
                             }
+
+                            manual_address = 0x0000;
+                            front_data_latch = 0x00;
+                            exam_held = false;
+                            exam_data = 0x00;
+                            terminal_clear(&uart_terminal);
+
+                            ppa_log_printf(
+                                "GUI: full emulation reset; EEPROM blank and image detached.\n");
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_export) &&
                                    !export_state.dialog_open) {
@@ -2662,7 +2868,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_SetRenderDrawColor(renderer, 34, 36, 36, 255);
         SDL_RenderFillRect(renderer, &menu_bar);
         draw_menu_button(renderer, &fonts, menu_open, "OPEN");
-        draw_menu_button(renderer, &fonts, menu_detach, "DETACH");
+        draw_menu_button(renderer, &fonts, menu_reset, "RESET EMU");
         draw_menu_button(renderer, &fonts, menu_export, "EXPORT IMAGE");
         draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
         draw_menu_button(renderer, &fonts, menu_view, "VIEW");
