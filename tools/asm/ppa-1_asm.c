@@ -141,13 +141,13 @@ static void fatal_linef(int line, const char *fmt, const char *arg) {
     if (g_current_source) col = token_column(g_current_source->text, arg);
 
     print_source_error("error", line, col, msg);
-    exit(1);
+    abort_source_line();
 }
 
 static void fatal_at_token(int line, const char *token, const char *msg) {
     int col = g_current_source ? token_column(g_current_source->text, token) : 1;
     print_source_error("error", line, col, msg);
-    exit(1);
+    abort_source_line();
 }
 
 static char *ltrim(char *s) {
