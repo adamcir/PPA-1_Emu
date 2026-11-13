@@ -30,6 +30,12 @@ typedef struct {
 } FileDialogState;
 
 typedef struct {
+    char path[1024];
+    bool dialog_open;
+    bool export_requested;
+} ExportDialogState;
+
+typedef struct {
     TTF_Font *title;
     TTF_Font *badge;
     TTF_Font *section;
@@ -127,6 +133,26 @@ static void file_dialog_callback(void *userdata, const char * const *filelist, i
     snprintf(state->rom_path, sizeof(state->rom_path), "%s", filelist[0]);
     state->load_requested = true;
     ppa_log_printf("GUI: selected ROM: %s\n", state->rom_path);
+}
+
+static void export_dialog_callback(void *userdata,
+                                   const char * const *filelist,
+                                   int filter)
+{
+    (void)filter;
+    ExportDialogState *state = (ExportDialogState *)userdata;
+    if (!state) return;
+
+    state->dialog_open = false;
+
+    if (!filelist || !filelist[0]) {
+        ppa_log_printf("GUI: EEPROM export cancelled.\n");
+        return;
+    }
+
+    snprintf(state->path, sizeof(state->path), "%s", filelist[0]);
+    state->export_requested = true;
+    ppa_log_printf("GUI: selected EEPROM export path: %s\n", state->path);
 }
 
 static const char *find_regular_font(void) {
@@ -957,6 +983,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         SDL_GetCurrentRenderOutputSize(r, &view_w, &view_h);
 
         bool loaded = backend->is_loaded(backend->ctx);
+        bool image_attached = backend->is_image_attached
+            ? backend->is_image_attached(backend->ctx)
+            : false;
         bool power = backend->is_powered(backend->ctx);
         bool running = backend->is_running(backend->ctx);
         bool halted = backend->is_halted(backend->ctx);
@@ -985,8 +1014,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
 
         draw_text(r, fonts->label, 24, 82, cream, "STATE");
         snprintf(line, sizeof(line),
-                 "IMAGE=%s  POWER=%s  RUN=%s  HALT=%s  ERROR=%s",
-                 loaded ? "YES" : "NO",
+                 "EEPROM=%s  IMAGE=%s  POWER=%s  RUN=%s  HALT=%s  ERROR=%s",
+                 loaded ? "READY" : "UNAVAILABLE",
+                 image_attached ? "ATTACHED" : "DETACHED",
                  power ? "ON" : "OFF",
                  running ? "RUNNING" : "STOPPED",
                  (halted && !error) ? "ACTIVE" : "CLEAR",
@@ -1267,6 +1297,8 @@ int ppa_gui_run_panel(const char *initial_rom,
     Uint32 main_window_id = SDL_GetWindowID(window);
 
     FileDialogState file_state = {0};
+    ExportDialogState export_state = {0};
+
     if (initial_rom && *initial_rom) {
         snprintf(file_state.rom_path, sizeof(file_state.rom_path), "%s", initial_rom);
         file_state.load_requested = true;
@@ -1336,12 +1368,14 @@ int ppa_gui_run_panel(const char *initial_rom,
     int register_index = 0;
 
     /* Menu lives in real window coordinates and always spans the whole window. */
-    SDL_FRect menu_open = {10, 5, 72, 28};
-    SDL_FRect menu_pref = {86, 5, 112, 28};
-    SDL_FRect menu_view = {202, 5, 72, 28};
-    SDL_FRect menu_log  = {278, 5, 64, 28};
-    SDL_FRect menu_terminal = {346, 5, 118, 28};
-    SDL_FRect menu_credits = {468, 5, 86, 28};
+    SDL_FRect menu_open   = {10, 5, 72, 28};
+    SDL_FRect menu_detach = {86, 5, 86, 28};
+    SDL_FRect menu_export = {176, 5, 112, 28};
+    SDL_FRect menu_pref   = {292, 5, 112, 28};
+    SDL_FRect menu_view   = {408, 5, 72, 28};
+    SDL_FRect menu_log    = {484, 5, 64, 28};
+    SDL_FRect menu_terminal = {552, 5, 118, 28};
+    SDL_FRect menu_credits = {674, 5, 86, 28};
 
     /* All panel controls below use the fixed PANEL_W x PANEL_H design space. */
     /* Front-panel bank/address/memory programming row. */
@@ -1594,11 +1628,28 @@ int ppa_gui_run_panel(const char *initial_rom,
 
                     if (event.button.button == SDL_BUTTON_LEFT) {
                         /* Window-level dynamic menu. */
-                        if (point_in_rect(wx, wy, &menu_open) && !file_state.dialog_open) {
+                        if (point_in_rect(wx, wy, &menu_open) &&
+                            !file_state.dialog_open) {
                             file_state.dialog_open = true;
                             SDL_ShowOpenFileDialog(
                                 file_dialog_callback, &file_state, window,
                                 filters, 2, NULL, false);
+                            continue;
+                        } else if (point_in_rect(wx, wy, &menu_detach)) {
+                            if (backend->detach_image &&
+                                backend->detach_image(backend->ctx)) {
+                                ppa_log_printf(
+                                    "GUI: EEPROM backing image detached.\n");
+                            }
+                            continue;
+                        } else if (point_in_rect(wx, wy, &menu_export) &&
+                                   !export_state.dialog_open) {
+                            export_state.dialog_open = true;
+                            SDL_ShowSaveFileDialog(
+                                export_dialog_callback,
+                                &export_state,
+                                window,
+                                filters, 2, NULL);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_pref)) {
                             open_aux(&prefs_window, AUX_PREFERENCES,
@@ -1921,6 +1972,13 @@ int ppa_gui_run_panel(const char *initial_rom,
                     backend->set_power(backend->ctx, true);
                     backend->set_running(backend->ctx, true);
                 }
+            }
+        }
+
+        if (export_state.export_requested && export_state.path[0]) {
+            export_state.export_requested = false;
+            if (backend->export_image) {
+                backend->export_image(backend->ctx, export_state.path);
             }
         }
 
@@ -2277,6 +2335,8 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_SetRenderDrawColor(renderer, 34, 36, 36, 255);
         SDL_RenderFillRect(renderer, &menu_bar);
         draw_menu_button(renderer, &fonts, menu_open, "OPEN");
+        draw_menu_button(renderer, &fonts, menu_detach, "DETACH");
+        draw_menu_button(renderer, &fonts, menu_export, "EXPORT IMAGE");
         draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
         draw_menu_button(renderer, &fonts, menu_view, "VIEW");
         draw_menu_button(renderer, &fonts, menu_log, "LOG");
