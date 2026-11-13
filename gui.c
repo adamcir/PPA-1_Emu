@@ -876,6 +876,23 @@ static void draw_menu_button(SDL_Renderer *r, PanelFonts *fonts,
                      (SDL_Color){225, 221, 204, 255}, label);
 }
 
+/* Disabled controls are visually subdued and never accept input. */
+static void draw_disabled_control(SDL_Renderer *r, SDL_FRect rect) {
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(r, 24, 26, 27, 210);
+    SDL_RenderFillRect(r, &rect);
+    SDL_SetRenderDrawColor(r, 79, 82, 83, 255);
+    SDL_RenderRect(r, &rect);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+}
+
+static void draw_menu_button_enabled(SDL_Renderer *r, PanelFonts *fonts,
+                                     SDL_FRect rect, const char *label,
+                                     bool enabled) {
+    draw_menu_button(r, fonts, rect, label);
+    if (!enabled) draw_disabled_control(r, rect);
+}
+
 static void draw_aux_header(SDL_Renderer *r, PanelFonts *fonts,
                             const char *title, const char *subtitle)
 {
@@ -1639,8 +1656,11 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
 
         draw_text(r, fonts->small, 24, 407, muted, "EEPROM BYTES");
         draw_text(r, fonts->small, 286, 407, muted, "RAM BYTES");
-        draw_menu_button(r, fonts, PREF_ROM_SIZE, prefs->rom_bytes);
-        draw_menu_button(r, fonts, PREF_RAM_SIZE, prefs->ram_bytes);
+        bool can_change_memory = !backend->is_powered(backend->ctx);
+        draw_menu_button_enabled(r, fonts, PREF_ROM_SIZE, prefs->rom_bytes,
+                                 can_change_memory);
+        draw_menu_button_enabled(r, fonts, PREF_RAM_SIZE, prefs->ram_bytes,
+                                 can_change_memory);
         if (prefs->editing_memory) {
             SDL_FRect selected = prefs->editing_memory == 1
                 ? PREF_ROM_SIZE : PREF_RAM_SIZE;
@@ -1962,11 +1982,16 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
             draw_text(r, fonts->small, 24,
                       80.0f + 62.0f * slot, info.active ? COL_GREEN : muted,
                       line);
-            draw_menu_button(r, fonts, module_button(slot, 0), "LOAD");
-            draw_menu_button(r, fonts, module_button(slot, 1),
-                             info.active ? "DISABLE" : "ACTIVATE");
-            draw_menu_button(r, fonts, module_button(slot, 2), "EJECT");
-            draw_menu_button(r, fonts, module_button(slot, 3), "VIEW");
+            bool off = !backend->is_powered(backend->ctx);
+            draw_menu_button_enabled(r, fonts, module_button(slot, 0),
+                                     "LOAD", off);
+            draw_menu_button_enabled(r, fonts, module_button(slot, 1),
+                                     info.active ? "DISABLE" : "ACTIVATE",
+                                     off && info.installed);
+            draw_menu_button_enabled(r, fonts, module_button(slot, 2),
+                                     "EJECT", off && info.installed);
+            draw_menu_button_enabled(r, fonts, module_button(slot, 3),
+                                     "VIEW", info.installed);
         }
         draw_text(r, fonts->small, 24, 603, muted,
                   "LOAD a PPAM file first, then ACTIVATE. Slot addressing is automatic.");
@@ -1974,31 +1999,102 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         PPA1ModuleInfo info = {0};
         if (backend->module_info)
             backend->module_info(backend->ctx, aux->slot_index, &info);
-        draw_aux_header(r, fonts, "LIGHT MODULE",
-                        "PPA-BUS/1 HARDWARE VIEW");
-        char line[160];
-        snprintf(line, sizeof(line), "SLOT %d   BANK %04X   %s",
-                 aux->slot_index + 1,
-                 0x2000 + aux->slot_index * 0x1000,
-                 info.active ? "ACTIVE" : "INACTIVE");
-        draw_text(r, fonts->mono, 24, 90, COL_WHITE, line);
+        if (!info.installed) {
+            draw_aux_header(r, fonts, "PPAMOD", "MODULE NOT INSTALLED");
+        } else {
+            const bool sound = info.type == 2;
+            draw_aux_header(r, fonts, info.name,
+                            sound ? "PPA-SOUND/1 / VIRTUAL SOUND CARD"
+                                  : "LIGHT/1 / VIRTUAL HARDWARE");
+            char line[192];
+            snprintf(line, sizeof(line), "SLOT %d   BANK %04X   %s",
+                     aux->slot_index + 1,
+                     0x2000 + aux->slot_index * 0x1000,
+                     info.active ? "ACTIVE" : "DISABLED");
+            draw_text(r, fonts->mono, 24, 80,
+                      info.active ? COL_GREEN : muted, line);
+            /* Device window is a virtual card face, not part of the CPU panel. */
+            SDL_FRect face = {20, 112, 500, 345};
+            SDL_SetRenderDrawColor(r, 41, 45, 44, 255);
+            SDL_RenderFillRect(r, &face);
+            SDL_SetRenderDrawColor(r, 108, 113, 108, 255);
+            SDL_RenderRect(r, &face);
+            if (sound) {
+                /* Speaker grille. Speaker output is sent to SDL Audio. */
+                SDL_SetRenderDrawColor(r, 17, 19, 19, 255);
+                fill_circle(r, 100, 210, 67);
+                SDL_SetRenderDrawColor(r, 91, 98, 94, 255);
+                fill_circle(r, 100, 210, 55);
+                SDL_SetRenderDrawColor(r, 20, 24, 24, 255);
+                fill_circle(r, 100, 210, 48);
+                SDL_SetRenderDrawColor(r, 75, 81, 78, 255);
+                fill_circle(r, 100, 210, 23);
+                SDL_SetRenderDrawColor(r, 19, 22, 22, 255);
+                fill_circle(r, 100, 210, 16);
+                draw_text(r, fonts->small, 62, 286, COL_WHITE, "SPEAKER");
 
-        SDL_SetRenderDrawColor(r, 13, 14, 14, 255);
-        fill_circle(r, 270, 200, 75);
-        SDL_Color led = info.active && info.light_on
-            ? COL_GREEN : (SDL_Color){42, 64, 43, 255};
-        SDL_SetRenderDrawColor(r, led.r, led.g, led.b, 255);
-        fill_circle(r, 270, 200, 62);
-        draw_text(r, fonts->section, 225, 293,
-                  info.active && info.light_on ? COL_GREEN : muted,
-                  info.active && info.light_on ? "LIGHT ON" : "LIGHT OFF");
-        snprintf(line, sizeof(line), "Remaining CPU cycles: %u",
-                 (unsigned)info.cycles_remaining);
-        draw_text(r, fonts->mono, 24, 340, muted, line);
-        draw_text(r, fonts->small, 24, 370, muted,
-                  "Write nonzero to SLOT BASE:0010 to pulse the lamp.");
-        draw_text(r, fonts->small, 24, 398, muted,
-                  "Write zero to switch it off immediately.");
+                SDL_FRect screen = {194, 139, 308, 163};
+                SDL_SetRenderDrawColor(r, 6, 17, 12, 255);
+                SDL_RenderFillRect(r, &screen);
+                SDL_SetRenderDrawColor(r, 82, 105, 86, 255);
+                SDL_RenderRect(r, &screen);
+                /* 64x24 pixel matrix with discrete illuminated cells. */
+                for (int x = 0; x < 64; x++) {
+                    int sample = info.scope[(x * 2) & 127];
+                    int center = 12 - sample * 10 / 127;
+                    if (center < 0) center = 0;
+                    if (center > 23) center = 23;
+                    for (int y = 0; y < 24; y++) {
+                        bool lit = (y == center) || (y == 12 && x % 4 == 0);
+                        SDL_SetRenderDrawColor(r, lit ? 77 : 11,
+                                               lit ? 241 : 35,
+                                               lit ? 111 : 24, 255);
+                        SDL_FRect px = {201.0f + x * 4.6f,
+                                        148.0f + y * 6.0f,
+                                        3.3f, 4.5f};
+                        SDL_RenderFillRect(r, &px);
+                    }
+                }
+                draw_text(r, fonts->small, 206, 309, COL_GREEN,
+                          "64x24 PIXEL WAVE MONITOR");
+                snprintf(line, sizeof(line), "MASTER %s  VOL %u",
+                         info.sound_master ? "ON" : "OFF",
+                         (unsigned)info.sound_volume);
+                draw_text(r, fonts->mono, 38, 335, COL_WHITE, line);
+                for (int ch = 0; ch < 4; ++ch) {
+                    snprintf(line, sizeof(line),
+                             "CH%d: %5u Hz  W%d  VOL %3u  %s",
+                             ch + 1, (unsigned)info.freq[ch],
+                             (unsigned)info.waveform[ch],
+                             (unsigned)info.voice_volume[ch],
+                             info.voice_enabled[ch] ? "ON" : "OFF");
+                    draw_text(r, fonts->small, 38,
+                              360.0f + 21.0f * ch,
+                              info.voice_enabled[ch] ? COL_GREEN : muted,
+                              line);
+                }
+                draw_text(r, fonts->small, 24, 473, muted,
+                          "WRITE 0010=1  0011=volume  CH1: 0020-0024.");
+            } else {
+                /* LIGHT is rendered through the same PPAM window host. */
+                SDL_SetRenderDrawColor(r, 16, 19, 18, 255);
+                fill_circle(r, 154, 267, 100);
+                SDL_Color led = info.active && info.light_on
+                    ? COL_GREEN : (SDL_Color){40, 60, 45, 255};
+                SDL_SetRenderDrawColor(r, led.r, led.g, led.b, 255);
+                fill_circle(r, 154, 267, 75);
+                draw_text(r, fonts->section, 282, 220,
+                          info.light_on ? COL_GREEN : muted,
+                          info.light_on ? "LIGHT ON" : "LIGHT OFF");
+                snprintf(line, sizeof(line), "PULSE %u cycles",
+                         (unsigned)info.cycles_remaining);
+                draw_text(r, fonts->mono, 282, 263, COL_WHITE, line);
+                draw_text(r, fonts->small, 282, 299, muted,
+                          "INPUT: WRITE 0010");
+                draw_text(r, fonts->small, 24, 474, muted,
+                          "Nonzero = ON (timed); zero = OFF.");
+            }
+        }
     } else if (aux->kind == AUX_LOG) {
         draw_aux_header(r, fonts, "LATEST.LOG",
                         "LIVE EMULATOR TRACE");
@@ -2212,7 +2308,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow log_window = {0};
     AuxWindow credits_window = {0};
     AuxWindow modules_window = {0};
-    AuxWindow module_detail_window = {0};
+    AuxWindow module_detail_windows[8] = {{0}};
     ModuleDialogState module_file = {0};
     TerminalWindow uart_terminal = {0};
 
@@ -2296,6 +2392,16 @@ int ppa_gui_run_panel(const char *initial_rom,
     const float data_source_radius = 29.0f;
     const float register_cx = 1095.0f, register_cy = 428.0f;
     const float register_radius = 29.0f;
+
+    /* Optional host audio output for PPA-SOUND/1. */
+    SDL_AudioStream *ppa_audio = NULL;
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        SDL_AudioSpec spec = {SDL_AUDIO_S16, 1, 44100};
+        ppa_audio = SDL_OpenAudioDeviceStream(
+            SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+        if (ppa_audio) SDL_ResumeAudioStreamDevice(ppa_audio);
+        else ppa_log_printf("GUI: audio unavailable: %s\n", SDL_GetError());
+    }
 
     Uint64 last_ticks = SDL_GetTicks();
     double clock_phase = 0.0;
@@ -2381,6 +2487,9 @@ int ppa_gui_run_panel(const char *initial_rom,
                 Uint32 id = event.window.windowID;
                 if (id == main_window_id) {
                     panel_running = false;
+                } else if (module_detail_windows[0].window &&
+                           id == SDL_GetWindowID(module_detail_windows[0].window)) {
+                    destroy_aux(&module_detail_windows[0]);
                 } else if (prefs_window.window && id == SDL_GetWindowID(prefs_window.window)) {
                     destroy_aux(&prefs_window);
                 } else if (view_window.window && id == SDL_GetWindowID(view_window.window)) {
@@ -2395,13 +2504,17 @@ int ppa_gui_run_panel(const char *initial_rom,
                 } else if (modules_window.window &&
                            id == SDL_GetWindowID(modules_window.window)) {
                     destroy_aux(&modules_window);
-                } else if (module_detail_window.window &&
-                           id == SDL_GetWindowID(module_detail_window.window)) {
-                    destroy_aux(&module_detail_window);
                 } else if (uart_terminal.window &&
                            id == SDL_GetWindowID(uart_terminal.window)) {
                     close_terminal(&uart_terminal, backend);
                     ppa_log_printf("GUI: built-in UART terminal window closed.\n");
+                }
+                for (int slot = 1; slot < 8; ++slot) {
+                    if (module_detail_windows[slot].window &&
+                        id == SDL_GetWindowID(module_detail_windows[slot].window)) {
+                        destroy_aux(&module_detail_windows[slot]);
+                        break;
+                    }
                 }
                 continue;
             }
@@ -2655,13 +2768,15 @@ int ppa_gui_run_panel(const char *initial_rom,
                     if (event.button.button == SDL_BUTTON_LEFT) {
                         /* Window-level dynamic menu. */
                         if (point_in_rect(wx, wy, &menu_open) &&
+                            !backend->is_powered(backend->ctx) &&
                             !file_state.dialog_open) {
                             file_state.dialog_open = true;
                             SDL_ShowOpenFileDialog(
                                 file_dialog_callback, &file_state, window,
                                 filters, 2, NULL, false);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_reset)) {
+                        } else if (point_in_rect(wx, wy, &menu_reset) &&
+                                   !backend->is_powered(backend->ctx)) {
                             if (backend->reset_emulation) {
                                 backend->reset_emulation(backend->ctx);
                             }
@@ -3052,7 +3167,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                             }
                             break;
                         } else if (point_in_rect(x, y, &module_rects[1])) {
-                            if (backend->module_activate &&
+                            if (!backend->is_powered(backend->ctx) &&
+                                backend->module_activate &&
                                 backend->module_activate(
                                     backend->ctx, slot, !info.active))
                                 ppa_log_printf("GUI: MODULE SLOT %d %s\n",
@@ -3060,22 +3176,26 @@ int ppa_gui_run_panel(const char *initial_rom,
                                                info.active ? "OFF" : "ACTIVE");
                             break;
                         } else if (point_in_rect(x, y, &module_rects[2])) {
-                            if (backend->module_eject &&
+                            if (!backend->is_powered(backend->ctx) &&
+                                backend->module_eject &&
                                 backend->module_eject(backend->ctx, slot))
                                 ppa_log_printf("GUI: MODULE SLOT %d EJECT\n",
                                                slot + 1);
-                            if (module_detail_window.window &&
-                                module_detail_window.slot_index == slot)
-                                destroy_aux(&module_detail_window);
+                            if (!backend->is_powered(backend->ctx) &&
+                                module_detail_windows[slot].window)
+                                destroy_aux(&module_detail_windows[slot]);
                             break;
                         } else if (point_in_rect(x, y, &module_rects[3])) {
-                            if (info.installed && info.type == 1) {
-                                if (module_detail_window.window)
-                                    destroy_aux(&module_detail_window);
-                                open_aux(&module_detail_window,
+                            if (info.installed && (info.type == 1 ||
+                                                   info.type == 2)) {
+                                char title[96];
+                                snprintf(title, sizeof(title),
+                                         "PPA-1 SLOT %d - %s",
+                                         slot + 1, info.name);
+                                open_aux(&module_detail_windows[slot],
                                          AUX_MODULE_DETAIL,
-                                         "PPA-1 LIGHT", 540, 440);
-                                module_detail_window.slot_index = slot;
+                                         title, 540, 510);
+                                module_detail_windows[slot].slot_index = slot;
                             }
                             break;
                         }
@@ -3086,8 +3206,9 @@ int ppa_gui_run_panel(const char *initial_rom,
                     float x = event.button.x;
                     float y = event.button.y;
 
-                    if (point_in_rect(x, y, &PREF_ROM_SIZE) ||
-                        point_in_rect(x, y, &PREF_RAM_SIZE)) {
+                    if (!backend->is_powered(backend->ctx) &&
+                        (point_in_rect(x, y, &PREF_ROM_SIZE) ||
+                         point_in_rect(x, y, &PREF_RAM_SIZE))) {
                         prefs.editing_memory =
                             point_in_rect(x, y, &PREF_ROM_SIZE) ? 1 : 2;
                         prefs.memory_size_error = false;
@@ -3136,7 +3257,8 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         if (file_state.load_requested && file_state.rom_path[0]) {
             file_state.load_requested = false;
-            if (backend->load_rom(backend->ctx, file_state.rom_path)) {
+            if (!backend->is_powered(backend->ctx) &&
+                backend->load_rom(backend->ctx, file_state.rom_path)) {
                 manual_address = 0x0000;
 
                 if (prefs.auto_run) {
@@ -3545,8 +3667,8 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_FRect menu_bar = {0, 0, (float)rw, menu_h};
         SDL_SetRenderDrawColor(renderer, 34, 36, 36, 255);
         SDL_RenderFillRect(renderer, &menu_bar);
-        draw_menu_button(renderer, &fonts, menu_open, "OPEN");
-        draw_menu_button(renderer, &fonts, menu_reset, "RESET EMU");
+        draw_menu_button_enabled(renderer, &fonts, menu_open, "OPEN", !powered);
+        draw_menu_button_enabled(renderer, &fonts, menu_reset, "RESET EMU", !powered);
         draw_menu_button(renderer, &fonts, menu_export, "EXPORT IMAGE");
         draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
         draw_menu_button(renderer, &fonts, menu_view, "VIEW");
@@ -3562,13 +3684,26 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_RenderTexture(renderer, panel_texture, NULL, &panel_dst);
         SDL_RenderPresent(renderer);
 
+        if (ppa_audio && backend->module_audio) {
+            if (!powered) {
+                if (SDL_GetAudioStreamQueued(ppa_audio) > 0)
+                    SDL_ClearAudioStream(ppa_audio);
+            } else if (SDL_GetAudioStreamQueued(ppa_audio) < 4096) {
+                int16_t pcm[1024];
+                backend->module_audio(backend->ctx, pcm, 1024, 44100);
+                SDL_PutAudioStreamData(ppa_audio, pcm, (int)sizeof(pcm));
+            }
+        }
+
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
         draw_aux_window(&view_window, &fonts, &prefs, backend);
         draw_aux_window(&hex_window, &fonts, &prefs, backend);
         draw_aux_window(&log_window, &fonts, &prefs, backend);
         draw_aux_window(&credits_window, &fonts, &prefs, backend);
         draw_aux_window(&modules_window, &fonts, &prefs, backend);
-        draw_aux_window(&module_detail_window, &fonts, &prefs, backend);
+        for (int slot = 0; slot < 8; ++slot)
+            draw_aux_window(&module_detail_windows[slot],
+                            &fonts, &prefs, backend);
         draw_terminal(&uart_terminal, &fonts, backend);
     }
 
@@ -3581,7 +3716,8 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&log_window);
     destroy_aux(&credits_window);
     destroy_aux(&modules_window);
-    destroy_aux(&module_detail_window);
+    for (int slot = 0; slot < 8; ++slot)
+        destroy_aux(&module_detail_windows[slot]);
     SDL_DestroyTexture(panel_texture);
     if (adava_logo) SDL_DestroyTexture(adava_logo);
     destroy_knob_textures(&knob_textures);
@@ -3590,6 +3726,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_DestroyWindow(window);
     close_fonts(&panel_fonts);
     close_fonts(&fonts);
+    if (ppa_audio) SDL_DestroyAudioStream(ppa_audio);
     TTF_Quit();
     SDL_Quit();
 
