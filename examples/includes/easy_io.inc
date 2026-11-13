@@ -9,8 +9,25 @@ SERIAL_RX      EQU FF01
 SERIAL_STATUS  EQU FF02
 SERIAL_CONTROL EQU FF03
 
-SYSTEM_BR_HI   EQU 00
-SYSTEM_BR_LO   EQU 50
+SYSTEM_BR_HI   EQU F0
+SYSTEM_BR_LO   EQU 00
+
+; Bank regions: 0x1000 banks / 256 MiB each
+ROM_BR_HI      EQU 00
+RAM_BR_HI      EQU 10
+SLOT1_BR_HI    EQU 20
+SLOT2_BR_HI    EQU 30
+SLOT3_BR_HI    EQU 40
+SLOT4_BR_HI    EQU 50
+SLOT5_BR_HI    EQU 60
+SLOT6_BR_HI    EQU 70
+SLOT7_BR_HI    EQU 80
+SLOT8_BR_HI    EQU 90
+FREE_BR_HI     EQU A0
+IO_BR_HI       EQU F0
+IO_BR_LO       EQU 00
+
+; CPU stack: RAM bank 1000, FE00-FEFF
 
 TX_READY       EQU 01
 RX_READY       EQU 02
@@ -31,13 +48,13 @@ putchar:
     MOV BR-LO,#SYSTEM_BR_LO
 
 .wait_tx:
-    LD A,$FF02
+    LD A,$SERIAL_STATUS
     AND A,#TX_READY
     CMP A,#00
     JZ .wait_tx
 
     MOV A,B
-    ST $FF00,A
+    ST $SERIAL_TX,A
 
     POP B
     POP BR-LO
@@ -52,12 +69,12 @@ getchar_raw:
     MOV BR-LO,#SYSTEM_BR_LO
 
 .wait_rx:
-    LD A,$FF02
+    LD A,$SERIAL_STATUS
     AND A,#RX_READY
     CMP A,#00
     JZ .wait_rx
 
-    LD A,$FF01
+    LD A,$SERIAL_RX
 
     POP BR-LO
     POP BR-HI

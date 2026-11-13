@@ -171,8 +171,8 @@ static void hex_editor_change_bank(AuxWindow *aux, int delta) {
     if (!aux) return;
 
     int bank = (int)aux->edit_bank + delta;
-    if (bank < 0) bank = 0x0050;
-    if (bank > 0x0050) bank = 0x0000;
+    if (bank < 0) bank = 0xFFFF;
+    if (bank > 0xFFFF) bank = 0x0000;
 
     aux->edit_bank = (uint16_t)bank;
     aux->edit_high_nibble = -1;
@@ -1718,14 +1718,11 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_menu_button(r, fonts, VIEW_PAGE_DEC, "PAGE -");
         draw_menu_button(r, fonts, VIEW_PAGE_INC, "PAGE +");
 
-        const char *bank_type = "INVALID";
-        if (aux->inspect_bank <= 0x003Fu) {
-            bank_type = "EEPROM";
-        } else if (aux->inspect_bank <= 0x004Fu) {
-            bank_type = "RAM";
-        } else if (aux->inspect_bank == 0x0050u) {
-            bank_type = "SYSTEM";
-        }
+        const char *bank_type = "FREE";
+        if (aux->inspect_bank <= 0x0FFFu) bank_type = "EEPROM";
+        else if (aux->inspect_bank <= 0x1FFFu) bank_type = "RAM";
+        else if (aux->inspect_bank <= 0x9FFFu) bank_type = "SLOT";
+        else if (aux->inspect_bank >= 0xF000u) bank_type = "I/O";
 
         uint8_t current_value = backend->memory_inspect
             ? backend->memory_inspect(
@@ -1801,14 +1798,11 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_menu_button(r, fonts, HEX_PAGE_DEC, "PAGE -");
         draw_menu_button(r, fonts, HEX_PAGE_INC, "PAGE +");
 
-        const char *bank_type = "INVALID";
-        if (aux->edit_bank <= 0x003Fu) {
-            bank_type = "EEPROM";
-        } else if (aux->edit_bank <= 0x004Fu) {
-            bank_type = "RAM";
-        } else if (aux->edit_bank == 0x0050u) {
-            bank_type = "SYSTEM";
-        }
+        const char *bank_type = "FREE";
+        if (aux->edit_bank <= 0x0FFFu) bank_type = "EEPROM";
+        else if (aux->edit_bank <= 0x1FFFu) bank_type = "RAM";
+        else if (aux->edit_bank <= 0x9FFFu) bank_type = "SLOT";
+        else if (aux->edit_bank >= 0xF000u) bank_type = "I/O";
 
         uint8_t selected_value = backend->memory_inspect
             ? backend->memory_inspect(
@@ -2780,12 +2774,12 @@ int ppa_gui_run_panel(const char *initial_rom,
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_bank =
                             view_window.inspect_bank == 0
-                                ? 0x0050u
+                                ? 0xFFFFu
                                 : (uint16_t)(view_window.inspect_bank - 1u);
                     } else if (point_in_rect(x, y, &VIEW_BANK_INC)) {
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_bank =
-                            view_window.inspect_bank >= 0x0050u
+                            view_window.inspect_bank == 0xFFFFu
                                 ? 0
                                 : (uint16_t)(view_window.inspect_bank + 1u);
                     } else if (point_in_rect(x, y, &VIEW_ADDR_DEC)) {

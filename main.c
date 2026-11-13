@@ -30,10 +30,12 @@
 #define ROM_SIZE         (ROM_BANK_COUNT * BANK_SIZE)   /* 4 MiB */
 #define RAM_SIZE         (RAM_BANK_COUNT * BANK_SIZE)   /* 1 MiB */
 #define ROM_BANK_FIRST   0x0000u
-#define ROM_BANK_LAST    0x003Fu
-#define RAM_BANK_FIRST   0x0040u
-#define RAM_BANK_LAST    0x004Fu
-#define SYSTEM_BANK      0x0050u
+#define ROM_BANK_LAST    0x0FFFu
+#define RAM_BANK_FIRST   0x1000u
+#define RAM_BANK_LAST    0x1FFFu
+#define SYSTEM_BANK      0xF000u
+#define STACK_BANK       RAM_BANK_FIRST
+/* Slots 2000-9FFF; free A000-EFFF; I/O F000-FFFF. */
 #define STACK_PAGE       0xFE00u
 #define SYSTEM_IO_START  0xFF00u
 #define SYSTEM_IO_END    0xFF7Fu
@@ -130,7 +132,6 @@ typedef struct {
 typedef struct {
     uint8_t rom[ROM_SIZE];
     uint8_t ram[RAM_SIZE];
-    uint8_t stack[0x100];
     uint8_t reserved[0x80];
 
     /* Optional backing file for the in-memory EEPROM contents. */
@@ -195,7 +196,6 @@ static void memory_init_blank(Memory *memory) {
 
     memset(memory->rom, 0xFF, sizeof(memory->rom));
     memset(memory->ram, 0x00, sizeof(memory->ram));
-    memset(memory->stack, 0x00, sizeof(memory->stack));
     memset(memory->reserved, 0xFF, sizeof(memory->reserved));
 }
 
@@ -258,7 +258,6 @@ static int load_rom(Memory *memory, const char *path, uint16_t base) {
     free(image);
 
     memset(memory->ram, 0x00, sizeof(memory->ram));
-    memset(memory->stack, 0x00, sizeof(memory->stack));
     memset(memory->reserved, 0xFF, sizeof(memory->reserved));
 
     memory->rom_file = f;
@@ -519,9 +518,7 @@ static void serial_close(Serial *serial) {
 }
 
 static uint8_t system_read8(Memory *memory, Serial *serial, uint16_t addr) {
-    if (addr >= STACK_PAGE && addr <= 0xFEFFu) {
-        return memory->stack[addr & 0x00FFu];
-    }
+
 
     if (addr >= SYSTEM_IO_START && addr <= SYSTEM_IO_END) {
         if (serial && serial->enabled) serial_poll_rx(serial);
@@ -548,10 +545,7 @@ static uint8_t system_read8(Memory *memory, Serial *serial, uint16_t addr) {
 }
 
 static void system_write8(Memory *memory, Serial *serial, uint16_t addr, uint8_t v) {
-    if (addr >= STACK_PAGE && addr <= 0xFEFFu) {
-        memory->stack[addr & 0x00FFu] = v;
-        return;
-    }
+
 
     if (addr >= SYSTEM_IO_START && addr <= SYSTEM_IO_END) {
         if (!serial || !serial->enabled) return;
@@ -607,7 +601,7 @@ static void system_write8(Memory *memory, Serial *serial, uint16_t addr, uint8_t
  * truth for the front-panel ADDRESS/BANK/DATA indicators.
  *
  * Programmer-visible BR selects ordinary data accesses. Program fetches use
- * EEPROM bank 0000, while PUSH/POP/CALL/RET use SYSTEM bank 0050.
+ * EEPROM bank 0000, while PUSH/POP/CALL/RET use RAM bank 1000.
  */
 static inline void bus_publish(CPU *cpu,
                                uint16_t bank,
@@ -634,11 +628,11 @@ static uint8_t bus_read_bank8(CPU *cpu,
 
     if (bank <= ROM_BANK_LAST) {
         uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
-        value = memory->rom[physical];
+        if (physical < ROM_SIZE) value = memory->rom[physical];
     } else if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
         uint32_t physical =
             (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
-        value = memory->ram[physical];
+        if (physical < RAM_SIZE) value = memory->ram[physical];
     } else if (bank == SYSTEM_BANK) {
         value = system_read8(memory, serial, address);
     }
@@ -657,12 +651,14 @@ static void bus_write_bank8(CPU *cpu,
 {
     if (bank <= ROM_BANK_LAST) {
         uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
-        memory->rom[physical] = value; /* EEPROM is writable */
-        persist_rom_byte(memory, physical, value);
+        if (physical < ROM_SIZE) {
+            memory->rom[physical] = value; /* EEPROM is writable */
+            persist_rom_byte(memory, physical, value);
+        }
     } else if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
         uint32_t physical =
             (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
-        memory->ram[physical] = value;
+        if (physical < RAM_SIZE) memory->ram[physical] = value;
     } else if (bank == SYSTEM_BANK) {
         system_write8(memory, serial, address, value);
     }
@@ -706,7 +702,7 @@ static inline uint16_t stack_addr(const CPU *cpu) {
     return (uint16_t)(STACK_PAGE | cpu->SP);
 }
 
-/* Controller-owned stack always uses SYSTEM bank 0050. */
+/* Controller-owned stack always uses RAM bank 1000. */
 static inline void push8(CPU *cpu,
                          Memory *memory,
                          Serial *serial,
@@ -715,7 +711,7 @@ static inline void push8(CPU *cpu,
     uint16_t address = stack_addr(cpu);
     cpu->AR = address;
     bus_write_bank8(cpu, memory, serial,
-                    SYSTEM_BANK, address, value, BUS_OP_WRITE);
+                    STACK_BANK, address, value, BUS_OP_WRITE);
     cpu->SP--;
 }
 
@@ -727,7 +723,7 @@ static inline uint8_t pop8(CPU *cpu,
     uint16_t address = stack_addr(cpu);
     cpu->AR = address;
     return bus_read_bank8(cpu, memory, serial,
-                          SYSTEM_BANK, address, BUS_OP_READ);
+                          STACK_BANK, address, BUS_OP_READ);
 }
 
 static void trace_cpu_state(const char *frontend,
@@ -1665,7 +1661,6 @@ static void gui_backend_reset_emulation(void *ctx) {
      */
     memset(g->memory->rom, 0xFF, sizeof(g->memory->rom));
     memset(g->memory->ram, 0x00, sizeof(g->memory->ram));
-    memset(g->memory->stack, 0x00, sizeof(g->memory->stack));
     memset(g->memory->reserved, 0xFF, sizeof(g->memory->reserved));
 
     gui_cpu_reset_state(g);
@@ -1743,7 +1738,6 @@ static void gui_backend_set_power(void *ctx, bool on) {
         gui_cpu_reset_state(g);
         if (g->memory) {
             memset(g->memory->ram, 0x00, sizeof(g->memory->ram));
-            memset(g->memory->stack, 0x00, sizeof(g->memory->stack));
             memset(g->memory->reserved, 0xFF, sizeof(g->memory->reserved));
         }
 
@@ -1780,7 +1774,6 @@ static void gui_backend_reset(void *ctx) {
        EEPROM contents are intentionally preserved. */
     gui_cpu_reset_state(g);
     memset(g->memory->ram, 0x00, sizeof(g->memory->ram));
-    memset(g->memory->stack, 0x00, sizeof(g->memory->stack));
     memset(g->memory->reserved, 0xFF, sizeof(g->memory->reserved));
 
     g->panel_data_bus = 0x00;
@@ -2110,94 +2103,58 @@ static void gui_backend_cpu_snapshot(void *ctx, PPA1CpuSnapshot *out) {
     out->error = g->cpu->error;
 }
 
-static uint8_t gui_backend_memory_inspect(void *ctx,
-                                         uint16_t bank,
-                                         uint16_t address)
+static uint8_t gui_backend_memory_inspect(void *ctx, uint16_t bank, uint16_t address)
 {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->memory || !g->loaded) return 0xFF;
-
     if (bank <= ROM_BANK_LAST) {
-        uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
-        return g->memory->rom[physical];
+        uint32_t p = (uint32_t)bank * BANK_SIZE + address;
+        return p < ROM_SIZE ? g->memory->rom[p] : 0xFF;
     }
-
     if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
-        uint32_t physical =
-            (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
-        return g->memory->ram[physical];
+        uint32_t p = (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
+        return p < RAM_SIZE ? g->memory->ram[p] : 0xFF;
     }
-
     if (bank == SYSTEM_BANK) {
-        if (address >= STACK_PAGE && address <= 0xFEFFu) {
-            return g->memory->stack[address & 0x00FFu];
-        }
-
+        /* Do not consume serial RX when inspecting memory. */
         if (address >= SYSTEM_IO_START && address <= SYSTEM_IO_END) {
-            /*
-             * Inspector reads must be side-effect free. In particular, viewing
-             * FF01 must not consume RX_READY or remove a waiting UART byte.
-             */
             if (!g->serial || !g->serial->enabled) return 0;
-
             switch (address) {
-                case SERIAL_TX:      return 0;
-                case SERIAL_RX:      return g->serial->rx;
-                case SERIAL_STATUS:  return g->serial->status;
+                case SERIAL_TX: return 0;
+                case SERIAL_RX: return g->serial->rx;
+                case SERIAL_STATUS: return g->serial->status;
                 case SERIAL_CONTROL: return g->serial->control;
-                default:             return 0;
+                default: return 0;
             }
         }
-
-        if (address >= SYSTEM_RSVD_START) {
+        if (address >= SYSTEM_RSVD_START)
             return g->memory->reserved[address - SYSTEM_RSVD_START];
-        }
-
-        return 0xFF;
     }
-
     return 0xFF;
 }
 
-static bool gui_backend_memory_edit(void *ctx,
-                                    uint16_t bank,
-                                    uint16_t address,
-                                    uint8_t value)
+static bool gui_backend_memory_edit(void *ctx, uint16_t bank,
+                                    uint16_t address, uint8_t value)
 {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->memory || !g->loaded || g->powered) {
-        return false;
-    }
-
+    if (!g || !g->memory || !g->loaded || g->powered) return false;
     if (bank <= ROM_BANK_LAST) {
-        uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
-        g->memory->rom[physical] = value;
-        persist_rom_byte(g->memory, physical, value);
+        uint32_t p = (uint32_t)bank * BANK_SIZE + address;
+        if (p >= ROM_SIZE) return false;
+        g->memory->rom[p] = value;
+        persist_rom_byte(g->memory, p, value);
         return true;
     }
-
     if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
-        uint32_t physical =
-            (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
-        g->memory->ram[physical] = value;
+        uint32_t p = (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
+        if (p >= RAM_SIZE) return false;
+        g->memory->ram[p] = value;
         return true;
     }
-
-    if (bank == SYSTEM_BANK) {
-        if (address >= STACK_PAGE && address <= 0xFEFFu) {
-            g->memory->stack[address & 0x00FFu] = value;
-            return true;
-        }
-
-        if (address >= SYSTEM_RSVD_START) {
-            g->memory->reserved[address - SYSTEM_RSVD_START] = value;
-            return true;
-        }
-
-        /* FF00-FF7F is live I/O, and the unused SYSTEM area has no backing RAM. */
-        return false;
+    if (bank == SYSTEM_BANK && address >= SYSTEM_RSVD_START) {
+        g->memory->reserved[address - SYSTEM_RSVD_START] = value;
+        return true;
     }
-
     return false;
 }
 
