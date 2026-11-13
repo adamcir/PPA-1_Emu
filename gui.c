@@ -71,6 +71,11 @@ typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
     AuxKind kind;
+
+    uint16_t inspect_bank;
+    uint16_t inspect_address;
+    bool inspect_initialized;
+    bool inspect_follow_ar;
 } AuxWindow;
 
 typedef struct {
@@ -90,6 +95,14 @@ typedef struct {
 static const SDL_FRect PREF_LAMP_BUTTON = {24, 78, 512, 62};
 static const SDL_FRect PREF_AUTORUN_BUTTON = {24, 150, 512, 62};
 static const SDL_FRect PREF_PTY_BUTTON = {24, 222, 512, 62};
+
+static const SDL_FRect VIEW_FOLLOW_BUTTON = {24, 356, 120, 34};
+static const SDL_FRect VIEW_BANK_DEC      = {156, 356, 72, 34};
+static const SDL_FRect VIEW_BANK_INC      = {236, 356, 72, 34};
+static const SDL_FRect VIEW_ADDR_DEC      = {328, 356, 72, 34};
+static const SDL_FRect VIEW_ADDR_INC      = {408, 356, 72, 34};
+static const SDL_FRect VIEW_PAGE_DEC      = {500, 356, 72, 34};
+static const SDL_FRect VIEW_PAGE_INC      = {580, 356, 72, 34};
 
 static bool point_in_rect(float x, float y, const SDL_FRect *r) {
     return x >= r->x && y >= r->y && x < r->x + r->w && y < r->y + r->h;
@@ -698,6 +711,30 @@ static void terminal_put_byte(TerminalWindow *term, uint8_t value) {
     term->lines[term->line][term->col] = '\0';
 }
 
+static void terminal_clear(TerminalWindow *term) {
+    if (!term) return;
+    memset(term->lines, 0, sizeof(term->lines));
+    term->line = 0;
+    term->col = 0;
+}
+
+static SDL_FRect terminal_clear_button_rect(const TerminalWindow *term) {
+    int w = 680;
+    int h = 380;
+    if (term && term->window) {
+        SDL_GetWindowSize(term->window, &w, &h);
+    }
+    (void)h;
+
+    SDL_FRect rect = {
+        (float)w - 112.0f,
+        18.0f,
+        88.0f,
+        34.0f
+    };
+    return rect;
+}
+
 static bool open_terminal(TerminalWindow *term,
                           const PPA1GuiBackend *backend)
 {
@@ -779,6 +816,10 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     draw_aux_header(term->renderer, fonts,
                     "UART MONITOR",
                     "FF00 TX / FF01 RX");
+
+    draw_menu_button(term->renderer, fonts,
+                     terminal_clear_button_rect(term),
+                     "CLEAR");
 
     /*
      * Terminal body stays strictly monospaced so character columns align,
@@ -908,7 +949,8 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
 
     } else if (aux->kind == AUX_VIEW) {
         draw_aux_header(r, fonts, "PROCESSOR VIEW",
-                        "LIVE FRONT-PANEL TELEMETRY");
+                        "LIVE CPU STATE / REGISTERS / MEMORY");
+
         bool loaded = backend->is_loaded(backend->ctx);
         bool power = backend->is_powered(backend->ctx);
         bool running = backend->is_running(backend->ctx);
@@ -916,23 +958,135 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         bool error = backend->is_error
             ? backend->is_error(backend->ctx)
             : false;
-        char line[128];
 
-        snprintf(line, sizeof(line), "Image loaded: %s", loaded ? "YES" : "NO");
-        draw_text(r, fonts->small, 24, 76, muted, line);
-        snprintf(line, sizeof(line), "Power: %s", power ? "ON" : "OFF");
-        draw_text(r, fonts->small, 24, 102, muted, line);
-        snprintf(line, sizeof(line), "Run state: %s", running ? "RUNNING" : "STOPPED");
-        draw_text(r, fonts->small, 24, 128, muted, line);
-        snprintf(line, sizeof(line), "HALT: %s",
-                 (halted && !error) ? "ACTIVE" : "CLEAR");
-        draw_text(r, fonts->small, 24, 154, muted, line);
-        snprintf(line, sizeof(line), "ERROR: %s", error ? "ACTIVE" : "CLEAR");
-        draw_text(r, fonts->small, 220, 154, muted, line);
-        snprintf(line, sizeof(line), "ADDRESS BUS: %04X", backend->address_bus(backend->ctx));
-        draw_text(r, fonts->small, 24, 196, cream, line);
-        snprintf(line, sizeof(line), "DATA BUS: %02X", backend->data_bus(backend->ctx));
-        draw_text(r, fonts->small, 24, 222, cream, line);
+        PPA1CpuSnapshot cpu = {0};
+        if (backend->cpu_snapshot) {
+            backend->cpu_snapshot(backend->ctx, &cpu);
+        }
+
+        if (!aux->inspect_initialized) {
+            aux->inspect_initialized = true;
+            aux->inspect_follow_ar = true;
+            aux->inspect_bank = cpu.BR;
+            aux->inspect_address = cpu.AR;
+        }
+
+        if (aux->inspect_follow_ar) {
+            aux->inspect_bank = cpu.BR;
+            aux->inspect_address = cpu.AR;
+        }
+
+        char line[256];
+
+        draw_text(r, fonts->label, 24, 82, cream, "STATE");
+        snprintf(line, sizeof(line),
+                 "IMAGE=%s  POWER=%s  RUN=%s  HALT=%s  ERROR=%s",
+                 loaded ? "YES" : "NO",
+                 power ? "ON" : "OFF",
+                 running ? "RUNNING" : "STOPPED",
+                 (halted && !error) ? "ACTIVE" : "CLEAR",
+                 error ? "ACTIVE" : "CLEAR");
+        draw_text(r, fonts->mono, 24, 106, muted, line);
+
+        draw_text(r, fonts->label, 24, 142, cream,
+                  "PROGRAMMER REGISTERS");
+        snprintf(line, sizeof(line),
+                 "A=%02X  B=%02X  C=%02X  D=%02X    X=%04X  Y=%04X  BR=%04X",
+                 cpu.A, cpu.B, cpu.C, cpu.D,
+                 cpu.X, cpu.Y, cpu.BR);
+        draw_text(r, fonts->mono, 24, 166, cream, line);
+
+        snprintf(line, sizeof(line),
+                 "PC=%04X  AR=%04X  SP=%02X  SR=%02X    ZERO=%d  CARRY=%d",
+                 cpu.PC, cpu.AR, cpu.SP, cpu.SR,
+                 (cpu.SR & 0x01u) ? 1 : 0,
+                 (cpu.SR & 0x02u) ? 1 : 0);
+        draw_text(r, fonts->mono, 24, 190, cream, line);
+
+        draw_text(r, fonts->label, 24, 226, cream,
+                  "CONTROL / MICROSTATE");
+        snprintf(line, sizeof(line),
+                 "IR=%02X  STEP=%02X  AOS=%02X  IMM=%02X  DST=%02X  RS=%02X",
+                 cpu.IR, cpu.STEP, cpu.AOS,
+                 cpu.IMM, cpu.DST, cpu.RS);
+        draw_text(r, fonts->mono, 24, 250, muted, line);
+
+        snprintf(line, sizeof(line),
+                 "AAR=%02X  ABR=%02X    ADDRESS BUS=%04X  DATA BUS=%02X",
+                 cpu.AAR, cpu.ABR,
+                 backend->address_bus(backend->ctx),
+                 backend->data_bus(backend->ctx));
+        draw_text(r, fonts->mono, 24, 274, muted, line);
+
+        SDL_SetRenderDrawColor(r, 73, 77, 74, 255);
+        SDL_RenderLine(r, 24, 314, 736, 314);
+
+        draw_text(r, fonts->label, 24, 326, cream,
+                  "MEMORY INSPECT");
+
+        char follow_label[32];
+        snprintf(follow_label, sizeof(follow_label),
+                 "FOLLOW AR %s",
+                 aux->inspect_follow_ar ? "ON" : "OFF");
+        draw_menu_button(r, fonts, VIEW_FOLLOW_BUTTON, follow_label);
+        draw_menu_button(r, fonts, VIEW_BANK_DEC, "BANK -");
+        draw_menu_button(r, fonts, VIEW_BANK_INC, "BANK +");
+        draw_menu_button(r, fonts, VIEW_ADDR_DEC, "ADDR -");
+        draw_menu_button(r, fonts, VIEW_ADDR_INC, "ADDR +");
+        draw_menu_button(r, fonts, VIEW_PAGE_DEC, "PAGE -");
+        draw_menu_button(r, fonts, VIEW_PAGE_INC, "PAGE +");
+
+        const char *bank_type = "INVALID";
+        if (aux->inspect_bank <= 0x003Fu) {
+            bank_type = "EEPROM";
+        } else if (aux->inspect_bank <= 0x004Fu) {
+            bank_type = "RAM";
+        } else if (aux->inspect_bank == 0x0050u) {
+            bank_type = "SYSTEM";
+        }
+
+        uint8_t current_value = backend->memory_inspect
+            ? backend->memory_inspect(
+                  backend->ctx,
+                  aux->inspect_bank,
+                  aux->inspect_address)
+            : 0xFF;
+
+        snprintf(line, sizeof(line),
+                 "BANK=%04X (%s)  ADDRESS=%04X  VALUE=%02X",
+                 aux->inspect_bank, bank_type,
+                 aux->inspect_address, current_value);
+        draw_text(r, fonts->mono, 24, 408, COL_BLUE, line);
+
+        SDL_FRect mem_box = {24, 434, 712, 126};
+        SDL_SetRenderDrawColor(r, 22, 24, 24, 255);
+        SDL_RenderFillRect(r, &mem_box);
+        SDL_SetRenderDrawColor(r, 63, 67, 64, 255);
+        SDL_RenderRect(r, &mem_box);
+
+        for (int row = 0; row < 4; row++) {
+            uint16_t row_addr =
+                (uint16_t)(aux->inspect_address + row * 16);
+
+            int off = snprintf(line, sizeof(line), "%04X: ", row_addr);
+            for (int col = 0; col < 16 && off < (int)sizeof(line) - 4; col++) {
+                uint16_t addr = (uint16_t)(row_addr + col);
+                uint8_t v = backend->memory_inspect
+                    ? backend->memory_inspect(
+                          backend->ctx,
+                          aux->inspect_bank,
+                          addr)
+                    : 0xFF;
+                off += snprintf(line + off, sizeof(line) - (size_t)off,
+                                "%02X ", v);
+            }
+
+            draw_text(r, fonts->mono, 36, 446.0f + row * 25.0f,
+                      (SDL_Color){201, 230, 208, 255}, line);
+        }
+
+        draw_text(r, fonts->small, 24, 578, muted,
+                  "ADDR +/- = 1 byte   PAGE +/- = 64 bytes   inspector reads are side-effect free.");
     } else if (aux->kind == AUX_LOG) {
         draw_aux_header(r, fonts, "LATEST.LOG",
                         "LIVE EMULATOR TRACE");
@@ -1431,7 +1585,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                                      "PPA-1 Preferences", 560, 380);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_view)) {
-                            open_aux(&view_window, AUX_VIEW, "PPA-1 Processor View", 520, 330);
+                            open_aux(&view_window, AUX_VIEW,
+                                     "PPA-1 Processor View", 760, 610);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_log)) {
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
@@ -1649,6 +1804,56 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 }
                             }
                         }
+                    }
+                } else if (view_window.window &&
+                           id == SDL_GetWindowID(view_window.window) &&
+                           event.button.button == SDL_BUTTON_LEFT) {
+                    float x = event.button.x;
+                    float y = event.button.y;
+
+                    if (point_in_rect(x, y, &VIEW_FOLLOW_BUTTON)) {
+                        view_window.inspect_follow_ar =
+                            !view_window.inspect_follow_ar;
+                    } else if (point_in_rect(x, y, &VIEW_BANK_DEC)) {
+                        view_window.inspect_follow_ar = false;
+                        view_window.inspect_bank =
+                            view_window.inspect_bank == 0
+                                ? 0x0050u
+                                : (uint16_t)(view_window.inspect_bank - 1u);
+                    } else if (point_in_rect(x, y, &VIEW_BANK_INC)) {
+                        view_window.inspect_follow_ar = false;
+                        view_window.inspect_bank =
+                            view_window.inspect_bank >= 0x0050u
+                                ? 0
+                                : (uint16_t)(view_window.inspect_bank + 1u);
+                    } else if (point_in_rect(x, y, &VIEW_ADDR_DEC)) {
+                        view_window.inspect_follow_ar = false;
+                        view_window.inspect_address =
+                            (uint16_t)(view_window.inspect_address - 1u);
+                    } else if (point_in_rect(x, y, &VIEW_ADDR_INC)) {
+                        view_window.inspect_follow_ar = false;
+                        view_window.inspect_address =
+                            (uint16_t)(view_window.inspect_address + 1u);
+                    } else if (point_in_rect(x, y, &VIEW_PAGE_DEC)) {
+                        view_window.inspect_follow_ar = false;
+                        view_window.inspect_address =
+                            (uint16_t)(view_window.inspect_address - 0x40u);
+                    } else if (point_in_rect(x, y, &VIEW_PAGE_INC)) {
+                        view_window.inspect_follow_ar = false;
+                        view_window.inspect_address =
+                            (uint16_t)(view_window.inspect_address + 0x40u);
+                    }
+                } else if (uart_terminal.window &&
+                           id == SDL_GetWindowID(uart_terminal.window) &&
+                           event.button.button == SDL_BUTTON_LEFT) {
+                    SDL_FRect clear_button =
+                        terminal_clear_button_rect(&uart_terminal);
+                    if (point_in_rect(
+                            event.button.x, event.button.y,
+                            &clear_button)) {
+                        terminal_clear(&uart_terminal);
+                        ppa_log_printf(
+                            "GUI: UART monitor display cleared.\n");
                     }
                 } else if (prefs_window.window &&
                            id == SDL_GetWindowID(prefs_window.window) &&
