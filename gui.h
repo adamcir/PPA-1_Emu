@@ -32,6 +32,7 @@ typedef struct {
     bool (*detach_image)(void *ctx);
     bool (*export_image)(void *ctx, const char *path);
     bool (*is_image_attached)(void *ctx);
+    const char *(*image_path)(void *ctx);
     void (*set_power)(void *ctx, bool on);
     void (*set_running)(void *ctx, bool running);
     void (*reset)(void *ctx);
