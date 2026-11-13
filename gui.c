@@ -613,11 +613,19 @@ static void draw_toggle(SDL_Renderer *r, PanelFonts *fonts,
 
     if (texture) {
         /*
-         * Source artwork is 112x192 (4x). Render at 28x48 logical pixels.
-         * Keeping the full transparent canvas preserves the common pivot
-         * position between the UP and DOWN artwork.
+         * Source artwork is 112x192. Render it larger than the original
+         * procedural switch while keeping the mechanical pivot fixed at
+         * x+13, y+42. The transparent canvas may overlap neighbouring slots,
+         * but the visible switch remains comfortably inside the 31 px pitch.
          */
-        SDL_FRect dst = {x - 1.0f, y + 18.0f, 28.0f, 48.0f};
+        const float switch_w = 36.0f;
+        const float switch_h = 62.0f;
+        SDL_FRect dst = {
+            (x + 13.0f) - switch_w * 0.5f,
+            (y + 42.0f) - switch_h * 0.5f,
+            switch_w,
+            switch_h
+        };
         SDL_RenderTexture(r, texture, NULL, &dst);
         return;
     }
