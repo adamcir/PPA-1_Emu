@@ -1727,12 +1727,6 @@ static bool gui_backend_is_image_attached(void *ctx) {
     return g && g->memory && g->memory->rom_file != NULL;
 }
 
-static const char *gui_backend_image_path(void *ctx) {
-    GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->memory || !g->memory->rom_file) return "";
-    return g->memory->rom_path;
-}
-
 static void gui_backend_set_power(void *ctx, bool on) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g) return;
@@ -2294,7 +2288,6 @@ int main(int argc, char **argv) {
             .reset_emulation = gui_backend_reset_emulation,
             .export_image = gui_backend_export_image,
             .is_image_attached = gui_backend_is_image_attached,
-            .image_path = gui_backend_image_path,
             .set_power = gui_backend_set_power,
             .set_running = gui_backend_set_running,
             .reset = gui_backend_reset,
