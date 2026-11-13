@@ -26,6 +26,16 @@ typedef struct {
 } PPA1CpuSnapshot;
 
 typedef struct {
+    bool installed;
+    bool active;
+    bool light_on;
+    uint16_t type;
+    uint32_t cycles_remaining;
+    char name[64];
+    char path[1024];
+} PPA1ModuleInfo;
+
+typedef struct {
     void *ctx;
 
     bool (*load_rom)(void *ctx, const char *path);
@@ -71,6 +81,10 @@ typedef struct {
     void (*cpu_snapshot)(void *ctx, PPA1CpuSnapshot *out);
     uint32_t (*memory_size)(void *ctx, bool rom);
     bool (*set_memory_size)(void *ctx, bool rom, uint32_t size);
+    bool (*module_load)(void *ctx, int slot, const char *path);
+    bool (*module_eject)(void *ctx, int slot);
+    bool (*module_activate)(void *ctx, int slot, bool active);
+    bool (*module_info)(void *ctx, int slot, PPA1ModuleInfo *out);
     uint8_t (*memory_inspect)(void *ctx, uint16_t bank, uint16_t address);
     bool (*memory_edit)(void *ctx, uint16_t bank, uint16_t address, uint8_t value);
 } PPA1GuiBackend;

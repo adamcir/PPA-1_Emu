@@ -10,7 +10,7 @@ SDL3_IMAGE_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(SDL3_IMAGE_PKG) 2>/dev/nul
 SDL3_IMAGE_LIBS := $(shell $(PKG_CONFIG) --libs $(SDL3_IMAGE_PKG) 2>/dev/null)
 
 EMU = out/PPA-1_Emu
-SRC = main.c logger.c gui.c
+SRC = main.c logger.c gui.c src/ppa_module.c
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 

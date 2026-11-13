@@ -20,6 +20,7 @@
 
 #include "logger.h"
 #include "gui.h"
+#include "src/ppa_module.h"
 
 /* Mirror the emulator's existing printf-based diagnostics to latest.log. */
 #define printf(...) ppa_log_printf(__VA_ARGS__)
@@ -39,6 +40,8 @@
 #define STACK_BANK       RAM_BANK_FIRST
 /* Slots 2000-9FFF; free A000-EFFF; I/O F000-FFFF. */
 #define STACK_PAGE       0xFE00u
+
+static PpaModuleBus g_ppa_modules;
 #define SYSTEM_IO_START  0xFF00u
 #define SYSTEM_IO_END    0xFF7Fu
 #define SYSTEM_RSVD_START 0xFF80u
@@ -641,6 +644,8 @@ static uint8_t bus_read_bank8(CPU *cpu,
         uint32_t physical =
             (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
         if (physical < memory->ram_size) value = memory->ram[physical];
+    } else if (bank >= 0x2000u && bank <= 0x9FFFu) {
+        value = ppam_read(&g_ppa_modules, bank, address);
     } else if (bank == SYSTEM_BANK) {
         value = system_read8(memory, serial, address);
     }
@@ -667,6 +672,8 @@ static void bus_write_bank8(CPU *cpu,
         uint32_t physical =
             (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
         if (physical < memory->ram_size) memory->ram[physical] = value;
+    } else if (bank >= 0x2000u && bank <= 0x9FFFu) {
+        ppam_write(&g_ppa_modules, bank, address, value);
     } else if (bank == SYSTEM_BANK) {
         system_write8(memory, serial, address, value);
     }
@@ -1049,7 +1056,7 @@ static inline void cpu_fault(CPU *cpu) {
     cpu->halted = true;
 }
 
-static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
+static bool cpu_microstep_impl(CPU *cpu, Memory *memory, Serial *serial) {
     if (cpu->halted) return true;
 
     if (cpu->STEP == 0) {
@@ -1599,6 +1606,12 @@ static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
     return true;
 }
 
+static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
+    bool complete = cpu_microstep_impl(cpu, memory, serial);
+    ppam_tick(&g_ppa_modules, 1u);
+    return complete;
+}
+
 static int cpu_execute_instruction(CPU *cpu, Memory *memory, Serial *serial) {
     if (cpu->halted) return 0;
 
@@ -1635,6 +1648,7 @@ static void gui_cpu_reset_state(GuiBackendContext *g) {
     g->cpu->halted = false;
     g->microcycle_count = 0;
     g->instruction_count = 0;
+    ppam_reset(&g_ppa_modules);
 }
 
 static void gui_dump_cpu_state(const GuiBackendContext *g,
@@ -1645,6 +1659,36 @@ static void gui_dump_cpu_state(const GuiBackendContext *g,
                     g->instruction_count,
                     g->microcycle_count,
                     g->cpu);
+}
+
+static bool gui_backend_module_load(void *ctx, int slot, const char *path) {
+    GuiBackendContext *g = ctx;
+    return g && !g->powered && ppam_load(&g_ppa_modules, slot, path);
+}
+static bool gui_backend_module_eject(void *ctx, int slot) {
+    GuiBackendContext *g = ctx;
+    if (!g || g->powered || slot < 0 || slot >= PPAM_SLOTS) return false;
+    ppam_eject(&g_ppa_modules, slot);
+    return true;
+}
+static bool gui_backend_module_activate(void *ctx, int slot, bool enabled) {
+    GuiBackendContext *g = ctx;
+    return g && !g->powered &&
+        ppam_set_active(&g_ppa_modules, slot, enabled);
+}
+static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
+    (void)ctx;
+    const PpaModule *m = ppam_get(&g_ppa_modules, slot);
+    if (!m || !out) return false;
+    memset(out, 0, sizeof(*out));
+    out->installed = m->installed;
+    out->active = m->active;
+    out->light_on = m->light_on;
+    out->type = m->type;
+    out->cycles_remaining = m->remaining_cycles;
+    snprintf(out->name, sizeof(out->name), "%s", m->name);
+    snprintf(out->path, sizeof(out->path), "%s", m->path);
+    return true;
 }
 
 static bool gui_backend_load_rom(void *ctx, const char *path) {
@@ -2173,6 +2217,8 @@ static uint8_t gui_backend_memory_inspect(void *ctx, uint16_t bank, uint16_t add
 {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->memory || !g->loaded) return 0xFF;
+    if (bank >= 0x2000u && bank <= 0x9FFFu)
+        return ppam_read(&g_ppa_modules, bank, address);
     if (bank <= ROM_BANK_LAST) {
         uint32_t p = (uint32_t)bank * BANK_SIZE + address;
         return p < g->memory->rom_size ? g->memory->rom[p] : 0xFF;
@@ -2204,6 +2250,10 @@ static bool gui_backend_memory_edit(void *ctx, uint16_t bank,
 {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->memory || !g->loaded || g->powered) return false;
+    if (bank >= 0x2000u && bank <= 0x9FFFu) {
+        ppam_write(&g_ppa_modules, bank, address, value);
+        return true;
+    }
     if (bank <= ROM_BANK_LAST) {
         uint32_t p = (uint32_t)bank * BANK_SIZE + address;
         if (p >= g->memory->rom_size) return false;
@@ -2362,6 +2412,7 @@ int main(int argc, char **argv) {
     Memory memory = {0};
     Serial serial = {0};
 
+    ppam_bus_init(&g_ppa_modules);
     memory_init_blank(&memory);
 
     serial.master_fd = -1;
@@ -2496,6 +2547,10 @@ int main(int argc, char **argv) {
             .cpu_snapshot = gui_backend_cpu_snapshot,
             .memory_size = gui_backend_memory_size,
             .set_memory_size = gui_backend_set_memory_size,
+            .module_load = gui_backend_module_load,
+            .module_eject = gui_backend_module_eject,
+            .module_activate = gui_backend_module_activate,
+            .module_info = gui_backend_module_info,
             .memory_inspect = gui_backend_memory_inspect,
             .memory_edit = gui_backend_memory_edit
         };
