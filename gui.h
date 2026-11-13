@@ -15,6 +15,12 @@ typedef struct {
     uint16_t X, Y, BR;
     uint8_t IMM, DST, STEP, AOS, AAR, ABR, RS, IR, SR, SP;
     uint16_t AR, PC;
+
+    uint16_t bus_address;
+    uint16_t bus_bank;
+    uint8_t bus_data;
+    uint8_t bus_operation;
+
     bool halted;
     bool error;
 } PPA1CpuSnapshot;
@@ -56,6 +62,7 @@ typedef struct {
     bool (*is_error)(void *ctx);
 
     uint16_t (*address_bus)(void *ctx);
+    uint16_t (*bank_bus)(void *ctx);
     uint8_t (*data_bus)(void *ctx);
     uint8_t (*status_register)(void *ctx);
     uint8_t (*register_value)(void *ctx, int selector);
