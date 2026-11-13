@@ -99,6 +99,7 @@ typedef struct {
 
     int line;
     int col;
+    int max_line;
 
     uint8_t current_color;
     uint8_t ansi_state;
@@ -853,6 +854,9 @@ static void terminal_set_cursor(TerminalWindow *term, int row, int col) {
 
     term->line = row;
     term->col = col;
+    if (term->line > term->max_line) {
+        term->max_line = term->line;
+    }
 
     size_t len = strlen(term->lines[term->line]);
     if ((size_t)term->col > len) {
@@ -1005,6 +1009,9 @@ static void terminal_new_line(TerminalWindow *term) {
         memmove(term->colors[0], term->colors[1],
                 sizeof(term->colors[0]) * (TERM_LINES - 1));
         term->line = TERM_LINES - 1;
+        term->max_line = TERM_LINES - 1;
+    } else if (term->line > term->max_line) {
+        term->max_line = term->line;
     }
 
     memset(term->lines[term->line], 0, sizeof(term->lines[term->line]));
@@ -1091,6 +1098,9 @@ static void terminal_put_byte(TerminalWindow *term, uint8_t value) {
 
     term->lines[term->line][term->col] = (char)value;
     term->colors[term->line][term->col] = term->current_color;
+    if (term->line > term->max_line) {
+        term->max_line = term->line;
+    }
     term->col++;
     term->lines[term->line][term->col] = '\0';
 }
@@ -1102,6 +1112,7 @@ static void terminal_clear(TerminalWindow *term) {
     memset(term->colors, 0, sizeof(term->colors));
     term->line = 0;
     term->col = 0;
+    term->max_line = 0;
     term->ansi_state = 0;
     term->csi_len = 0;
 }
@@ -1218,8 +1229,16 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     if (visible < 1) visible = 1;
     if (visible > TERM_LINES) visible = TERM_LINES;
 
-    int start = term->line - visible + 1;
+    int start = term->max_line - visible + 1;
     if (start < 0) start = 0;
+
+    /*
+     * If ANSI moved the cursor above the automatic scroll window, keep the
+     * cursor visible without discarding lines below it.
+     */
+    if (term->line < start) {
+        start = term->line;
+    }
 
     SDL_FRect body = {
         24.0f, 78.0f,
@@ -1239,7 +1258,11 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     const float terminal_line_h = 18.0f;
 
     float y = terminal_text_y;
-    for (int line = start; line <= term->line && line < TERM_LINES; line++) {
+    int last_visible = start + visible - 1;
+    if (last_visible > term->max_line) last_visible = term->max_line;
+    if (last_visible >= TERM_LINES) last_visible = TERM_LINES - 1;
+
+    for (int line = start; line <= last_visible; line++) {
         terminal_draw_colored_line(
             term->renderer, fonts->mono,
             terminal_text_x, y, term, line);
