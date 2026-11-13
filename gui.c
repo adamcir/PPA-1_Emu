@@ -2682,7 +2682,11 @@ int ppa_gui_run_panel(const char *initial_rom,
                  * the wall-clock budget often enough to keep SDL responsive.
                  */
                 do {
-                    backend->tick(backend->ctx, 4096);
+                    if (backend->tick_turbo) {
+                        backend->tick_turbo(backend->ctx, 4096);
+                    } else {
+                        backend->tick(backend->ctx, 4096);
+                    }
                     turbo_chunks++;
 
                     if (!backend->is_running(backend->ctx) ||
