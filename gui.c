@@ -506,6 +506,74 @@ static void destroy_toggle_textures(ToggleTextures *textures) {
     textures->down = NULL;
 }
 
+static SDL_Texture *load_panel_texture(SDL_Renderer *renderer,
+                                       const char *relative_path)
+{
+    if (!renderer || !relative_path || !*relative_path) return NULL;
+
+    char path[2048];
+    const char *base = SDL_GetBasePath();
+
+    if (base && *base) {
+        snprintf(path, sizeof(path), "%s%s", base, relative_path);
+    } else {
+        snprintf(path, sizeof(path), "%s", relative_path);
+    }
+
+    SDL_Surface *surface = IMG_Load(path);
+
+    /*
+     * Development fallback: if someone runs a binary from the repository
+     * before assets have been copied next to it, also try the CWD path.
+     */
+    if (!surface && base && *base) {
+        surface = IMG_Load(relative_path);
+        if (surface) {
+            snprintf(path, sizeof(path), "%s", relative_path);
+        }
+    }
+
+    if (!surface) {
+        ppa_log_printf(
+            "GUI: failed to load texture %s: %s\n",
+            path, SDL_GetError());
+        return NULL;
+    }
+
+    /*
+     * Current switch artwork was exported as RGB PNG (no alpha channel).
+     * In that case treat pure black as transparent. If the artwork is later
+     * re-exported as RGBA, keep its real alpha instead and do not color-key it.
+     */
+    if (!SDL_ISPIXELFORMAT_ALPHA(surface->format)) {
+        Uint32 black = SDL_MapSurfaceRGB(surface, 0, 0, 0);
+        if (!SDL_SetSurfaceColorKey(surface, true, black)) {
+            ppa_log_printf(
+                "GUI: failed to apply black transparency key to %s: %s\n",
+                path, SDL_GetError());
+        } else {
+            ppa_log_printf(
+                "GUI: %s has no alpha; using black as transparent color key.\n",
+                path);
+        }
+    }
+
+    SDL_Texture *texture =
+        SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+
+    if (!texture) {
+        ppa_log_printf(
+            "GUI: failed to create texture from %s: %s\n",
+            path, SDL_GetError());
+        return NULL;
+    }
+
+    SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+    return texture;
+}
+
 static bool load_toggle_textures(SDL_Renderer *renderer,
                                  ToggleTextures *textures)
 {
@@ -513,25 +581,20 @@ static bool load_toggle_textures(SDL_Renderer *renderer,
 
     destroy_toggle_textures(textures);
 
-    textures->up = IMG_LoadTexture(
+    textures->up = load_panel_texture(
         renderer, "assets/textures/switch_up.png");
-    textures->down = IMG_LoadTexture(
+    textures->down = load_panel_texture(
         renderer, "assets/textures/switch_down.png");
 
     if (!textures->up || !textures->down) {
         ppa_log_printf(
-            "GUI: switch textures unavailable; using procedural fallback: %s\n",
-            SDL_GetError());
+            "GUI: switch textures unavailable; using procedural fallback.\n");
         destroy_toggle_textures(textures);
         return false;
     }
 
-    SDL_SetTextureScaleMode(textures->up, SDL_SCALEMODE_LINEAR);
-    SDL_SetTextureScaleMode(textures->down, SDL_SCALEMODE_LINEAR);
-
     ppa_log_printf(
-        "GUI: loaded switch textures "
-        "assets/textures/switch_up.png and switch_down.png\n");
+        "GUI: loaded switch textures from executable assets directory.\n");
     return true;
 }
 
