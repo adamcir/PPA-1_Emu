@@ -23,6 +23,8 @@ out:
 
 emu: out
 	$(CC) $(SDL3_CFLAGS) $(SDL3_TTF_CFLAGS) $(SDL3_IMAGE_CFLAGS) $(SRC) -o $(EMU) $(SDL3_LIBS) $(SDL3_TTF_LIBS) $(SDL3_IMAGE_LIBS) -lm
+	rm -rf out/assets
+	cp -a assets out/assets
 
 asm: out
 	$(CC) $(ASM_SRC) -o $(ASM)
