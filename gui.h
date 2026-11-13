@@ -69,6 +69,8 @@ typedef struct {
     uint8_t (*register_value)(void *ctx, int selector);
 
     void (*cpu_snapshot)(void *ctx, PPA1CpuSnapshot *out);
+    uint32_t (*memory_size)(void *ctx, bool rom);
+    bool (*set_memory_size)(void *ctx, bool rom, uint32_t size);
     uint8_t (*memory_inspect)(void *ctx, uint16_t bank, uint16_t address);
     bool (*memory_edit)(void *ctx, uint16_t bank, uint16_t address, uint8_t value);
 } PPA1GuiBackend;

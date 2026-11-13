@@ -124,11 +124,17 @@ typedef struct {
     bool auto_run;
     bool lamp_test;
     bool tty_requested;
+    char rom_bytes[16];
+    char ram_bytes[16];
+    int editing_memory; /* 0 = none, 1 = EEPROM, 2 = RAM */
+    bool memory_size_error;
 } Preferences;
 
 static const SDL_FRect PREF_LAMP_BUTTON = {24, 78, 512, 62};
 static const SDL_FRect PREF_AUTORUN_BUTTON = {24, 150, 512, 62};
 static const SDL_FRect PREF_PTY_BUTTON = {24, 222, 512, 62};
+static const SDL_FRect PREF_ROM_SIZE = {24, 350, 250, 48};
+static const SDL_FRect PREF_RAM_SIZE = {286, 350, 250, 48};
 
 static const SDL_FRect VIEW_FOLLOW_BUTTON = {24, 356, 120, 34};
 static const SDL_FRect VIEW_BANK_DEC      = {156, 356, 72, 34};
@@ -1601,7 +1607,25 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->mono, 24, 302,
                   pty_on ? COL_BLUE : muted, pty_line);
         draw_text(r, fonts->small, 24, 329, muted,
-                  "Changes apply immediately.");
+                  "Memory sizes: 1 to 2097152 bytes (2 MiB). PWR OFF required.");
+
+        draw_text(r, fonts->small, 24, 407, muted, "EEPROM BYTES");
+        draw_text(r, fonts->small, 286, 407, muted, "RAM BYTES");
+        draw_menu_button(r, fonts, PREF_ROM_SIZE, prefs->rom_bytes);
+        draw_menu_button(r, fonts, PREF_RAM_SIZE, prefs->ram_bytes);
+        if (prefs->editing_memory) {
+            SDL_FRect selected = prefs->editing_memory == 1
+                ? PREF_ROM_SIZE : PREF_RAM_SIZE;
+            SDL_SetRenderDrawColor(r, 244, 169, 59, 255);
+            SDL_RenderRect(r, &selected);
+        }
+        draw_text(r, fonts->small, 24, 442,
+                  prefs->memory_size_error ? COL_RED : muted,
+                  prefs->memory_size_error
+                      ? "Rejected: PWR OFF, valid size and attached image fit required."
+                      : "Click value, type decimal bytes, Enter to apply. Stack = final 256 RAM bytes.");
+        draw_text(r, fonts->small, 24, 469, muted,
+                  "With RAM below 256 bytes, stack instructions raise ERROR.");
 
     } else if (aux->kind == AUX_VIEW) {
         draw_aux_header(r, fonts, "PROCESSOR VIEW",
@@ -2093,6 +2117,12 @@ int ppa_gui_run_panel(const char *initial_rom,
     if (backend->is_tty_enabled) {
         prefs.tty_requested = backend->is_tty_enabled(backend->ctx);
     }
+    snprintf(prefs.rom_bytes, sizeof(prefs.rom_bytes), "%u",
+             (unsigned)(backend->memory_size
+                 ? backend->memory_size(backend->ctx, true) : 2097152u));
+    snprintf(prefs.ram_bytes, sizeof(prefs.ram_bytes), "%u",
+             (unsigned)(backend->memory_size
+                 ? backend->memory_size(backend->ctx, false) : 2097152u));
 
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
@@ -2284,6 +2314,49 @@ int ppa_gui_run_panel(const char *initial_rom,
                 continue;
             }
 
+
+            if (prefs_window.window &&
+                event.type == SDL_EVENT_TEXT_INPUT &&
+                event.text.windowID == SDL_GetWindowID(prefs_window.window) &&
+                prefs.editing_memory) {
+                char *input = prefs.editing_memory == 1
+                    ? prefs.rom_bytes : prefs.ram_bytes;
+                const char *p = event.text.text;
+                while (*p) {
+                    char ch = *p++;
+                    size_t n = strlen(input);
+                    if (ch >= '0' && ch <= '9' && n < 7) {
+                        input[n] = ch;
+                        input[n+1] = '\0';
+                    }
+                }
+                continue;
+            }
+            if (prefs_window.window &&
+                event.type == SDL_EVENT_KEY_DOWN &&
+                event.key.windowID == SDL_GetWindowID(prefs_window.window) &&
+                prefs.editing_memory) {
+                char *input = prefs.editing_memory == 1
+                    ? prefs.rom_bytes : prefs.ram_bytes;
+                if (event.key.key == SDLK_BACKSPACE) {
+                    size_t n = strlen(input);
+                    if (n) input[n-1] = '\0';
+                } else if (event.key.key == SDLK_ESCAPE) {
+                    prefs.editing_memory = 0;
+                } else if (event.key.key == SDLK_RETURN ||
+                           event.key.key == SDLK_KP_ENTER) {
+                    bool rom = prefs.editing_memory == 1;
+                    char *end = NULL;
+                    unsigned long size = strtoul(input, &end, 10);
+                    bool valid = input[0] && end && !*end &&
+                        size >= 1 && size <= 2097152u;
+                    bool applied = valid && backend->set_memory_size &&
+                        backend->set_memory_size(backend->ctx, rom, (uint32_t)size);
+                    prefs.memory_size_error = !applied;
+                    if (applied) prefs.editing_memory = 0;
+                }
+                continue;
+            }
             if (uart_terminal.window &&
                 event.type == SDL_EVENT_TEXT_INPUT &&
                 event.text.windowID == SDL_GetWindowID(uart_terminal.window)) {
@@ -2521,7 +2594,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_pref)) {
                             open_aux(&prefs_window, AUX_PREFERENCES,
-                                     "PPA-1 Preferences", 560, 380);
+                                     "PPA-1 Preferences", 560, 510);
                             continue;
                         } else if (point_in_rect(wx, wy, &menu_view)) {
                             open_aux(&view_window, AUX_VIEW,
@@ -2861,7 +2934,14 @@ int ppa_gui_run_panel(const char *initial_rom,
                     float x = event.button.x;
                     float y = event.button.y;
 
-                    if (point_in_rect(x, y, &PREF_LAMP_BUTTON)) {
+                    if (point_in_rect(x, y, &PREF_ROM_SIZE) ||
+                        point_in_rect(x, y, &PREF_RAM_SIZE)) {
+                        prefs.editing_memory =
+                            point_in_rect(x, y, &PREF_ROM_SIZE) ? 1 : 2;
+                        prefs.memory_size_error = false;
+                        (prefs.editing_memory == 1
+                            ? prefs.rom_bytes : prefs.ram_bytes)[0] = '\0';
+                    } else if (point_in_rect(x, y, &PREF_LAMP_BUTTON)) {
                         prefs.lamp_test = !prefs.lamp_test;
                         ppa_log_printf("GUI: Lamp test -> %s\n",
                                        prefs.lamp_test ? "ON" : "OFF");

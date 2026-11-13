@@ -19,7 +19,7 @@
 #define MAX_SYMBOLS      1024
 #define MAX_NAME_LEN     64
 #define BANK_SIZE        0x10000u
-#define ROM_BANK_COUNT   0x40u
+#define ROM_BANK_COUNT   0x20u
 #define ROM_IMAGE_SIZE   (BANK_SIZE * ROM_BANK_COUNT)
 
 #ifndef PATH_MAX
@@ -47,7 +47,7 @@ typedef struct {
 
     uint8_t output[ROM_IMAGE_SIZE];
     uint32_t pc;          /* 16-bit address inside current ROM bank */
-    uint16_t bank;        /* 0000-003F */
+    uint16_t bank;        /* 0000-001F */
     uint32_t highest;
     bool wrote_anything;
 
@@ -574,7 +574,7 @@ static int split_operands(char *s, Operand out[8]) {
 }
 
 static void emit8(Assembler *a, uint8_t v, int line) {
-    if (a->bank >= ROM_BANK_COUNT) fatal_line(line, "ROM bank out of range (0000-003F)");
+    if (a->bank >= ROM_BANK_COUNT) fatal_line(line, "ROM bank out of range (0000-001F)");
     if (a->pc >= BANK_SIZE) fatal_line(line, "output exceeds 64 KiB ROM bank");
 
     uint32_t physical = (uint32_t)a->bank * BANK_SIZE + a->pc;
@@ -945,11 +945,11 @@ static void handle_directive(Assembler *a, char *line, int line_no, int pass) {
     char *args = trim(space);
 
     if (strcmp(directive, ".BANK") == 0) {
-        if (!*args) fatal_line(line_no, ".bank requires ROM bank 0000-003F");
+        if (!*args) fatal_line(line_no, ".bank requires ROM bank 0000-001F");
         bool defined = false;
         uint16_t bank = eval_expr(a, args, line_no, pass == 1, &defined);
         if (pass == 1 && !defined) fatal_line(line_no, ".bank cannot use a forward label");
-        if (bank >= ROM_BANK_COUNT) fatal_line(line_no, "ROM bank must be 0000-003F");
+        if (bank >= ROM_BANK_COUNT) fatal_line(line_no, "ROM bank must be 0000-001F");
         a->bank = bank;
         return;
     }
@@ -1368,7 +1368,7 @@ static void usage(const char *prog) {
     printf("\n");
     printf("Directives:\n");
     printf("  .include \"file.inc\"\n");
-    printf("  .bank 0000          select ROM output bank 0000-003F\n");
+    printf("  .bank 0000          select ROM output bank 0000-001F\n");
     printf("  .org $8000\n");
     printf("  .byte 01, 02, FF\n");
     printf("  .word 1234, label\n");

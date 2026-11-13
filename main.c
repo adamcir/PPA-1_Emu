@@ -25,10 +25,12 @@
 #define printf(...) ppa_log_printf(__VA_ARGS__)
 
 #define BANK_SIZE       0x10000u
-#define ROM_BANK_COUNT  0x40u
-#define RAM_BANK_COUNT  0x10u
-#define ROM_SIZE         (ROM_BANK_COUNT * BANK_SIZE)   /* 4 MiB */
-#define RAM_SIZE         (RAM_BANK_COUNT * BANK_SIZE)   /* 1 MiB */
+#define ROM_BANK_COUNT  0x20u
+#define RAM_BANK_COUNT  0x20u
+#define ROM_SIZE         (ROM_BANK_COUNT * BANK_SIZE)   /* max 2 MiB */
+#define RAM_SIZE         (RAM_BANK_COUNT * BANK_SIZE)   /* max 2 MiB */
+#define DEFAULT_ROM_SIZE ROM_SIZE
+#define DEFAULT_RAM_SIZE RAM_SIZE
 #define ROM_BANK_FIRST   0x0000u
 #define ROM_BANK_LAST    0x0FFFu
 #define RAM_BANK_FIRST   0x1000u
@@ -132,6 +134,8 @@ typedef struct {
 typedef struct {
     uint8_t rom[ROM_SIZE];
     uint8_t ram[RAM_SIZE];
+    uint32_t rom_size; /* installed bytes: 1 through ROM_SIZE */
+    uint32_t ram_size; /* installed bytes: 1 through RAM_SIZE */
     uint8_t reserved[0x80];
 
     /* Optional backing file for the in-memory EEPROM contents. */
@@ -187,6 +191,8 @@ static bool memory_detach_image(Memory *memory) {
 
 static void memory_init_blank(Memory *memory) {
     if (!memory) return;
+    if (!memory->rom_size) memory->rom_size = DEFAULT_ROM_SIZE;
+    if (!memory->ram_size) memory->ram_size = DEFAULT_RAM_SIZE;
 
     if (memory->rom_file) {
         (void)memory_detach_image(memory);
@@ -221,8 +227,9 @@ static int load_rom(Memory *memory, const char *path, uint16_t base) {
         return 0;
     }
 
-    if ((unsigned long)file_size > ROM_SIZE) {
-        fprintf(stderr, "ROM image is larger than 4 MiB (%ld bytes)\n",
+    if ((unsigned long)file_size > memory->rom_size) {
+        fprintf(stderr, "EEPROM image exceeds installed EEPROM (%u bytes): %ld bytes\n",
+                (unsigned)memory->rom_size,
                 file_size);
         fclose(f);
         return 0;
@@ -240,7 +247,8 @@ static int load_rom(Memory *memory, const char *path, uint16_t base) {
     memset(image, 0xFF, ROM_SIZE);
 
     size_t offset = (size_t)base;
-    size_t max_read = ROM_SIZE - offset;
+    if (offset >= memory->rom_size) { free(image); fclose(f); return 0; }
+    size_t max_read = memory->rom_size - offset;
     size_t n = fread(image + offset, 1, max_read, f);
 
     if (ferror(f)) {
@@ -266,7 +274,7 @@ static int load_rom(Memory *memory, const char *path, uint16_t base) {
 }
 
 static void persist_rom_byte(Memory *memory, uint32_t physical, uint8_t value) {
-    if (!memory->rom_file || physical >= ROM_SIZE) return;
+    if (!memory->rom_file || physical >= memory->rom_size) return;
     if (fseek(memory->rom_file, (long)physical, SEEK_SET) != 0) return;
     if (fputc(value, memory->rom_file) == EOF) return;
     fflush(memory->rom_file);
@@ -628,11 +636,11 @@ static uint8_t bus_read_bank8(CPU *cpu,
 
     if (bank <= ROM_BANK_LAST) {
         uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
-        if (physical < ROM_SIZE) value = memory->rom[physical];
+        if (physical < memory->rom_size) value = memory->rom[physical];
     } else if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
         uint32_t physical =
             (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
-        if (physical < RAM_SIZE) value = memory->ram[physical];
+        if (physical < memory->ram_size) value = memory->ram[physical];
     } else if (bank == SYSTEM_BANK) {
         value = system_read8(memory, serial, address);
     }
@@ -651,14 +659,14 @@ static void bus_write_bank8(CPU *cpu,
 {
     if (bank <= ROM_BANK_LAST) {
         uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
-        if (physical < ROM_SIZE) {
+        if (physical < memory->rom_size) {
             memory->rom[physical] = value; /* EEPROM is writable */
             persist_rom_byte(memory, physical, value);
         }
     } else if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
         uint32_t physical =
             (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
-        if (physical < RAM_SIZE) memory->ram[physical] = value;
+        if (physical < memory->ram_size) memory->ram[physical] = value;
     } else if (bank == SYSTEM_BANK) {
         system_write8(memory, serial, address, value);
     }
@@ -698,20 +706,36 @@ static inline uint8_t fetch_program8(CPU *cpu,
     return value;
 }
 
-static inline uint16_t stack_addr(const CPU *cpu) {
-    return (uint16_t)(STACK_PAGE | cpu->SP);
+/*
+ * Stack occupies the final 256 bytes of installed RAM. SP=FF selects the
+ * final byte. For installations smaller than 256 B, stack instructions fault.
+ */
+static inline uint32_t stack_offset(const CPU *cpu, const Memory *memory) {
+    return (memory->ram_size - 256u) + cpu->SP;
+}
+static inline uint16_t stack_bank(const CPU *cpu, const Memory *memory) {
+    return (uint16_t)(RAM_BANK_FIRST + (stack_offset(cpu, memory) / BANK_SIZE));
+}
+static inline uint16_t stack_addr(const CPU *cpu, const Memory *memory) {
+    return (uint16_t)(stack_offset(cpu, memory) % BANK_SIZE);
 }
 
-/* Controller-owned stack always uses RAM bank 1000. */
+/* Controller-owned stack in the final 256 bytes of installed RAM. */
 static inline void push8(CPU *cpu,
                          Memory *memory,
                          Serial *serial,
                          uint8_t value)
 {
-    uint16_t address = stack_addr(cpu);
+    if (memory->ram_size < 256u) {
+        cpu->error = true;
+        cpu->halted = true;
+        return;
+    }
+    uint16_t bank = stack_bank(cpu, memory);
+    uint16_t address = stack_addr(cpu, memory);
     cpu->AR = address;
     bus_write_bank8(cpu, memory, serial,
-                    STACK_BANK, address, value, BUS_OP_WRITE);
+                    bank, address, value, BUS_OP_WRITE);
     cpu->SP--;
 }
 
@@ -719,11 +743,17 @@ static inline uint8_t pop8(CPU *cpu,
                            Memory *memory,
                            Serial *serial)
 {
+    if (memory->ram_size < 256u) {
+        cpu->error = true;
+        cpu->halted = true;
+        return 0xFF;
+    }
     cpu->SP++;
-    uint16_t address = stack_addr(cpu);
+    uint16_t bank = stack_bank(cpu, memory);
+    uint16_t address = stack_addr(cpu, memory);
     cpu->AR = address;
     return bus_read_bank8(cpu, memory, serial,
-                          STACK_BANK, address, BUS_OP_READ);
+                          bank, address, BUS_OP_READ);
 }
 
 static void trace_cpu_state(const char *frontend,
@@ -1700,8 +1730,8 @@ static bool gui_backend_export_image(void *ctx, const char *path) {
         return false;
     }
 
-    size_t written = fwrite(g->memory->rom, 1, ROM_SIZE, f);
-    bool ok = written == ROM_SIZE && fflush(f) == 0;
+    size_t written = fwrite(g->memory->rom, 1, g->memory->rom_size, f);
+    bool ok = written == g->memory->rom_size && fflush(f) == 0;
 
     if (fclose(f) != 0) {
         ok = false;
@@ -1710,12 +1740,12 @@ static bool gui_backend_export_image(void *ctx, const char *path) {
     if (!ok) {
         printf("GUI: failed to export complete EEPROM image: %s "
                "(%zu/%u bytes)\n",
-               path, written, (unsigned)ROM_SIZE);
+               path, written, (unsigned)g->memory->rom_size);
         return false;
     }
 
     printf("GUI: exported EEPROM image: %s (%u bytes)\n",
-           path, (unsigned)ROM_SIZE);
+           path, (unsigned)g->memory->rom_size);
     return true;
 }
 
@@ -2103,17 +2133,53 @@ static void gui_backend_cpu_snapshot(void *ctx, PPA1CpuSnapshot *out) {
     out->error = g->cpu->error;
 }
 
+static uint32_t gui_backend_memory_size(void *ctx, bool rom)
+{
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->memory) return 0;
+    return rom ? g->memory->rom_size : g->memory->ram_size;
+}
+
+static bool gui_backend_set_memory_size(void *ctx, bool rom, uint32_t size)
+{
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    if (!g || !g->memory || g->powered || size < 1u ||
+        size > (rom ? ROM_SIZE : RAM_SIZE)) return false;
+
+    Memory *mem = g->memory;
+    if (rom) {
+        if (mem->rom_file) {
+            long pos = ftell(mem->rom_file);
+            if (fseek(mem->rom_file, 0, SEEK_END) != 0) return false;
+            long file_size = ftell(mem->rom_file);
+            if (pos >= 0) (void)fseek(mem->rom_file, pos, SEEK_SET);
+            if (file_size < 0 || (unsigned long)file_size > size) return false;
+        }
+        if (size > mem->rom_size)
+            memset(mem->rom + mem->rom_size, 0xFF, size - mem->rom_size);
+        mem->rom_size = size;
+    } else {
+        mem->ram_size = size;
+        memset(mem->ram, 0, sizeof(mem->ram));
+        gui_cpu_reset_state(g);
+        g->running = false;
+    }
+    printf("GUI: installed %s capacity -> %u bytes\n",
+           rom ? "EEPROM" : "RAM", (unsigned)size);
+    return true;
+}
+
 static uint8_t gui_backend_memory_inspect(void *ctx, uint16_t bank, uint16_t address)
 {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
     if (!g || !g->memory || !g->loaded) return 0xFF;
     if (bank <= ROM_BANK_LAST) {
         uint32_t p = (uint32_t)bank * BANK_SIZE + address;
-        return p < ROM_SIZE ? g->memory->rom[p] : 0xFF;
+        return p < g->memory->rom_size ? g->memory->rom[p] : 0xFF;
     }
     if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
         uint32_t p = (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
-        return p < RAM_SIZE ? g->memory->ram[p] : 0xFF;
+        return p < g->memory->ram_size ? g->memory->ram[p] : 0xFF;
     }
     if (bank == SYSTEM_BANK) {
         /* Do not consume serial RX when inspecting memory. */
@@ -2140,14 +2206,14 @@ static bool gui_backend_memory_edit(void *ctx, uint16_t bank,
     if (!g || !g->memory || !g->loaded || g->powered) return false;
     if (bank <= ROM_BANK_LAST) {
         uint32_t p = (uint32_t)bank * BANK_SIZE + address;
-        if (p >= ROM_SIZE) return false;
+        if (p >= g->memory->rom_size) return false;
         g->memory->rom[p] = value;
         persist_rom_byte(g->memory, p, value);
         return true;
     }
     if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
         uint32_t p = (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
-        if (p >= RAM_SIZE) return false;
+        if (p >= g->memory->ram_size) return false;
         g->memory->ram[p] = value;
         return true;
     }
@@ -2269,13 +2335,14 @@ static void sleep_until_ns(uint64_t target_ns) {
 
 static void usage(const char *prog) {
     printf("Usage:\n");
-    printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--clock RATE] [--dump HEX LEN] [--tty] [--nogui]\n", prog);
+    printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--clock RATE] [--ram BYTES] [--rom-size BYTES] [--dump HEX LEN] [--tty] [--nogui]\n", prog);
     printf("\n");
     printf("Without --steps, execution continues until HLT or Ctrl+C.\n");
     printf("--steps limits the number of complete CPU instructions, not microsteps.\n");
     printf("--clock sets --nogui CPU clock: 1,2,5,10,20,50,100,200,500 Hz; 1k,2k,5k,10k,20k,50k,100k; or turbo.\n");
     printf("        Default for --nogui is turbo (maximum host-CPU-dependent speed).\n");
-    printf("--tty creates a pseudo-terminal for SYSTEM bank 0050, SERIAL FF00-FF03.\n");
+    printf("--ram and --rom-size set installed sizes (1..2097152 bytes).\n");
+    printf("--tty creates a pseudo-terminal for I/O bank F000, SERIAL FF00-FF03.\n");
     printf("--nogui disables the graphical frontend and runs console mode.\n");
 }
 
@@ -2345,6 +2412,18 @@ int main(int argc, char **argv) {
                 ppa_log_close();
                 return 1;
             }
+        } else if ((strcmp(argv[i], "--ram") == 0 ||
+                    strcmp(argv[i], "--rom-size") == 0) && i + 1 < argc) {
+            bool rom = strcmp(argv[i], "--rom-size") == 0;
+            const char *arg = argv[++i];
+            char *end = NULL;
+            unsigned long size = strtoul(arg, &end, 10);
+            if (!arg[0] || !end || *end || size < 1 || size > 2097152u) {
+                fprintf(stderr, "Invalid memory size: %s (1..2097152 bytes)\n", arg);
+                return 1;
+            }
+            if (rom) memory.rom_size = (uint32_t)size;
+            else memory.ram_size = (uint32_t)size;
         } else if (strcmp(argv[i], "--tty") == 0) {
             tty_enabled = true;
         } else if (strcmp(argv[i], "--dump") == 0 && i + 2 < argc) {
@@ -2415,6 +2494,8 @@ int main(int argc, char **argv) {
             .status_register = gui_backend_status_register,
             .register_value = gui_backend_register_value,
             .cpu_snapshot = gui_backend_cpu_snapshot,
+            .memory_size = gui_backend_memory_size,
+            .set_memory_size = gui_backend_set_memory_size,
             .memory_inspect = gui_backend_memory_inspect,
             .memory_edit = gui_backend_memory_edit
         };
