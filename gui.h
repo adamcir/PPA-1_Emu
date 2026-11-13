@@ -11,6 +11,15 @@ typedef struct {
 } PPA1GuiState;
 
 typedef struct {
+    uint8_t A, B, C, D;
+    uint16_t X, Y, BR;
+    uint8_t IMM, DST, STEP, AOS, AAR, ABR, RS, IR, SR, SP;
+    uint16_t AR, PC;
+    bool halted;
+    bool error;
+} PPA1CpuSnapshot;
+
+typedef struct {
     void *ctx;
 
     bool (*load_rom)(void *ctx, const char *path);
@@ -47,6 +56,9 @@ typedef struct {
     uint8_t (*data_bus)(void *ctx);
     uint8_t (*status_register)(void *ctx);
     uint8_t (*register_value)(void *ctx, int selector);
+
+    void (*cpu_snapshot)(void *ctx, PPA1CpuSnapshot *out);
+    uint8_t (*memory_inspect)(void *ctx, uint16_t bank, uint16_t address);
 } PPA1GuiBackend;
 
 void ppa_gui_init_state(PPA1GuiState *state, bool no_gui);
