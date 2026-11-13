@@ -808,6 +808,62 @@ static void terminal_apply_sgr(TerminalWindow *term, const char *params) {
     }
 }
 
+static int terminal_csi_param(const char *params,
+                              int index,
+                              int default_value)
+{
+    if (!params || !*params) return default_value;
+
+    int current = 0;
+    int value = 0;
+    bool have_digit = false;
+
+    for (const char *p = params; ; p++) {
+        char ch = *p;
+
+        if (ch >= '0' && ch <= '9') {
+            value = value * 10 + (ch - '0');
+            have_digit = true;
+            continue;
+        }
+
+        if (ch == ';' || ch == '\0') {
+            if (current == index) {
+                return have_digit ? value : default_value;
+            }
+
+            current++;
+            value = 0;
+            have_digit = false;
+
+            if (ch == '\0') break;
+        }
+    }
+
+    return default_value;
+}
+
+static void terminal_set_cursor(TerminalWindow *term, int row, int col) {
+    if (!term) return;
+
+    if (row < 0) row = 0;
+    if (row >= TERM_LINES) row = TERM_LINES - 1;
+    if (col < 0) col = 0;
+    if (col >= TERM_COLS) col = TERM_COLS - 1;
+
+    term->line = row;
+    term->col = col;
+
+    size_t len = strlen(term->lines[term->line]);
+    if ((size_t)term->col > len) {
+        for (size_t i = len; i < (size_t)term->col; i++) {
+            term->lines[term->line][i] = ' ';
+            term->colors[term->line][i] = term->current_color;
+        }
+        term->lines[term->line][term->col] = '\0';
+    }
+}
+
 static void terminal_finish_csi(TerminalWindow *term, uint8_t final_byte) {
     if (!term) return;
 
@@ -816,13 +872,26 @@ static void terminal_finish_csi(TerminalWindow *term, uint8_t final_byte) {
     if (final_byte == 'm') {
         terminal_apply_sgr(term, term->csi);
     } else if (final_byte == 'J') {
-        int mode = term->csi_len ? atoi(term->csi) : 0;
+        int mode = terminal_csi_param(term->csi, 0, 0);
         if (mode == 2) {
             terminal_clear(term);
         }
     } else if (final_byte == 'H' || final_byte == 'f') {
-        term->line = 0;
-        term->col = 0;
+        int row = terminal_csi_param(term->csi, 0, 1);
+        int col = terminal_csi_param(term->csi, 1, 1);
+        terminal_set_cursor(term, row - 1, col - 1);
+    } else if (final_byte == 'A') {
+        int n = terminal_csi_param(term->csi, 0, 1);
+        terminal_set_cursor(term, term->line - n, term->col);
+    } else if (final_byte == 'B') {
+        int n = terminal_csi_param(term->csi, 0, 1);
+        terminal_set_cursor(term, term->line + n, term->col);
+    } else if (final_byte == 'C') {
+        int n = terminal_csi_param(term->csi, 0, 1);
+        terminal_set_cursor(term, term->line, term->col + n);
+    } else if (final_byte == 'D') {
+        int n = terminal_csi_param(term->csi, 0, 1);
+        terminal_set_cursor(term, term->line, term->col - n);
     }
 
     term->ansi_state = 0;
@@ -878,6 +947,52 @@ static void terminal_draw_colored_line(SDL_Renderer *renderer,
     }
 }
 
+static void terminal_draw_cursor(TerminalWindow *term,
+                                 TTF_Font *font,
+                                 int first_visible_line,
+                                 float x,
+                                 float y,
+                                 float line_height)
+{
+    if (!term || !term->renderer || !font) return;
+
+    /* 500 ms on / 500 ms off. */
+    if (((SDL_GetTicks() / 500u) & 1u) != 0u) return;
+
+    if (term->line < first_visible_line) return;
+
+    int visible_row = term->line - first_visible_line;
+    if (visible_row < 0) return;
+
+    int glyph_w = 0, glyph_h = 0;
+    SDL_Texture *probe = make_text_texture(
+        term->renderer, font, terminal_color(term->current_color),
+        "M", &glyph_w, &glyph_h);
+    if (probe) SDL_DestroyTexture(probe);
+
+    if (glyph_w <= 0) glyph_w = 8;
+    if (glyph_h <= 0) glyph_h = 14;
+
+    float char_w = (float)glyph_w / g_text_pixel_scale;
+    float char_h = (float)glyph_h / g_text_pixel_scale;
+
+    int cursor_col = term->col;
+    if (cursor_col < 0) cursor_col = 0;
+    if (cursor_col >= TERM_COLS) cursor_col = TERM_COLS - 1;
+
+    SDL_FRect cursor = {
+        x + cursor_col * char_w,
+        y + visible_row * line_height,
+        char_w,
+        char_h
+    };
+
+    SDL_Color color = terminal_color(term->current_color);
+    SDL_SetRenderDrawColor(
+        term->renderer, color.r, color.g, color.b, 110);
+    SDL_RenderFillRect(term->renderer, &cursor);
+}
+
 static void terminal_new_line(TerminalWindow *term) {
     if (!term) return;
 
@@ -904,7 +1019,8 @@ static void terminal_put_byte(TerminalWindow *term, uint8_t value) {
      *   ESC [ 30..37 m / 90..97 m = text color
      *   ESC [ 0 m / 39 m           = default color
      *   ESC [ 2 J                  = clear screen
-     *   ESC [ H                    = cursor home
+     *   ESC [ row ; col H / f     = cursor position
+     *   ESC [ n A/B/C/D            = cursor movement
      *   ASCII FF (0x0C)            = clear screen
      */
     if (term->ansi_state == 1) {
@@ -1118,12 +1234,21 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     SDL_SetRenderDrawColor(term->renderer, 63, 67, 64, 255);
     SDL_RenderRect(term->renderer, &body);
 
-    float y = 88.0f;
+    const float terminal_text_x = 36.0f;
+    const float terminal_text_y = 88.0f;
+    const float terminal_line_h = 18.0f;
+
+    float y = terminal_text_y;
     for (int line = start; line <= term->line && line < TERM_LINES; line++) {
         terminal_draw_colored_line(
-            term->renderer, fonts->mono, 36, y, term, line);
-        y += 18.0f;
+            term->renderer, fonts->mono,
+            terminal_text_x, y, term, line);
+        y += terminal_line_h;
     }
+
+    terminal_draw_cursor(
+        term, fonts->mono, start,
+        terminal_text_x, terminal_text_y, terminal_line_h);
 
     SDL_RenderPresent(term->renderer);
 }
@@ -1731,13 +1856,15 @@ int ppa_gui_run_panel(const char *initial_rom,
         "1 Hz", "2 Hz", "5 Hz", "10 Hz",
         "20 Hz", "50 Hz", "100 Hz", "200 Hz",
         "500 Hz", "1 kHz", "2 kHz", "5 kHz",
-        "10 kHz", "20 kHz", "50 kHz", "100 kHz"
+        "10 kHz", "20 kHz", "50 kHz", "100 kHz",
+        "TURBO"
     };
     const char *clock_tick_labels[] = {
         "1", NULL, NULL, "10",
         NULL, NULL, "100", NULL,
         NULL, "1k", NULL, NULL,
-        "10k", NULL, NULL, "100k"
+        "10k", NULL, NULL, "100k",
+        "TURBO"
     };
     const double clock_rates[] = {
         1.0, 2.0, 5.0, 10.0,
@@ -1745,7 +1872,11 @@ int ppa_gui_run_panel(const char *initial_rom,
         500.0, 1000.0, 2000.0, 5000.0,
         10000.0, 20000.0, 50000.0, 100000.0
     };
-    const int clock_count = (int)(sizeof(clock_rates) / sizeof(clock_rates[0]));
+    const int clock_rate_count =
+        (int)(sizeof(clock_rates) / sizeof(clock_rates[0]));
+    const int clock_turbo_index = clock_rate_count;
+    const int clock_count =
+        (int)(sizeof(clock_values) / sizeof(clock_values[0]));
     int clock_index = 9;
 
     const char *data_source_labels[] = {"DATA BUS", "REGISTER OUTPUT"};
@@ -1796,6 +1927,14 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     Uint64 last_ticks = SDL_GetTicks();
     double clock_phase = 0.0;
+
+    /*
+     * TURBO intentionally has no emulated Hz value. Each GUI iteration gets
+     * a short host-time slice and executes as many CPU microsteps as possible.
+     * Faster host CPUs therefore produce higher emulation throughput.
+     */
+    const Uint64 turbo_slice_ns = 4000000u; /* 4 ms */
+
     ButtonId pressed_button = BTN_NONE;
     Uint64 pressed_until = 0;
 
@@ -2531,17 +2670,44 @@ int ppa_gui_run_panel(const char *initial_rom,
         bool clock_level = false;
 
         if (loaded && powered && running && !halted) {
-            double total_cycles = clock_phase + dt * clock_rates[clock_index];
-            double whole_cycles = floor(total_cycles);
-            int rising_edges = (int)whole_cycles;
-            clock_phase = total_cycles - whole_cycles;
+            if (clock_index == clock_turbo_index) {
+                clock_phase = 0.0;
 
-            if (rising_edges > 5000) rising_edges = 5000;
-            if (rising_edges > 0) {
-                backend->tick(backend->ctx, rising_edges);
+                Uint64 turbo_start_ns = SDL_GetTicksNS();
+                Uint64 turbo_now_ns = turbo_start_ns;
+                int turbo_chunks = 0;
+
+                /*
+                 * Chunking avoids excessive callback overhead while checking
+                 * the wall-clock budget often enough to keep SDL responsive.
+                 */
+                do {
+                    backend->tick(backend->ctx, 4096);
+                    turbo_chunks++;
+
+                    if (!backend->is_running(backend->ctx) ||
+                        backend->is_halted(backend->ctx)) {
+                        break;
+                    }
+
+                    turbo_now_ns = SDL_GetTicksNS();
+                } while (turbo_now_ns - turbo_start_ns < turbo_slice_ns);
+
+                clock_level = (turbo_chunks & 1) != 0;
+            } else {
+                double total_cycles =
+                    clock_phase + dt * clock_rates[clock_index];
+                double whole_cycles = floor(total_cycles);
+                int rising_edges = (int)whole_cycles;
+                clock_phase = total_cycles - whole_cycles;
+
+                if (rising_edges > 5000) rising_edges = 5000;
+                if (rising_edges > 0) {
+                    backend->tick(backend->ctx, rising_edges);
+                }
+
+                clock_level = clock_phase < 0.5;
             }
-
-            clock_level = clock_phase < 0.5;
         } else {
             clock_phase = 0.0;
             clock_level = false;
