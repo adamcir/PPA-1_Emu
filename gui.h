@@ -69,6 +69,7 @@ typedef struct {
 
     void (*cpu_snapshot)(void *ctx, PPA1CpuSnapshot *out);
     uint8_t (*memory_inspect)(void *ctx, uint16_t bank, uint16_t address);
+    bool (*memory_edit)(void *ctx, uint16_t bank, uint16_t address, uint8_t value);
 } PPA1GuiBackend;
 
 void ppa_gui_init_state(PPA1GuiState *state, bool no_gui);
