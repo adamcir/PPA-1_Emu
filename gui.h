@@ -23,6 +23,9 @@ typedef struct {
     void *ctx;
 
     bool (*load_rom)(void *ctx, const char *path);
+    bool (*detach_image)(void *ctx);
+    bool (*export_image)(void *ctx, const char *path);
+    bool (*is_image_attached)(void *ctx);
     void (*set_power)(void *ctx, bool on);
     void (*set_running)(void *ctx, bool running);
     void (*reset)(void *ctx);
