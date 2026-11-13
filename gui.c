@@ -962,9 +962,8 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
     } else if (kind == AUX_VIEW) {
         SDL_SetWindowMinimumSize(aux->window, 680, 520);
     } else if (kind == AUX_HEX_MEMORY) {
-        SDL_SetWindowMinimumSize(aux->window, 760, 390);
+        SDL_SetWindowMinimumSize(aux->window, 800, 610);
         aux->edit_high_nibble = -1;
-        SDL_StartTextInput(aux->window);
     }
 
     aux->renderer = SDL_CreateRenderer(aux->window, NULL);
@@ -975,6 +974,10 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
     }
 
     SDL_SetRenderVSync(aux->renderer, 1);
+
+    if (kind == AUX_HEX_MEMORY) {
+        SDL_StartTextInput(aux->window);
+    }
 }
 
 static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
@@ -1219,6 +1222,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         SDL_GetCurrentRenderOutputSize(r, &hex_w, &hex_h);
 
         bool power = backend->is_powered(backend->ctx);
+        if (power) {
+            aux->edit_high_nibble = -1;
+        }
 
         draw_menu_button(r, fonts, HEX_BANK_DEC, "BANK -");
         draw_menu_button(r, fonts, HEX_BANK_INC, "BANK +");
