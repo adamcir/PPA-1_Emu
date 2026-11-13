@@ -1661,7 +1661,7 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                                  can_change_memory);
         draw_menu_button_enabled(r, fonts, PREF_RAM_SIZE, prefs->ram_bytes,
                                  can_change_memory);
-        if (prefs->editing_memory) {
+        if (can_change_memory && prefs->editing_memory) {
             SDL_FRect selected = prefs->editing_memory == 1
                 ? PREF_ROM_SIZE : PREF_RAM_SIZE;
             SDL_SetRenderDrawColor(r, 244, 169, 59, 255);
@@ -2523,7 +2523,8 @@ int ppa_gui_run_panel(const char *initial_rom,
             if (prefs_window.window &&
                 event.type == SDL_EVENT_TEXT_INPUT &&
                 event.text.windowID == SDL_GetWindowID(prefs_window.window) &&
-                prefs.editing_memory) {
+                prefs.editing_memory &&
+                !backend->is_powered(backend->ctx)) {
                 char *input = prefs.editing_memory == 1
                     ? prefs.rom_bytes : prefs.ram_bytes;
                 const char *p = event.text.text;
@@ -2540,7 +2541,8 @@ int ppa_gui_run_panel(const char *initial_rom,
             if (prefs_window.window &&
                 event.type == SDL_EVENT_KEY_DOWN &&
                 event.key.windowID == SDL_GetWindowID(prefs_window.window) &&
-                prefs.editing_memory) {
+                prefs.editing_memory &&
+                !backend->is_powered(backend->ctx)) {
                 char *input = prefs.editing_memory == 1
                     ? prefs.rom_bytes : prefs.ram_bytes;
                 if (event.key.key == SDLK_BACKSPACE) {
@@ -3281,6 +3283,7 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         bool loaded = backend->is_loaded(backend->ctx);
         bool powered = backend->is_powered(backend->ctx);
+        if (powered) prefs.editing_memory = 0;
         bool running = backend->is_running(backend->ctx);
         bool halted = backend->is_halted(backend->ctx);
         bool error = backend->is_error

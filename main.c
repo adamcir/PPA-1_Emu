@@ -1712,7 +1712,7 @@ static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
 
 static bool gui_backend_load_rom(void *ctx, const char *path) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->memory || !path || !*path) return false;
+    if (!g || !g->memory || g->powered || !path || !*path) return false;
 
     int loaded = load_rom(g->memory, path, 0x0000);
     if (!loaded) {
@@ -1735,7 +1735,7 @@ static bool gui_backend_load_rom(void *ctx, const char *path) {
 
 static void gui_backend_reset_emulation(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->memory) return;
+    if (!g || !g->memory || g->powered) return;
 
     char old_path[sizeof(g->memory->rom_path)];
     old_path[0] = '\0';
