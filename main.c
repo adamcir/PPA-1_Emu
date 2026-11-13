@@ -2385,7 +2385,7 @@ static void sleep_until_ns(uint64_t target_ns) {
 
 static void usage(const char *prog) {
     printf("Usage:\n");
-    printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--clock RATE] [--ram BYTES] [--rom-size BYTES] [--dump HEX LEN] [--tty] [--nogui]\n", prog);
+    printf("  %s rom.bin [--base HEX] [--pc HEX] [--steps N] [--clock RATE] [--ram BYTES] [--rom-size BYTES] [--module SLOT:FILE] [--dump HEX LEN] [--tty] [--nogui]\n", prog);
     printf("\n");
     printf("Without --steps, execution continues until HLT or Ctrl+C.\n");
     printf("--steps limits the number of complete CPU instructions, not microsteps.\n");
@@ -2393,6 +2393,7 @@ static void usage(const char *prog) {
     printf("        Default for --nogui is turbo (maximum host-CPU-dependent speed).\n");
     printf("--ram and --rom-size set installed sizes (1..2097152 bytes).\n");
     printf("--tty creates a pseudo-terminal for I/O bank F000, SERIAL FF00-FF03.\n");
+    printf("--module SLOT:FILE installs and activates a PPAM card in slot 1..8.\n");
     printf("--nogui disables the graphical frontend and runs console mode.\n");
 }
 
@@ -2475,6 +2476,14 @@ int main(int argc, char **argv) {
             }
             if (rom) memory.rom_size = (uint32_t)size;
             else memory.ram_size = (uint32_t)size;
+        } else if (strcmp(argv[i], "--module") == 0 && i + 1 < argc) {
+            const char *spec = argv[++i];
+            if (spec[0] < '1' || spec[0] > '8' || spec[1] != ':' ||
+                !spec[2] || !ppam_load(&g_ppa_modules, spec[0]-'1', spec+2) ||
+                !ppam_set_active(&g_ppa_modules, spec[0]-'1', true)) {
+                fprintf(stderr, "Failed loading PPAM module: %s\n", spec);
+                return 1;
+            }
         } else if (strcmp(argv[i], "--tty") == 0) {
             tty_enabled = true;
         } else if (strcmp(argv[i], "--dump") == 0 && i + 2 < argc) {

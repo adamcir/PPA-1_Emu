@@ -59,3 +59,19 @@ Additional module types and opcodes can be added with versioned rules.
 
 Eject / activation requires POWER OFF; RESET clears LED state while
 keeping cards attached. Modules work with GUI CPU and console CPU.
+
+## Command-line use
+
+```sh
+./out/PPA-1_Emu demo.bin --module 1:modules/light.ppamod
+```
+
+The module is activated on startup. GUI loads are initially inactive,
+and must be activated using the MODULES window while power is off.
+The unit test is `make test-modules`.
+
+## Demo
+
+`modules/light_demo.asm` sets BR to the base bank for SLOT 1,
+writes 01 to register 0010, waits and repeats. Assemble with
+`make asm` followed by `out/asm/ppa-1_asm modules/light_demo.asm light.bin`.

@@ -14,7 +14,7 @@ SRC = main.c logger.c gui.c src/ppa_module.c
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 
-.PHONY: all clean run
+.PHONY: all clean run test-modules
 
 all: asm emu
 
@@ -31,3 +31,8 @@ asm: out
 
 clean:
 	rm -rf out/
+
+# Minimal regression test for binary PPAM loader and LIGHT card.
+test-modules: out
+	$(CC) -Isrc src/ppa_module.c src/ppa_module_test.c -o out/ppa_module_test
+	./out/ppa_module_test
