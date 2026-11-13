@@ -2044,6 +2044,13 @@ int ppa_gui_run_panel(const char *initial_rom,
     KnobTextures knob_textures = {0};
     (void)load_knob_textures(renderer, &knob_textures);
 
+    SDL_Texture *adava_logo = load_panel_texture(
+        renderer, "assets/textures/adava.png");
+    if (!adava_logo) {
+        ppa_log_printf(
+            "GUI: Adava Electronics logo unavailable; using text fallback.\n");
+    }
+
     SDL_Texture *panel_texture = SDL_CreateTexture(
         renderer,
         SDL_PIXELFORMAT_RGBA8888,
@@ -2051,6 +2058,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         PANEL_W, PANEL_H);
     if (!panel_texture) {
         ppa_log_printf("GUI: failed to create panel render target: %s\n", SDL_GetError());
+        if (adava_logo) SDL_DestroyTexture(adava_logo);
         destroy_knob_textures(&knob_textures);
         destroy_toggle_textures(&toggle_textures);
         SDL_DestroyRenderer(renderer);
@@ -3058,9 +3066,19 @@ int ppa_gui_run_panel(const char *initial_rom,
             (SDL_FRect){1046, 18, 174, 68},
             COL_WHITE, "A-1");
 
-        draw_text_stretched(renderer, panel_fonts.label,
-            (SDL_FRect){1038, 87, 190, 20},
-            COL_WHITE, "Adava Electronics");
+        if (adava_logo) {
+            /*
+             * Source logo is 760x120 (6.333:1). Keep its aspect ratio and
+             * center it below the A-1 badge without touching the separator.
+             */
+            SDL_FRect logo_dst = {1054.0f, 87.0f, 158.0f, 25.0f};
+            SDL_RenderTexture(
+                renderer, adava_logo, NULL, &logo_dst);
+        } else {
+            draw_text_stretched(renderer, panel_fonts.label,
+                (SDL_FRect){1038, 87, 190, 20},
+                COL_WHITE, "Adava Electronics");
+        }
 
         SDL_SetRenderDrawColor(
             renderer, COL_LIGHT_GRAY.r, COL_LIGHT_GRAY.g,
@@ -3324,6 +3342,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     destroy_aux(&log_window);
     destroy_aux(&credits_window);
     SDL_DestroyTexture(panel_texture);
+    if (adava_logo) SDL_DestroyTexture(adava_logo);
     destroy_knob_textures(&knob_textures);
     destroy_toggle_textures(&toggle_textures);
     SDL_DestroyRenderer(renderer);
