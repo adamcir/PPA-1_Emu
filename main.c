@@ -72,6 +72,20 @@
 #define AOS_DEC 0xB
 #define AOS_CMP 0xC
 
+typedef enum {
+    BUS_OP_NONE = 0,
+    BUS_OP_FETCH,
+    BUS_OP_READ,
+    BUS_OP_WRITE
+} BusOperation;
+
+typedef struct {
+    uint16_t address;
+    uint16_t bank;
+    uint8_t data;
+    BusOperation operation;
+} BusSignals;
+
 typedef struct {
     uint8_t A;
     uint8_t B;
@@ -99,6 +113,13 @@ typedef struct {
 
     uint16_t AR;
     uint16_t PC;
+
+    /*
+     * Physical external bus telemetry. This is intentionally separate from
+     * programmer-visible BR and controller registers: the front panel must
+     * show the bus that was actually driven by the last memory transaction.
+     */
+    BusSignals bus;
 
     bool halted;
     bool error;
@@ -559,74 +580,134 @@ static void system_write8(Memory *memory, Serial *serial, uint16_t addr, uint8_t
 }
 
 /*
- * BR selects the data-memory bank:
- *   0000-003F = 64 EEPROM/ROM banks (4 MiB total)
- *   0040-004F = 16 RAM banks       (1 MiB total)
- *   0050      = SYSTEM bank (stack, serial, reserved)
+ * Physical bus model
+ * ------------------
+ * All memory transactions go through this layer.  It is the single source of
+ * truth for the front-panel ADDRESS/BANK/DATA indicators.
  *
- * Instruction fetch deliberately comes from EEPROM bank 0000.  This keeps
- * execution stable while BR is changed to access RAM, I/O, or another ROM
- * data bank.  BR is therefore a data-bank register in this implementation.
+ * Programmer-visible BR selects ordinary data accesses. Program fetches use
+ * EEPROM bank 0000, while PUSH/POP/CALL/RET use SYSTEM bank 0050.
  */
-static uint8_t bus_read8(CPU *cpu, Memory *memory, Serial *serial, uint16_t addr) {
-    uint16_t bank = cpu->BR;
-    if (bank <= ROM_BANK_LAST) {
-        uint32_t physical = (uint32_t)bank * BANK_SIZE + addr;
-        return memory->rom[physical];
-    }
-    if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
-        uint32_t physical = (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + addr;
-        return memory->ram[physical];
-    }
-    if (bank == SYSTEM_BANK) {
-        return system_read8(memory, serial, addr);
-    }
-    return 0xFF;
+static inline void bus_publish(CPU *cpu,
+                               uint16_t bank,
+                               uint16_t address,
+                               uint8_t data,
+                               BusOperation operation)
+{
+    if (!cpu) return;
+
+    cpu->bus.bank = bank;
+    cpu->bus.address = address;
+    cpu->bus.data = data;
+    cpu->bus.operation = operation;
+
+    /* AR is the physical A0-A15 address register. */
+    cpu->AR = address;
 }
 
-static void bus_write8(CPU *cpu, Memory *memory, Serial *serial, uint16_t addr, uint8_t v) {
-    uint16_t bank = cpu->BR;
+static uint8_t bus_read_bank8(CPU *cpu,
+                              Memory *memory,
+                              Serial *serial,
+                              uint16_t bank,
+                              uint16_t address,
+                              BusOperation operation)
+{
+    uint8_t value = 0xFF;
+
     if (bank <= ROM_BANK_LAST) {
-        uint32_t physical = (uint32_t)bank * BANK_SIZE + addr;
-        memory->rom[physical] = v;      /* EEPROM is writable */
-        persist_rom_byte(memory, physical, v);
-        return;
+        uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
+        value = memory->rom[physical];
+    } else if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
+        uint32_t physical =
+            (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
+        value = memory->ram[physical];
+    } else if (bank == SYSTEM_BANK) {
+        value = system_read8(memory, serial, address);
     }
-    if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
-        uint32_t physical = (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + addr;
-        memory->ram[physical] = v;
-        return;
-    }
-    if (bank == SYSTEM_BANK) {
-        system_write8(memory, serial, addr, v);
-    }
+
+    bus_publish(cpu, bank, address, value, operation);
+    return value;
 }
 
-static inline uint8_t fetch_program8(CPU *cpu, Memory *memory, Serial *serial) {
-    (void)serial;
-    uint8_t v = memory->rom[cpu->PC];  /* program fetch = ROM bank 0000 */
+static void bus_write_bank8(CPU *cpu,
+                            Memory *memory,
+                            Serial *serial,
+                            uint16_t bank,
+                            uint16_t address,
+                            uint8_t value,
+                            BusOperation operation)
+{
+    if (bank <= ROM_BANK_LAST) {
+        uint32_t physical = (uint32_t)bank * BANK_SIZE + address;
+        memory->rom[physical] = value; /* EEPROM is writable */
+        persist_rom_byte(memory, physical, value);
+    } else if (bank >= RAM_BANK_FIRST && bank <= RAM_BANK_LAST) {
+        uint32_t physical =
+            (uint32_t)(bank - RAM_BANK_FIRST) * BANK_SIZE + address;
+        memory->ram[physical] = value;
+    } else if (bank == SYSTEM_BANK) {
+        system_write8(memory, serial, address, value);
+    }
+
+    bus_publish(cpu, bank, address, value, operation);
+}
+
+/* Ordinary programmer-visible data access: BR selects the bank. */
+static uint8_t bus_read8(CPU *cpu,
+                         Memory *memory,
+                         Serial *serial,
+                         uint16_t address)
+{
+    return bus_read_bank8(cpu, memory, serial,
+                          cpu->BR, address, BUS_OP_READ);
+}
+
+static void bus_write8(CPU *cpu,
+                       Memory *memory,
+                       Serial *serial,
+                       uint16_t address,
+                       uint8_t value)
+{
+    bus_write_bank8(cpu, memory, serial,
+                    cpu->BR, address, value, BUS_OP_WRITE);
+}
+
+/* Program execution always fetches from EEPROM bank 0000. */
+static inline uint8_t fetch_program8(CPU *cpu,
+                                     Memory *memory,
+                                     Serial *serial)
+{
+    uint16_t address = cpu->PC;
+    uint8_t value = bus_read_bank8(cpu, memory, serial,
+                                   0x0000u, address, BUS_OP_FETCH);
     cpu->PC++;
-    return v;
+    return value;
 }
 
 static inline uint16_t stack_addr(const CPU *cpu) {
     return (uint16_t)(STACK_PAGE | cpu->SP);
 }
 
-/* Stack is controller-owned: PUSH/POP/CALL/RET always access SYSTEM stack,
-   independently of programmer-visible BR. */
-static inline void push8(CPU *cpu, Memory *memory, Serial *serial, uint8_t v) {
-    (void)serial;
-    cpu->AR = stack_addr(cpu);
-    memory->stack[cpu->SP] = v;
+/* Controller-owned stack always uses SYSTEM bank 0050. */
+static inline void push8(CPU *cpu,
+                         Memory *memory,
+                         Serial *serial,
+                         uint8_t value)
+{
+    uint16_t address = stack_addr(cpu);
+    bus_write_bank8(cpu, memory, serial,
+                    SYSTEM_BANK, address, value, BUS_OP_WRITE);
     cpu->SP--;
 }
 
-static inline uint8_t pop8(CPU *cpu, Memory *memory, Serial *serial) {
-    (void)serial;
+static inline uint8_t pop8(CPU *cpu,
+                           Memory *memory,
+                           Serial *serial)
+{
     cpu->SP++;
-    cpu->AR = stack_addr(cpu);
-    return memory->stack[cpu->SP];
+    uint16_t address = stack_addr(cpu);
+    return bus_read_bank8(cpu, memory, serial,
+                          SYSTEM_BANK, address, BUS_OP_READ);
 }
 
 static void trace_cpu_state(const char *frontend,
@@ -641,7 +722,8 @@ static void trace_cpu_state(const char *frontend,
         "CPU [%s / %s] INST=%llu MICRO=%llu "
         "PC=%04X AR=%04X SP=%02X IR=%02X SR=%02X RS=%02X DST=%02X STEP=%02X "
         "AOS=%02X IMM=%02X AAR=%02X ABR=%02X A=%02X B=%02X C=%02X D=%02X "
-        "X=%04X Y=%04X BR=%04X HALT=%d ERROR=%d\n",
+        "X=%04X Y=%04X BR=%04X "
+        "BUS=%04X:%04X DATA=%02X OP=%u HALT=%d ERROR=%d\n",
         frontend ? frontend : "CORE",
         reason ? reason : "STATE",
         (unsigned long long)instruction_count,
@@ -665,6 +747,10 @@ static void trace_cpu_state(const char *frontend,
         c->X,
         c->Y,
         c->BR,
+        c->bus.bank,
+        c->bus.address,
+        c->bus.data,
+        (unsigned)c->bus.operation,
         c->halted ? 1 : 0,
         c->error ? 1 : 0
     );
@@ -1716,6 +1802,8 @@ static void gui_backend_set_data_input(void *ctx, uint8_t value) {
        the manual DATA bus. ABR mirrors the value for controller visibility. */
     g->panel_data_bus = value;
     g->cpu->ABR = value;
+    bus_publish(g->cpu, g->cpu->BR, g->cpu->AR,
+                value, BUS_OP_NONE);
 }
 
 static void gui_backend_load_bank(void *ctx, uint16_t bank) {
@@ -1724,6 +1812,8 @@ static void gui_backend_load_bank(void *ctx, uint16_t bank) {
 
     g->running = false;
     g->cpu->BR = bank;
+    bus_publish(g->cpu, bank, g->cpu->AR,
+                g->panel_data_bus, BUS_OP_NONE);
 
     printf("GUI: LOAD BANK -> BR=%04X (AR=%04X)\n",
            g->cpu->BR, g->cpu->AR);
@@ -1734,7 +1824,8 @@ static void gui_backend_load_address(void *ctx, uint16_t address) {
     if (!g || !g->powered) return;
 
     g->running = false;
-    g->cpu->AR = address;
+    bus_publish(g->cpu, g->cpu->BR, address,
+                g->panel_data_bus, BUS_OP_NONE);
     printf("GUI: LOAD ADDRESS -> AR=%04X (BR=%04X)\n", address, g->cpu->BR);
 }
 
@@ -1743,7 +1834,6 @@ static uint8_t gui_backend_examine(void *ctx, uint16_t address) {
     if (!g || !g->memory || !g->powered) return 0xFF;
 
     g->running = false;
-    g->cpu->AR = address;
     g->cpu->ABR = bus_read8(g->cpu, g->memory, g->serial, address);
     g->panel_data_bus = g->cpu->ABR;
 
@@ -1757,7 +1847,6 @@ static void gui_backend_deposit(void *ctx, uint16_t address, uint8_t value) {
     if (!g || !g->memory || !g->powered) return;
 
     g->running = false;
-    g->cpu->AR = address;
     g->panel_data_bus = value;
     g->cpu->ABR = value;
 
@@ -1777,10 +1866,11 @@ static void gui_backend_start_at(void *ctx, uint16_t address) {
     if (!g || !g->loaded || !g->powered) return;
 
     g->cpu->PC = address;
-    g->cpu->AR = address;
     g->cpu->STEP = 0;
     g->cpu->halted = false;
     g->cpu->error = false;
+    bus_publish(g->cpu, 0x0000u, address,
+                g->panel_data_bus, BUS_OP_NONE);
     g->running = true;
 
     printf("GUI: START at %04X\n", address);
@@ -1879,15 +1969,17 @@ static bool gui_backend_is_error(void *ctx) {
 
 static uint16_t gui_backend_address_bus(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    return (g && g->cpu) ? g->cpu->AR : 0;
+    return (g && g->powered && g->cpu) ? g->cpu->bus.address : 0;
+}
+
+static uint16_t gui_backend_bank_bus(void *ctx) {
+    GuiBackendContext *g = (GuiBackendContext *)ctx;
+    return (g && g->powered && g->cpu) ? g->cpu->bus.bank : 0;
 }
 
 static uint8_t gui_backend_data_bus(void *ctx) {
     GuiBackendContext *g = (GuiBackendContext *)ctx;
-    if (!g || !g->powered) return 0;
-
-    if (!g->running) return g->panel_data_bus;
-    return g->cpu->ABR;
+    return (g && g->powered && g->cpu) ? g->cpu->bus.data : 0;
 }
 
 static uint8_t gui_backend_status_register(void *ctx) {
@@ -1924,6 +2016,12 @@ static void gui_backend_cpu_snapshot(void *ctx, PPA1CpuSnapshot *out) {
 
     out->AR = g->cpu->AR;
     out->PC = g->cpu->PC;
+
+    out->bus_address = g->cpu->bus.address;
+    out->bus_bank = g->cpu->bus.bank;
+    out->bus_data = g->cpu->bus.data;
+    out->bus_operation = (uint8_t)g->cpu->bus.operation;
+
     out->halted = g->cpu->halted;
     out->error = g->cpu->error;
 }
@@ -2119,6 +2217,7 @@ int main(int argc, char **argv) {
             .is_halted = gui_backend_is_halted,
             .is_error = gui_backend_is_error,
             .address_bus = gui_backend_address_bus,
+            .bank_bus = gui_backend_bank_bus,
             .data_bus = gui_backend_data_bus,
             .status_register = gui_backend_status_register,
             .register_value = gui_backend_register_value,
