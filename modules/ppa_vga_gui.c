@@ -58,7 +58,15 @@ static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
         SDL_SetRenderTarget(r,previous);
         SDL_SetRenderLogicalPresentation(r,1280,800,
                                          SDL_LOGICAL_PRESENTATION_LETTERBOX);
-        SDL_SetTextureScaleMode(target,SDL_SCALEMODE_NEAREST);
+        SDL_SetTextureScaleMode(target,
+            monitor && (monitor->style==PPA_MONITOR_CRT ||
+                        monitor->sharpness<40) ?
+                SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
+        if(monitor) {
+            int v=monitor->brightness*255/50;
+            if(v>255) v=255;
+            SDL_SetTextureColorMod(target,(Uint8)v,(Uint8)v,(Uint8)v);
+        }
         SDL_RenderTexture(r,target,NULL,screen);
         SDL_DestroyTexture(target);
         return;
@@ -107,7 +115,10 @@ static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
     SDL_Texture *tex=SDL_CreateTexture(r,SDL_PIXELFORMAT_RGBA8888,
         SDL_TEXTUREACCESS_STREAMING,(int)w,(int)h);
     if(tex) {
-        SDL_SetTextureScaleMode(tex,SDL_SCALEMODE_NEAREST);
+        SDL_SetTextureScaleMode(tex,
+            monitor && (monitor->style==PPA_MONITOR_CRT ||
+                        monitor->sharpness<40) ?
+                SDL_SCALEMODE_LINEAR : SDL_SCALEMODE_NEAREST);
         SDL_UpdateTexture(tex,NULL,pixels,(int)(w*sizeof(uint32_t)));
         SDL_RenderTexture(r,tex,NULL,screen);
         SDL_DestroyTexture(tex);
@@ -161,6 +172,6 @@ void ppa_vga_gui_draw(SDL_Renderer *r,TTF_Font *font,
              info->vga_vram_size);
     ppa_mod_text(r,font,36,720,(SDL_Color){211,220,218,255},s);
     ppa_mod_text(r,font,36,749,(SDL_Color){150,160,159,255},
-                 "PPA-BUS/1 VIDEO OUTPUT  /  DIGITAL RGB MONITOR");
+                 "ADAVA DISPLAY  |  PPA-VGA/1 RGB INPUT");
     ppa_monitor_draw(r,font,info,slot,&bounds);
 }
