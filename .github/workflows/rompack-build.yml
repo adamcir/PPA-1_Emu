@@ -12,6 +12,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build native ROM packer and ASM graphics demo
         run: make rompack out/examples/rom_gfx_demo.bin
+      - name: Verify example's intermediate and EEPROM image
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          program=Path("out/examples/rom_gfx_demo.prg").read_bytes()
+          rom=Path("out/examples/rom_gfx_demo.bin").read_bytes()
+          assert len(program)==65536
+          assert len(rom)==2*1024*1024
+          assert rom[:65536]==program
+          print("Example ASM -> PRG -> ROMPACK: OK")
+          PY
       - name: Test ROM packer
         run: make test-rompack
       - name: Smoke-test BMP packing into demo ROM
@@ -29,6 +40,7 @@ jobs:
           from pathlib import Path
           d=Path("out/examples/rom_gfx_demo_packed.bin").read_bytes()
           assert len(d)==2*1024*1024
+          assert d[:65536]==Path("out/examples/rom_gfx_demo.prg").read_bytes()
           assert d[65536:65540]==b"PIMG"
           print("Graphics example packed and ready")
           PY
