@@ -1835,7 +1835,7 @@ static void gui_backend_module_ps2_text(void *ctx, int slot, const char *utf8) {
     PpaModule *m=&g_ppa_modules.slots[slot];
     if(m->type!=PPAM_TYPE_PS2 || !m->active) return;
     size_t n=strlen(m->ps2_preview);
-    if(utf8[0]=='\\b' && !utf8[1]) {
+    if(utf8[0]=='\b' && !utf8[1]) {
         if(n) {
             /* Delete the last UTF-8 codepoint without breaking its bytes. */
             do { n--; } while(n && ((unsigned char)m->ps2_preview[n]&0xC0)==0x80);
