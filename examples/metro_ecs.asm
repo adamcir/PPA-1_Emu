@@ -328,8 +328,8 @@ update_physics:
 
 ; ---------------------------------------------------------------------------
 ; Metrostroi-inspired ALS/ARS demo sections.
-; Signal digits are km/h (0,40,60,80); 70 is supported by the model
-; but unused on this very short example line.
+; Signal digits are km/h (0,40,60,70,80).
+; Game sections are static demonstrations, not interlocked Metrostroi blocks.
 ; Not a full implementation of ARS, EPK or interlocking.
 ; ---------------------------------------------------------------------------
 
@@ -458,15 +458,28 @@ sound_init_slot3:
     ST $0011,A
     MOV A,#01
     ST $0010,A
+
+    ; Channel 1 = old traction motor (triangle).
     MOV A,#02
     ST $0022,A
     MOV A,#A0
     ST $0023,A
     MOV A,#01
     ST $0024,A
+
+    ; Channel 2 = pulsing ARS overspeed warning (square).
+    MOV A,#00
+    ST $0032,A
+    MOV A,#50
+    ST $0033,A
+    MOV A,#01
+    ST $0034,A
+
     MOV A,#00
     ST $0020,A
     ST $0021,A
+    ST $0030,A
+    ST $0031,A
     RET
 
 update_sound:
@@ -474,9 +487,9 @@ update_sound:
     MOV BR-LO,#00
     LD B,$0000
     CMP B,#00
-    JZ .silent
+    JZ .motor_off
 
-    ; 80 + speed * 2 Hz, max 240 Hz. Uses SOUND in slot 3.
+    ; Engine pitch 80..240 Hz as speed approaches 80 km/h.
     SHL B
     ADD B,#50
     MOV BR-HI,#40
@@ -484,13 +497,40 @@ update_sound:
     ST $0020,B
     MOV A,#00
     ST $0021,A
-    RET
-.silent:
+    JMP .warn_check
+
+.motor_off:
     MOV BR-HI,#40
     MOV BR-LO,#00
     MOV A,#00
     ST $0020,A
     ST $0021,A
+
+.warn_check:
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$000D
+    CMP A,#00
+    JZ .alarm_off
+    ; Alternate alarm on/off as the train moves.
+    LD A,$0004
+    AND A,#40
+    JZ .alarm_off
+
+    MOV BR-HI,#40
+    MOV BR-LO,#00
+    MOV A,#70
+    ST $0030,A
+    MOV A,#03
+    ST $0031,A
+    RET
+
+.alarm_off:
+    MOV BR-HI,#40
+    MOV BR-LO,#00
+    MOV A,#00
+    ST $0030,A
+    ST $0031,A
     RET
 
 ; ---------------------------------------------------------------------------
