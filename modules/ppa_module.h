@@ -57,6 +57,7 @@ typedef struct {
     uint16_t vga_page; /* 64 KiB aperture page number. */
 
     /* PS/2 Scan Code Set 2: independent keyboard controller and FIFO. */
+    char ps2_preview[96]; /* UI-only typed text, not an I/O register. */
     uint8_t ps2_fifo[PPAM_PS2_FIFO_SIZE];
     uint8_t ps2_pressed[512];
     uint8_t ps2_head, ps2_tail, ps2_last, ps2_leds;
