@@ -20,7 +20,7 @@
 
 #include "logger.h"
 #include "gui.h"
-#include "src/ppa_module.h"
+#include "../modules/ppa_module.h"
 
 /* Mirror the emulator's existing printf-based diagnostics to latest.log. */
 #define printf(...) ppa_log_printf(__VA_ARGS__)

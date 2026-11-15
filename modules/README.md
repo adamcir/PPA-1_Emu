@@ -1,6 +1,17 @@
+# Layout of module sources and compiled cards
+
+The `modules/` directory contains device host code (`ppa_module.c`,
+`ppa_module.h`), unit tests, device definitions (`light.json` and
+`ppa-sound-1.json`), and the `build_modules.py` compiler.
+
+Run `make modules` to generate `out/modules/*.ppamod`. The generated
+binary cards live only under `out/modules/` and are ignored by Git.
+`make` builds the emulator, module cards and assembly examples.
+The emulator sources are in `src/`; the assembler is in `tools/asm/`.
+
 # PPA-1 PPAMOD modules
 
-`modules/light.ppamod` is the first binary PPA-BUS/1 card.
+`out/modules/light.ppamod` is the first binary PPA-BUS/1 card.
 The first four bytes are ASCII `PPAM` (50 50 41 4D).
 
 ## Loading
@@ -63,7 +74,7 @@ keeping cards attached. Modules work with GUI CPU and console CPU.
 ## Command-line use
 
 ```sh
-./out/PPA-1_Emu demo.bin --module 1:modules/light.ppamod
+./out/PPA-1_Emu demo.bin --module 1:out/modules/light.ppamod
 ```
 
 The module is activated on startup. GUI loads are initially inactive,
@@ -74,11 +85,11 @@ The unit test is `make test-modules`.
 
 `modules/light_demo.asm` sets BR to the base bank for SLOT 1,
 writes 01 to register 0010, waits and repeats. Assemble with
-`make asm` followed by `out/asm/ppa-1_asm modules/light_demo.asm light.bin`.
+`make examples` (output: `out/examples/light_demo.bin`).
 
 ## PPA-SOUND/1
 
-`modules/ppa-sound-1.ppamod` has a PPAM header with device type 2.
+`out/modules/ppa-sound-1.ppamod` has a PPAM header with device type 2.
 It uses the PPAMOD host's safe built-in synthesizer (not native VST
 or arbitrary executable code). Loading it into SLOT 1 maps:
 

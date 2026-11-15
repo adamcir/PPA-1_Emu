@@ -1,4 +1,5 @@
 CC = gcc
+PYTHON ?= python3
 PKG_CONFIG ?= pkg-config
 SDL3_CFLAGS := $(shell $(PKG_CONFIG) --cflags sdl3 2>/dev/null)
 SDL3_LIBS := $(shell $(PKG_CONFIG) --libs sdl3 2>/dev/null)
@@ -10,7 +11,8 @@ SDL3_IMAGE_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(SDL3_IMAGE_PKG) 2>/dev/nul
 SDL3_IMAGE_LIBS := $(shell $(PKG_CONFIG) --libs $(SDL3_IMAGE_PKG) 2>/dev/null)
 
 EMU = out/PPA-1_Emu
-SRC = main.c logger.c gui.c src/ppa_module.c
+SRC = src/main.c src/logger.c src/gui.c modules/ppa_module.c
+EMU_HEADERS = src/gui.h src/logger.h modules/ppa_module.h
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 
@@ -18,44 +20,43 @@ EXAMPLE_SRCS := $(wildcard examples/*.asm)
 EXAMPLE_BINS := $(patsubst examples/%.asm,out/examples/%.bin,$(EXAMPLE_SRCS))
 MODULE_DEMOS := $(wildcard modules/*_demo.asm)
 MODULE_DEMO_BINS := $(patsubst modules/%.asm,out/examples/%.bin,$(MODULE_DEMOS))
+MODULE_DEFS := $(wildcard modules/*.json)
+MODULE_BINS := $(patsubst modules/%.json,out/modules/%.ppamod,$(MODULE_DEFS))
 
-.PHONY: all clean run asm emu examples sound-examples test-modules
+.PHONY: all clean run asm emu examples sound-examples modules test-modules
+all: asm emu modules examples
 
-all: asm emu examples
+out/asm out/examples out/modules:
+	mkdir -p $@
 
-out:
-	mkdir -p out/asm/
-
-emu: out
+$(EMU): $(SRC) $(EMU_HEADERS)
+	mkdir -p out
 	$(CC) $(SDL3_CFLAGS) $(SDL3_TTF_CFLAGS) $(SDL3_IMAGE_CFLAGS) $(SRC) -o $(EMU) $(SDL3_LIBS) $(SDL3_TTF_LIBS) $(SDL3_IMAGE_LIBS) -lm
 	rm -rf out/assets
 	cp -a assets out/assets
 
+emu: $(EMU)
+
+$(ASM): $(ASM_SRC) | out/asm
+	$(CC) $(ASM_SRC) -o $(ASM)
 asm: $(ASM)
 
-$(ASM): $(ASM_SRC) | out
-	$(CC) $(ASM_SRC) -o $(ASM)
+out/modules/%.ppamod: modules/%.json modules/build_modules.py | out/modules
+	$(PYTHON) modules/build_modules.py $< $@
+modules: $(MODULE_BINS)
+
+out/ppa_module_test: modules/ppa_module.c modules/ppa_module.h modules/ppa_module_test.c
+	mkdir -p out
+	$(CC) -Imodules modules/ppa_module.c modules/ppa_module_test.c -lm -o $@
+test-modules: modules out/ppa_module_test
+	./out/ppa_module_test
+
+out/examples/%.bin: examples/%.asm $(ASM) $(wildcard examples/includes/*.inc) | out/examples
+	$(ASM) $< $@
+out/examples/%_demo.bin: modules/%_demo.asm $(ASM) | out/examples
+	$(ASM) $< $@
+examples: $(EXAMPLE_BINS) $(MODULE_DEMO_BINS)
+sound-examples: examples
 
 clean:
 	rm -rf out/
-
-# Minimal regression test for binary PPAM loader and LIGHT card.
-test-modules: out
-	$(CC) -Isrc src/ppa_module.c src/ppa_module_test.c -lm -o out/ppa_module_test
-	./out/ppa_module_test
-
-# Build every assembly example and module demo into out/examples/.
-# GNU Make rebuilds only outputs whose sources (or assembler) changed.
-out/examples:
-	mkdir -p $@
-
-out/examples/%.bin: examples/%.asm $(ASM) | out/examples
-	$(ASM) $< $@
-
-out/examples/%_demo.bin: modules/%_demo.asm $(ASM) | out/examples
-	$(ASM) $< $@
-
-examples: $(EXAMPLE_BINS) $(MODULE_DEMO_BINS)
-
-# Compatibility alias for existing sound-example workflow.
-sound-examples: examples

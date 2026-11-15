@@ -5,7 +5,7 @@
 int main(void) {
     PpaModuleBus b;
     ppam_bus_init(&b);
-    assert(ppam_load(&b, 0, "modules/light.ppamod"));
+    assert(ppam_load(&b, 0, "out/modules/light.ppamod"));
     assert(!ppam_get(&b, 0)->active);
     assert(ppam_read(&b, 0x2000, 0x10) == 0xFF);
     assert(ppam_set_active(&b, 0, true));
@@ -25,7 +25,7 @@ int main(void) {
     ppam_eject(&b, 0);
     assert(!ppam_get(&b, 0)->installed);
     /* SOUND/1: four-voice oscillator exposed through slot-relative registers. */
-    assert(ppam_load(&b, 1, "modules/ppa-sound-1.ppamod"));
+    assert(ppam_load(&b, 1, "out/modules/ppa-sound-1.ppamod"));
     assert(ppam_get(&b, 1)->type == PPAM_TYPE_SOUND);
     assert(ppam_set_active(&b, 1, true));
     ppam_write(&b, 0x3000, 0x10, 1);   /* master ON */

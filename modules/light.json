@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "type": 1,
+  "pulse_cycles": 1000,
+  "rules": [
+    {
+      "event": 1,
+      "action": 1,
+      "offset": 16,
+      "duration": 0
+    }
+  ]
+}
