@@ -45,8 +45,11 @@ def run(argv: list[str], expected_success: bool = True) -> subprocess.CompletedP
 def test(rompack: pathlib.Path) -> None:
     with tempfile.TemporaryDirectory(prefix="ppa-rompack-test-") as t:
         d = pathlib.Path(t)
-        blank = d / "code.bin"
-        blank.write_bytes(bytes((0xFF,)) * ROM_SIZE)
+        # ASM --program produces exactly one 64 KiB executable bank.
+        blank = d / "program.prg"
+        program = bytearray((0xFF,)) * BANK_SIZE
+        program[:7] = bytes((0x25, 0, 0, 0x01, 0x02, 0x03, 0x04))
+        blank.write_bytes(program)
         bmp = d / "test.bmp"
         make_bmp24(bmp, 320, 200)
         raw = d / "test.dat"
@@ -59,7 +62,7 @@ def test(rompack: pathlib.Path) -> None:
         ])
         rom = packed.read_bytes()
         assert len(rom) == ROM_SIZE
-        assert rom[:BANK_SIZE] == blank.read_bytes()[:BANK_SIZE]
+        assert rom[:BANK_SIZE] == blank.read_bytes()
         b1 = rom[BANK_SIZE:2 * BANK_SIZE]
         assert b1[:4] == b"PIMG"
         assert b1[4] == 1 and b1[5] == 1
@@ -67,6 +70,26 @@ def test(rompack: pathlib.Path) -> None:
         assert len(b1[0x400:0x400 + 64000]) == 64000
         assert all(16 <= c <= 255 for c in b1[0x400:0x400 + 64000])
         assert rom[2 * BANK_SIZE + 0x100:2 * BANK_SIZE + 0x100 + len(raw.read_bytes())] == raw.read_bytes()
+
+        # Even with NO assets, ROMPACK is the last stage producing a 2 MiB image.
+        plain = d / "no-assets.bin"
+        run([str(rompack), str(blank), str(plain)])
+        assert len(plain.read_bytes()) == ROM_SIZE
+        assert plain.read_bytes()[:BANK_SIZE] == program
+        assert plain.read_bytes()[BANK_SIZE:] == bytes((0xFF,)) * (ROM_SIZE - BANK_SIZE)
+
+        # Preserve older tool callers supplying a complete EEPROM as input.
+        legacy = d / "legacy.bin"
+        legacy.write_bytes(plain.read_bytes())
+        legacy_out = d / "legacy-out.bin"
+        run([str(rompack), str(legacy), str(legacy_out)])
+        assert legacy_out.read_bytes() == legacy.read_bytes()
+
+        # Reject files that are neither an executable bank nor an EEPROM.
+        bad_input = d / "bad-size.prg"
+        bad_input.write_bytes(b"short")
+        run([str(rompack), str(bad_input), str(d / "invalid.bin")],
+            expected_success=False)
 
         # No writes to the executable bank.
         run([
@@ -89,7 +112,7 @@ def test(rompack: pathlib.Path) -> None:
         # The standard palette must retain the 16 EGA colors.
         assert b1[0x10:0x13] == bytes((0, 0, 0))
         assert b1[0x10 + 15 * 3:0x10 + 15 * 3 + 3] == bytes((255, 255, 255))
-        print("PPA-1 ROM packer: OK (BMP, PIMG, raw bytes, ROM0 protection, collisions)")
+        print("PPA-1 ROM packer: OK (64K program, 2MiB output, BMP, raw, safety, compatibility)")
 
 
 if __name__ == "__main__":
