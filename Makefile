@@ -12,15 +12,15 @@ SDL3_IMAGE_LIBS := $(shell $(PKG_CONFIG) --libs $(SDL3_IMAGE_PKG) 2>/dev/null)
 
 EMU = out/PPA-1_Emu
 SRC = src/main.c src/logger.c src/gui.c src/config.c \
-      modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_vga.c \
+      modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_vga.c modules/ppa_ps2.c \
       modules/ppa_module_ui.c modules/ppa_module_draw.c \
       modules/ppa_sound_gui.c modules/ppa_light_gui.c modules/ppa_vga_gui.c \
-      modules/ppa_monitor.c src/irq.c
+      modules/ppa_monitor.c modules/ppa_ps2_gui.c src/irq.c
 EMU_HEADERS = src/gui.h src/logger.h src/config.h src/irq.h \
-              modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h modules/ppa_vga.h \
+              modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h modules/ppa_vga.h modules/ppa_ps2.h \
               modules/ppa_module_ui.h modules/ppa_module_draw.h \
               modules/ppa_sound_gui.h modules/ppa_light_gui.h modules/ppa_vga_gui.h \
-              modules/ppa_monitor.h
+              modules/ppa_monitor.h modules/ppa_ps2_gui.h
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 
@@ -53,9 +53,9 @@ out/modules/%.ppamod: modules/%.json modules/build_modules.py | out/modules
 	$(PYTHON) modules/build_modules.py $< $@
 modules: $(MODULE_BINS)
 
-out/ppa_module_test: modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_vga.c modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h modules/ppa_vga.h modules/ppa_module_test.c
+out/ppa_module_test: modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_vga.c modules/ppa_ps2.c modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h modules/ppa_vga.h modules/ppa_ps2.h modules/ppa_module_test.c
 	mkdir -p out
-	$(CC) -Imodules modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_vga.c modules/ppa_module_test.c -lm -o $@
+	$(CC) -Imodules modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_vga.c modules/ppa_ps2.c modules/ppa_module_test.c -lm -o $@
 test-modules: modules out/ppa_module_test
 	./out/ppa_module_test
 
