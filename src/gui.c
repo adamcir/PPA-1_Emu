@@ -1699,7 +1699,8 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
 static void destroy_aux(AuxWindow *aux) {
     if (!aux) return;
 
-    if (aux->window && aux->kind == AUX_HEX_MEMORY) {
+    if (aux->window && (aux->kind == AUX_HEX_MEMORY ||
+                        aux->kind == AUX_MODULE_DETAIL)) {
         SDL_StopTextInput(aux->window);
     }
 
@@ -2427,6 +2428,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                     module_detail_windows[slot].renderer, 1280, 800,
                     SDL_LOGICAL_PRESENTATION_LETTERBOX);
             }
+            if(info.type==4 && module_detail_windows[slot].window)
+                SDL_StartTextInput(module_detail_windows[slot].window);
             restore_module_window(&module_detail_windows[slot], layout);
         }
     }
@@ -2678,6 +2681,23 @@ int ppa_gui_run_panel(const char *initial_rom,
 
 
 
+            if(event.type==SDL_EVENT_TEXT_INPUT && backend->module_ps2_text) {
+                bool handled=false;
+                for(int slot=0;slot<8;slot++) {
+                    if(!module_detail_windows[slot].window ||
+                       event.text.windowID != SDL_GetWindowID(module_detail_windows[slot].window))
+                        continue;
+                    PPA1ModuleInfo info={0};
+                    if(backend->module_info &&
+                       backend->module_info(backend->ctx,slot,&info) &&
+                       info.installed && info.type==4) {
+                        backend->module_ps2_text(backend->ctx,slot,event.text.text);
+                        handled=true;
+                    }
+                    break;
+                }
+                if(handled) continue;
+            }
             /* SDL physical scancodes are translated to PS/2 Set 2 only
                while the corresponding keyboard window owns focus. */
             if (event.type == SDL_EVENT_KEY_DOWN ||
@@ -2698,6 +2718,11 @@ int ppa_gui_run_panel(const char *initial_rom,
                             backend->module_ps2_key(
                                 backend->ctx,slot,scan,extended,
                                 event.type==SDL_EVENT_KEY_DOWN);
+                        if(event.type==SDL_EVENT_KEY_DOWN &&
+                           !event.key.repeat &&
+                           event.key.scancode==SDL_SCANCODE_BACKSPACE &&
+                           backend->module_ps2_text)
+                            backend->module_ps2_text(backend->ctx,slot,"\\b");
                         routed=true;
                     }
                     break;
@@ -3431,6 +3456,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                                         1280, 800,
                                         SDL_LOGICAL_PRESENTATION_LETTERBOX);
                                 }
+                                if(info.type==4 && module_detail_windows[slot].window)
+                                    SDL_StartTextInput(module_detail_windows[slot].window);
                                 if (config && module_detail_windows[slot].window) {
                                     if (!config->modules[slot].visible)
                                         restore_module_window(&module_detail_windows[slot],
