@@ -7,8 +7,8 @@
 ;   SLOT 3 = PPA-SOUND/1 (register bank 4000)
 ;
 ; Controls:
-;   W = traction / accelerate
-;   S = brake
+;   W = increase controller notch (one step per key press)
+;   S = decrease controller notch (one step per key press)
 ;
 ; The route loops through three simple stations:
 ;   D = DEPO, C = CENTRUM, L = LUKA
@@ -40,7 +40,17 @@ VAR_POS_HI      EQU $0005
 VAR_SCENE       EQU $0006
 VAR_FRICTION    EQU $0007
 
-MAX_SPEED       EQU $28
+MAX_SPEED       EQU $50
+; Extended state in RAM bank 1000 (notch indices 0..6):
+; 0=T2, 1=T1A, 2=T1, 3=0, 4=X1, 5=X2, 6=X3
+VAR_TARGET       EQU $0008
+VAR_ACTUAL       EQU $0009
+VAR_SHIFT_TICKS  EQU $000A
+VAR_ACCEL_TICKS  EQU $000B
+VAR_LIMIT        EQU $000C
+VAR_WARNING      EQU $000D
+VAR_LAST_PHASE   EQU $000E
+VAR_SHIFT_PHASE  EQU $000F
 
 start:
     ; VGA: 320x200x8 mode 13h.
@@ -59,8 +69,18 @@ start:
     ST $0004,A
     ST $0005,A
     ST $0007,A
+    ST $000A,A
+    ST $000B,A
+    ST $000D,A
+    ST $000F,A
+    MOV A,#03
+    ST $0008,A
+    ST $0009,A
+    MOV A,#50
+    ST $000C,A
     MOV A,#FF
     ST $0006,A
+    ST $000E,A
 
     ; PS/2 keyboard in SLOT 2: scan on + flush FIFO.
     MOV BR-HI,#30
@@ -78,8 +98,10 @@ start:
 
 main_loop:
     CALL poll_keyboard
+    CALL update_controller
     CALL update_physics
     CALL update_scene
+    CALL update_ars
     CALL draw_motion
     CALL draw_panel_dynamic
     CALL update_sound
@@ -111,7 +133,7 @@ poll_keyboard:
     CMP A,#00
     JZ .make_code
 
-    ; Break code: clear pending prefix and release key.
+    ; PS/2 set-2 F0 means key released, not another notch.
     MOV A,#00
     ST $0003,A
     CMP B,#1D
@@ -135,13 +157,30 @@ poll_keyboard:
     JMP .poll
 
 .w_down:
+    ; Each make code increments one detent, even if held.
+    LD A,$0001
+    CMP A,#00
+    JNZ .poll
     MOV A,#01
     ST $0001,A
+    LD A,$0008
+    CMP A,#06
+    JNC .poll
+    INC A
+    ST $0008,A
     JMP .poll
 
 .s_down:
+    LD A,$0002
+    CMP A,#00
+    JNZ .poll
     MOV A,#01
     ST $0002,A
+    LD A,$0008
+    CMP A,#00
+    JZ .poll
+    DEC A
+    ST $0008,A
     JMP .poll
 
 .w_up:
@@ -158,29 +197,110 @@ poll_keyboard:
     RET
 
 ; ---------------------------------------------------------------------------
-; Driving physics
+; Metrostroi-inspired KV-35 notches.
+; ControllerSet (target) and RealControllerPosition (physical) are distinct.
+; Target changes per keypress; actual lever follows over several frames.
 ; ---------------------------------------------------------------------------
+
+update_controller:
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$0008
+    LD B,$0009
+    CMP A,B
+    JZ .stable
+
+    LD A,$000A
+    INC A
+    CMP A,#03
+    JC .wait
+    MOV A,#00
+    ST $000A,A
+    ST $000B,A
+
+    LD A,$0008
+    LD B,$0009
+    CMP B,A
+    JC .up
+    DEC B
+    ST $0009,B
+    RET
+.up:
+    INC B
+    ST $0009,B
+    RET
+
+.wait:
+    ST $000A,A
+    RET
+
+.stable:
+    MOV A,#00
+    ST $000A,A
+    RET
+
+; ---------------------------------------------------------------------------
+; Simplified frame-based acceleration, friction and electric braking.
+; Distinct notch thresholds; no instantaneous speed changes.
+; Speed is an integer in km/h: 0 .. 80 (50h).
+; ---------------------------------------------------------------------------
+
 
 update_physics:
     MOV BR-HI,#10
     MOV BR-LO,#00
-
-    ; Brake wins if both keys are held.
-    LD A,$0002
+    LD A,$0009
+    MOV D,#40         ; coast: lose 1 km/h after 64 frames
+    CMP A,#03
+    JZ .timed
     CMP A,#00
-    JNZ .brake
+    JZ .t2
+    CMP A,#01
+    JZ .t1a
+    CMP A,#02
+    JZ .t1
+    CMP A,#04
+    JZ .x1
+    CMP A,#05
+    JZ .x2
+    MOV D,#04         ; X3: fastest traction
+    JMP .timed
+.x2:
+    MOV D,#07
+    JMP .timed
+.x1:
+    MOV D,#0E
+    JMP .timed
+.t1:
+    MOV D,#08
+    JMP .timed
+.t1a:
+    MOV D,#04
+    JMP .timed
+.t2:
+    MOV D,#02
 
-    LD A,$0001
-    CMP A,#00
-    JNZ .traction
-
-    ; Coasting friction: lose 1 speed unit every 8 frames.
-    LD A,$0007
+.timed:
+    LD A,$000B
     INC A
-    CMP A,#08
-    JNZ .store_friction
+    CMP A,D
+    JC .wait_acc
     MOV A,#00
-    ST $0007,A
+    ST $000B,A
+    LD A,$0009
+    CMP A,#03
+    JZ .reduce
+    JC .reduce
+
+    ; Electric traction in X1/X2/X3.
+    LD A,$0000
+    CMP A,#50
+    JNC .advance
+    INC A
+    ST $0000,A
+    JMP .advance
+
+.reduce:
     LD A,$0000
     CMP A,#00
     JZ .advance
@@ -188,41 +308,14 @@ update_physics:
     ST $0000,A
     JMP .advance
 
-.store_friction:
-    ST $0007,A
-    JMP .advance
-
-.traction:
-    MOV A,#00
-    ST $0007,A
-    LD A,$0000
-    CMP A,#28
-    JNC .advance
-    INC A
-    ST $0000,A
-    JMP .advance
-
-.brake:
-    MOV A,#00
-    ST $0007,A
-    LD A,$0000
-    CMP A,#00
-    JZ .advance
-    SUB A,#02
-    JC .brake_zero
-    ST $0000,A
-    JMP .advance
-
-.brake_zero:
-    MOV A,#00
-    ST $0000,A
+.wait_acc:
+    ST $000B,A
 
 .advance:
-    ; 16-bit route position += speed.
+    ; Fixed route coordinate for VGA parallax / moving signals.
     LD B,$0000
     CMP B,#00
     JZ .done
-
     LD A,$0004
     ADD A,B
     ST $0004,A
@@ -230,14 +323,16 @@ update_physics:
     LD A,$0005
     INC A
     ST $0005,A
-
 .done:
     RET
 
 ; ---------------------------------------------------------------------------
-; Route / station scene selection
-; scene 0 = DEPO, 1 = tunnel, 2 = CENTRUM, 3 = LUKA
+; Metrostroi-inspired ALS/ARS demo sections.
+; Signal digits are km/h (0,40,60,80); 70 is supported by the model
+; but unused on this very short example line.
+; Not a full implementation of ARS, EPK or interlocking.
 ; ---------------------------------------------------------------------------
+
 
 update_scene:
     MOV BR-HI,#10
@@ -305,6 +400,48 @@ update_scene:
 ; Sound - SLOT 3 / bank 4000
 ; ---------------------------------------------------------------------------
 
+update_ars:
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$0005
+    CMP A,#40
+    JC .limit80
+    CMP A,#60
+    JC .limit60
+    CMP A,#70
+    JC .limit40
+    CMP A,#B0
+    JC .limit80
+    CMP A,#C0
+    JC .limit60
+    CMP A,#D0
+    JC .limit40
+    CMP A,#F0
+    JC .limit80
+    MOV B,#00
+    JMP .commit
+.limit80:
+    MOV B,#50
+    JMP .commit
+.limit60:
+    MOV B,#3C
+    JMP .commit
+.limit40:
+    MOV B,#28
+.commit:
+    ST $000C,B
+    LD A,$0000
+    CMP A,B
+    JZ .clear_warning
+    JC .clear_warning
+    MOV A,#01
+    ST $000D,A
+    RET
+.clear_warning:
+    MOV A,#00
+    ST $000D,A
+    RET
+
 sound_init_slot3:
     MOV BR-HI,#40
     MOV BR-LO,#00
@@ -330,20 +467,15 @@ update_sound:
     CMP B,#00
     JZ .silent
 
-    ; 80 Hz + speed*4, up to 240 Hz.
-    SHL B
+    ; 80 + speed * 2 Hz, max 240 Hz. Uses SOUND in slot 3.
     SHL B
     ADD B,#50
-
     MOV BR-HI,#40
     MOV BR-LO,#00
     ST $0020,B
     MOV A,#00
     ST $0021,A
-    MOV A,#01
-    ST $0024,A
     RET
-
 .silent:
     MOV BR-HI,#40
     MOV BR-LO,#00
@@ -353,13 +485,7 @@ update_sound:
     RET
 
 ; ---------------------------------------------------------------------------
-; VGA drawing helpers
-; fill_rect input:
-;   Y = top-left VRAM offset
-;   A = palette index
-;   B = width  (1..255)
-;   C = height (1..255)
-; Clobbers X, D, C and Y. Keeps A and B.
+; VGA drawing helpers (unchanged from first Ecs revision)
 ; ---------------------------------------------------------------------------
 
 fill_rect:
