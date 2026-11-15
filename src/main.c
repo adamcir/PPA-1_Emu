@@ -23,6 +23,7 @@
 #include "config.h"
 #include "irq.h"
 #include "../modules/ppa_module.h"
+#include "../modules/ppa_ps2.h"
 
 /* Mirror the emulator's existing printf-based diagnostics to latest.log. */
 #define printf(...) ppa_log_printf(__VA_ARGS__)
@@ -1812,6 +1813,22 @@ static bool gui_backend_module_activate(void *ctx, int slot, bool enabled) {
     return g && !g->powered &&
         ppam_set_active(&g_ppa_modules, slot, enabled);
 }
+static void gui_backend_module_ps2_key(void *ctx, int slot, uint8_t code,
+                                        bool extended, bool pressed) {
+    (void)ctx;
+    if(slot<0 || slot>=PPAM_SLOTS) return;
+    ppa_ps2_key(&g_ppa_modules.slots[slot],code,extended,pressed);
+}
+static void gui_backend_module_ps2_release(void *ctx, int slot) {
+    (void)ctx;
+    if(slot<0 || slot>=PPAM_SLOTS) return;
+    PpaModule *m=&g_ppa_modules.slots[slot];
+    if(m->type!=PPAM_TYPE_PS2) return;
+    for(unsigned i=0;i<256;i++) {
+        if(m->ps2_pressed[i])
+            ppa_ps2_key(m,(uint8_t)(i&0x7Fu),(i&0x80u)!=0,false);
+    }
+}
 static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
     (void)ctx;
     const PpaModule *m = ppam_get(&g_ppa_modules, slot);
@@ -2752,6 +2769,8 @@ int main(int argc, char **argv) {
             .module_eject = gui_backend_module_eject,
             .module_activate = gui_backend_module_activate,
             .module_info = gui_backend_module_info,
+            .module_ps2_key = gui_backend_module_ps2_key,
+            .module_ps2_release = gui_backend_module_ps2_release,
             .memory_inspect = gui_backend_memory_inspect,
             .memory_edit = gui_backend_memory_edit
         };
