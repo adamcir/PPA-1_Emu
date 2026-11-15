@@ -4,7 +4,8 @@ Build from the repository root:
 
 ```sh
 make modules examples
-# Programs: out/examples/*.bin
+# Stage 1: assembler generates out/examples/*.prg (64 KiB program)
+# Stage 2: ROMPACK generates out/examples/*.bin (2 MiB EEPROM)
 # Cards: out/modules/*.ppamod
 ```
 
@@ -33,6 +34,12 @@ New assembler includes under `examples/includes/`:
 The corresponding resource packer is written in **C**:
 `tools/rompack/ppa_rompack.c` → `out/tools/ppa_rompack`.
 
+All examples now follow the same path:
+```text
+example.asm -> assembler --program -> example.prg -> ROMPACK -> example.bin
+```
+Even an example without additional resources passes through ROMPACK.
+
 Compile and pack a **320×200 uncompressed BMP exported from GIMP**:
 
 ```sh
@@ -50,7 +57,7 @@ in PPA-VGA's VRAM bank 2001.
 For arbitrary binaries or several independent images:
 
 ```sh
-out/tools/ppa_rompack out/examples/rom_gfx_demo.bin out/custom.bin \
+out/tools/ppa_rompack out/examples/rom_gfx_demo.prg out/custom.bin \
   --bmp 0001:/path/to/background.bmp \
   --put 0002:0100:/path/to/data.bin --info
 ```
