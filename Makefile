@@ -27,8 +27,10 @@ ROMPACK_SRC = tools/rompack/ppa_rompack.c
 ROMPACK = out/tools/ppa_rompack
 
 EXAMPLE_SRCS := $(wildcard examples/*.asm)
+EXAMPLE_PROGRAMS := $(patsubst examples/%.asm,out/examples/%.prg,$(EXAMPLE_SRCS))
 EXAMPLE_BINS := $(patsubst examples/%.asm,out/examples/%.bin,$(EXAMPLE_SRCS))
 MODULE_DEMOS := $(wildcard modules/*_demo.asm)
+MODULE_DEMO_PROGRAMS := $(patsubst modules/%.asm,out/examples/%.prg,$(MODULE_DEMOS))
 MODULE_DEMO_BINS := $(patsubst modules/%.asm,out/examples/%.bin,$(MODULE_DEMOS))
 MODULE_DEFS := $(wildcard modules/*.json)
 MODULE_BINS := $(patsubst modules/%.json,out/modules/%.ppamod,$(MODULE_DEFS))
@@ -68,10 +70,15 @@ out/irq_test: src/irq.c src/irq.h src/irq_test.c
 test-irq: out/irq_test
 	./out/irq_test
 
-out/examples/%.bin: examples/%.asm $(ASM) $(wildcard examples/includes/*.inc) | out/examples
-	$(ASM) $< $@
-out/examples/%_demo.bin: modules/%_demo.asm $(ASM) | out/examples
-	$(ASM) $< $@
+# Every game/demo now uses ASM -> program bank -> ROMPACK -> final EEPROM.
+out/examples/%.prg: examples/%.asm $(ASM) $(wildcard examples/includes/*.inc) | out/examples
+	$(ASM) $< $@ --program
+out/examples/%_demo.prg: modules/%_demo.asm $(ASM) | out/examples
+	$(ASM) $< $@ --program
+
+out/examples/%.bin: out/examples/%.prg $(ROMPACK)
+	$(ROMPACK) $< $@
+
 examples: $(EXAMPLE_BINS) $(MODULE_DEMO_BINS)
 sound-examples: examples
 
@@ -82,11 +89,11 @@ rompack: $(ROMPACK)
 # Build demo from game/graphics ASM libraries, then insert any 320x200 BMP.
 # e.g. make rom-graphics-demo BMP=~/Pictures/my_gimp_export.bmp
 .PHONY: rom-graphics-demo rompack
-rom-graphics-demo: out/examples/rom_gfx_demo.bin $(ROMPACK)
+rom-graphics-demo: out/examples/rom_gfx_demo.prg $(ROMPACK)
 	@if [ -z "$(BMP)" ]; then \
 	  echo "Usage: make rom-graphics-demo BMP=/path/to/gimp-export.bmp"; exit 1; \
 	fi
-	$(ROMPACK) out/examples/rom_gfx_demo.bin out/examples/rom_gfx_demo_packed.bin --bmp 0001:$(BMP)
+	$(ROMPACK) out/examples/rom_gfx_demo.prg out/examples/rom_gfx_demo_packed.bin --bmp 0001:$(BMP)
 
 # Keep runtime preferences and logs across clean rebuilds.
 clean:
