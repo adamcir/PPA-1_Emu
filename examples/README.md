@@ -10,33 +10,74 @@ make modules examples
 
 ## Metro driver — Ečs cab (PPA-1 ASM)
 
-`metro_ecs.asm` is a playable metro-driving example with a pale, instrument-rich
-Ečs-inspired control desk. Everything is drawn into PPA-VGA VRAM by the PPA-1
-CPU; no host-rendered images or external bitmaps are used.
+`metro_ecs.asm` is a playable VGA metro driving example. The display is drawn
+entirely in PPA-1 assembly (no PNGs or host-side game rendering). The cab is
+visually inspired by the older **Ečs** train.
 
-Install and activate these cards with CPU power OFF:
+With CPU power OFF, install and activate:
 
-- **SLOT 1:** `out/modules/ppa-vga-1.ppamod` — VGA graphics in mode 13h.
-- **SLOT 2:** `out/modules/ppa-ps2-1.ppamod` — PS/2 Set-2 keyboard input.
-- **SLOT 3:** `out/modules/ppa-sound-1.ppamod` — traction motor tone.
+- **SLOT 1:** `out/modules/ppa-vga-1.ppamod` — VGA mode 13h (320×200, 8-bit).
+- **SLOT 2:** `out/modules/ppa-ps2-1.ppamod` — PS/2 keyboard, scan-set 2.
+- **SLOT 3:** `out/modules/ppa-sound-1.ppamod` — traction motor sound.
 
-After `make modules examples`, load `out/examples/metro_ecs.bin` as the CPU's
-EEPROM image, power on, and RUN. Open the VGA monitor's VIEW and click the
-keyboard module's VIEW so it captures physical keyboard events.
+Build at repository root:
 
-Controls:
-- **W (hold)** — traction / acceleration.
-- **S (hold)** — brake / deceleration.
-- **Neither** — coast with gentle rolling resistance.
+```sh
+git pull origin main
+make modules examples
+```
 
-The 320x200x8-bit display includes a twin-tiered gray Ečs-like desk with analog
-voltage/current/speed/pressure instruments, ARS lamps, brake-valve area, colored
-lighting/doors/signal buttons, wood trim, a large moving brown controller handle,
-a live speed bar, and VGA pixel-font labels. The outside view has track and tunnel
-perspective, moving sleepers and three simple stations, **DEPO**, **CENTRUM** and
-**LUKA**, on a repeating route.
+Load `out/examples/metro_ecs.bin` as the EEPROM image. Start the CPU with
+PWR ON + RUN, open VGA VIEW and click the keyboard module's VIEW to capture
+physical keyboard input. Around 1 MHz CPU is a useful starting point.
 
-Start at around **1 MHz CPU** and adjust for your emulator's rendering speed.
+### Controls and controller notches
+
+**W** (press and release) — advance **one** KV notch.
+
+**S** (press and release) — move back **one** KV notch.
+
+The seven notches, following the Metrostroi **KV-35** controller logic:
+
+```text
+T2 <-> T1A <-> T1 <-> 0 <-> X1 <-> X2 <-> X3
+```
+
+- **X1 / X2 / X3:** progressively faster *gradual* acceleration.
+- **0:** coasting with rolling resistance.
+- **T1 / T1A / T2:** progressively stronger *gradual* braking.
+
+Notches remain selected after releasing W/S. The physical handle responds with
+a small delay to rapid notch changes. The screen shows the selected physical
+notch, the real changing speed (0–80 km/h), and indicator lamps.
+
+### Route, movement and signals
+
+The same three fictional stations, **DEPO → CENTRUM → LUKA**, are on a repeating
+track. The cab viewport is a first-person view of rails and tunnel. Sleepers and
+tunnel support ribs shift with actual distance travelled; station platform
+details also scroll. Everything stops moving when train speed reaches zero.
+
+Signal heads change apparent size/position as the train approaches and passes
+them. Demonstration ARS sections show **80/70/60/40/0 km/h** codes, corresponding
+colored lamps, and a red warning indicator when speed exceeds the current code.
+The graphical cab includes analog instruments, a KV controller handle, buttons,
+a speed display, and text drawn by the game's own tiny VGA pixel font.
+
+The **train physics, scripted line layout, signal positions and ARS warnings are
+simplified game mechanics**, not Metrostroi's actual electrical simulation,
+pneumatic model, EPK enforcement, or real route/interlocking logic.
+
+### Metrostroi references
+
+The behavior is based on the control positions in
+[Metrostroi KV-35](https://github.com/metrostroi-repo/MetrostroiAddon/blob/dev/lua/metrostroi/systems/sys_kv_35.lua)
+and the idea of ARS codes/track signals from
+[Metrostroi track signals](https://github.com/metrostroi-repo/MetrostroiAddon/blob/dev/lua/entities/gmod_track_signal/init.lua)
+and
+[rail network](https://github.com/metrostroi-repo/MetrostroiAddon/blob/dev/lua/metrostroi/sv_railnetwork.lua).
+These are references for a new independent ASM implementation; original Lua
+program code is not included.
 
 ## PPA-SOUND/1 examples
 
