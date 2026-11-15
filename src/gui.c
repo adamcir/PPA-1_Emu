@@ -1,3 +1,4 @@
+#include "../modules/ppa_monitor.h"
 #include "gui.h"
 #include "logger.h"
 
@@ -3184,9 +3185,31 @@ int ppa_gui_run_panel(const char *initial_rom,
                         ppa_log_printf(
                             "GUI: UART monitor display cleared.\n");
                     }
-                } else if (modules_window.window &&
-                           id == SDL_GetWindowID(modules_window.window) &&
-                           event.button.button == SDL_BUTTON_LEFT) {
+                } else if (event.button.button == SDL_BUTTON_LEFT &&
+                           id != main_window_id) {
+                    /* Each VGA module window is an independent physical
+                       monitor with its own clickable bezel switches. */
+                    bool monitor_handled = false;
+                    for (int slot = 0; slot < 8; ++slot) {
+                        if (module_detail_windows[slot].window &&
+                            id == SDL_GetWindowID(module_detail_windows[slot].window)) {
+                            PPA1ModuleInfo info = {0};
+                            if (backend->module_info &&
+                                backend->module_info(backend->ctx, slot, &info) &&
+                                info.installed && info.type == 3) {
+                                SDL_ConvertEventToRenderCoordinates(
+                                    module_detail_windows[slot].renderer, &event);
+                                ppa_monitor_button(slot,event.button.x,event.button.y);
+                            }
+                            monitor_handled = true;
+                            break;
+                        }
+                    }
+                    if (monitor_handled) continue;
+                }
+                if (modules_window.window &&
+                    id == SDL_GetWindowID(modules_window.window) &&
+                    event.button.button == SDL_BUTTON_LEFT) {
                     float x = event.button.x, y = event.button.y;
                     for (int slot = 0; slot < 8; ++slot) {
                         SDL_FRect module_rects[4];
