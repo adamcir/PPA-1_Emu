@@ -32,6 +32,9 @@ EXAMPLE_BINS := $(patsubst examples/%.asm,out/examples/%.bin,$(EXAMPLE_SRCS))
 MODULE_DEMOS := $(wildcard modules/*_demo.asm)
 MODULE_DEMO_PROGRAMS := $(patsubst modules/%.asm,out/examples/%.prg,$(MODULE_DEMOS))
 MODULE_DEMO_BINS := $(patsubst modules/%.asm,out/examples/%.bin,$(MODULE_DEMOS))
+
+# Keep the assembler output as a real, inspectable intermediate file.
+.PRECIOUS: out/examples/%.prg
 MODULE_DEFS := $(wildcard modules/*.json)
 MODULE_BINS := $(patsubst modules/%.json,out/modules/%.ppamod,$(MODULE_DEFS))
 
