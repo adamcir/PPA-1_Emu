@@ -2309,10 +2309,13 @@ int ppa_gui_run_panel(const char *initial_rom,
                      title, info.type == 3 ? 1280 : 540,
                      info.type == 3 ? 800 : 510);
             module_detail_windows[slot].slot_index = slot;
-            if (info.type == 3 && module_detail_windows[slot].renderer)
+            if (info.type == 3 && module_detail_windows[slot].renderer) {
+                SDL_SetWindowMinimumSize(module_detail_windows[slot].window,
+                                         960, 640);
                 SDL_SetRenderLogicalPresentation(
                     module_detail_windows[slot].renderer, 1280, 800,
                     SDL_LOGICAL_PRESENTATION_LETTERBOX);
+            }
             restore_module_window(&module_detail_windows[slot], layout);
         }
     }
@@ -3248,11 +3251,14 @@ int ppa_gui_run_panel(const char *initial_rom,
                                          info.type == 3 ? 1280 : 540,
                                          info.type == 3 ? 800 : 510);
                                 module_detail_windows[slot].slot_index = slot;
-                                if (info.type == 3 && module_detail_windows[slot].renderer)
+                                if (info.type == 3 && module_detail_windows[slot].renderer) {
+                                    SDL_SetWindowMinimumSize(
+                                        module_detail_windows[slot].window, 960, 640);
                                     SDL_SetRenderLogicalPresentation(
                                         module_detail_windows[slot].renderer,
                                         1280, 800,
                                         SDL_LOGICAL_PRESENTATION_LETTERBOX);
+                                }
                                 if (config && module_detail_windows[slot].window) {
                                     if (!config->modules[slot].visible)
                                         restore_module_window(&module_detail_windows[slot],
