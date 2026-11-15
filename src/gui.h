@@ -89,6 +89,7 @@ typedef struct {
     bool (*module_info)(void *ctx, int slot, PPA1ModuleInfo *out);
     void (*module_ps2_key)(void *ctx, int slot, uint8_t code, bool extended, bool pressed);
     void (*module_ps2_release)(void *ctx, int slot);
+    void (*module_ps2_text)(void *ctx, int slot, const char *utf8);
     uint8_t (*memory_inspect)(void *ctx, uint16_t bank, uint16_t address);
     bool (*memory_edit)(void *ctx, uint16_t bank, uint16_t address, uint8_t value);
 } PPA1GuiBackend;
