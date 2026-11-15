@@ -25,19 +25,20 @@ static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
            SDL debug font. Character/attribute pairs are real VRAM bytes. */
         free(pixels);
         SDL_Texture *target=SDL_CreateTexture(r,SDL_PIXELFORMAT_RGBA8888,
-                                              SDL_TEXTUREACCESS_TARGET,640,400);
+                                              SDL_TEXTUREACCESS_TARGET,(int)w,(int)h);
         if(!target) return;
         SDL_SetTextureBlendMode(target,SDL_BLENDMODE_NONE);
         SDL_Texture *previous=SDL_GetRenderTarget(r);
         if(SDL_SetRenderTarget(r,target)) {
             /* Render text in native text-buffer coordinates, not the
                window's high-resolution logical monitor coordinates. */
-            SDL_SetRenderLogicalPresentation(r,640,400,
+            SDL_SetRenderLogicalPresentation(r,(int)w,(int)h,
                                              SDL_LOGICAL_PRESENTATION_DISABLED);
             SDL_SetRenderDrawColor(r,0,0,0,255);
             SDL_RenderClear(r);
-            for(unsigned y=0;y<25;y++) for(unsigned x=0;x<80;x++) {
-                unsigned cell=(y*80u+x)*2u;
+            unsigned columns=w/8u,rows=h/16u;
+            for(unsigned y=0;y<rows;y++) for(unsigned x=0;x<columns;x++) {
+                unsigned cell=(y*columns+x)*2u;
                 if(cell+1>=v->vga_vram_size) continue;
                 unsigned ch=mem[cell],attr=mem[cell+1];
                 unsigned bg=(attr>>4)&15u,fg=attr&15u;
@@ -68,16 +69,30 @@ static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
                 ((uint32_t)mem[p]<<24)|((uint32_t)mem[p+1]<<16)|
                 ((uint32_t)mem[p+2]<<8)|255u : 255u;
         }
-    } else if(v->vga_mode==0x12) {
-        /* Four 38,400-byte bitplanes, leftmost pixel is bit 7. */
+    } else if(v->vga_bpp==4) {
+        /* EGA/VGA planar memory: four independent bitplanes. */
+        unsigned stride=(unsigned)(count/8u);
         for(uint64_t i=0;i<count;i++) {
             unsigned b=(unsigned)(i>>3),mask=1u<<(7-(i&7));
             unsigned idx=0;
             for(unsigned plane=0;plane<4;plane++) {
-                unsigned pos=plane*38400u+b;
+                unsigned pos=plane*stride+b;
                 if(pos<v->vga_vram_size && (mem[pos]&mask)) idx|=1u<<plane;
             }
             pixels[i]=rgba(palette,idx);
+        }
+    } else if(v->vga_bpp==1) {
+        for(uint64_t i=0;i<count;i++) {
+            uint64_t p=i/8u;
+            unsigned bit=p<v->vga_vram_size ? (mem[p]>>(7-(i&7)))&1u : 0;
+            pixels[i]=rgba(palette,bit?15:0);
+        }
+    } else if(v->vga_bpp==2) {
+        static const uint8_t cga[4]={0,3,5,15};
+        for(uint64_t i=0;i<count;i++) {
+            uint64_t p=i/4u;
+            unsigned bit=p<v->vga_vram_size ? (mem[p]>>(6-2*(i&3)))&3u : 0;
+            pixels[i]=rgba(palette,cga[bit]);
         }
     } else {
         for(uint64_t i=0;i<count;i++)
