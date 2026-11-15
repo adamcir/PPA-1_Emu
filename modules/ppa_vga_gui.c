@@ -30,6 +30,10 @@ static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
         SDL_SetTextureBlendMode(target,SDL_BLENDMODE_NONE);
         SDL_Texture *previous=SDL_GetRenderTarget(r);
         if(SDL_SetRenderTarget(r,target)) {
+            /* Render text in native text-buffer coordinates, not the
+               window's high-resolution logical monitor coordinates. */
+            SDL_SetRenderLogicalPresentation(r,640,400,
+                                             SDL_LOGICAL_PRESENTATION_DISABLED);
             SDL_SetRenderDrawColor(r,0,0,0,255);
             SDL_RenderClear(r);
             for(unsigned y=0;y<25;y++) for(unsigned x=0;x<80;x++) {
@@ -50,6 +54,8 @@ static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
             }
         }
         SDL_SetRenderTarget(r,previous);
+        SDL_SetRenderLogicalPresentation(r,1280,800,
+                                         SDL_LOGICAL_PRESENTATION_LETTERBOX);
         SDL_SetTextureScaleMode(target,SDL_SCALEMODE_NEAREST);
         SDL_RenderTexture(r,target,NULL,screen);
         SDL_DestroyTexture(target);
