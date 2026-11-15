@@ -144,3 +144,46 @@ produce these extended resolutions or 24-bit pixel formats.
 
 At 100 kHz CPU clock, filling 6.2 MB byte by byte is extremely slow;
 use TURBO for demos or add future video DMA/blitter support.
+
+## Virtual physical monitor
+
+Each PPA-VGA/1 slot has an independent **ADAVA DISPLAY** monitor simulation
+integrated with its VIEW window. The panel is physically separate from the
+emulated VGA card. Its power key, OSD, LCD/CRT selection and image processing
+do not change VGA registers or VRAM.
+
+### Front-panel controls
+
+| Button | Operation |
+|---|---|
+| MENU | Open OSD; advance to next settings row; close at last row |
+| - / + | Decrease/increase the selected setting, or activate a toggle/action |
+| AUTO | Reset picture adjustments to nominal factory values |
+| LCD/CRT | Switch display appearance, including CRT scanlines and soft scaling |
+| POWER | Independently turn the virtual monitor off/on |
+
+The power indicator is green while displaying video, blue when there is no
+signal, orange while entering standby or asleep, and dark when powered off.
+
+The OSD provides Brightness, Contrast, Saturation, Sharpness, Gamma, Display
+Type, Auto Sleep, Information and Factory Reset. MENU cycles entries;
+the +/- buttons adjust the highlighted entry. Selecting INFORMATION and
+pressing +/- opens a live input-status screen (MENU closes it).
+
+### Signal and standby
+
+The monitor detects its input from the **active VGA card's video-enable
+register and supported timing/mode metadata**, not from CPU execution state.
+When video disappears, the monitor displays a blue **NO VIDEO SIGNAL**
+message. After three seconds it shows **ENTERING SLEEP MODE...**, and after
+eight seconds the display goes black and its power LED turns orange.
+If the VGA card restores a signal, the monitor wakes and briefly shows
+mode and resolution information.
+
+Powering off the monitor does **not** stop the PPA-1 processor and does not
+erase video memory. The module must remain installed in its slot to open VIEW.
+
+LCD uses crisp nearest-neighbor pixels by default. CRT uses softer filtering
+and a scanline overlay. Image adjustments apply to the monitor's scanout
+rather than the hardware VRAM. Settings currently last for the running emulator
+session, including closing and reopening the VIEW window.
