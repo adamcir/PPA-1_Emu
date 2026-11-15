@@ -30,7 +30,7 @@ typedef struct {
     uint8_t vga_bpp;
     uint8_t vga_text;
 
-    uint8_t ps2_pressed[256];
+    uint8_t ps2_pressed[512];
     uint16_t ps2_count;
     uint8_t ps2_last;
     bool ps2_scanning, ps2_overflow;
