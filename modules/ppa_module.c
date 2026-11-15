@@ -2,6 +2,7 @@
 #include "ppa_sound.h"
 #include "ppa_light.h"
 #include "ppa_vga.h"
+#include "ppa_ps2.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,7 +56,7 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
     uint32_t pulse = ok ? le32(h + 16) : 0;
     ok = ok && !memcmp(h, "PPAM", 4) && le16(h + 4) == PPAM_VERSION &&
          (type == PPAM_TYPE_LIGHT || type == PPAM_TYPE_SOUND ||
-          type == PPAM_TYPE_VGA) && code_len <= PPAM_MAX_CODE &&
+          type == PPAM_TYPE_VGA || type == PPAM_TYPE_PS2) && code_len <= PPAM_MAX_CODE &&
          code_len % 8 == 0 && data_len <= PPAM_MAX_DATA &&
          le32(h + 20) == 0 && strlen(path) < sizeof(bus->slots[slot].path);
     uint8_t *code = NULL, *data = NULL;
@@ -90,6 +91,9 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
     if (type == PPAM_TYPE_SOUND) {
         snprintf(m->name, sizeof(m->name), "%s", "PPA-SOUND/1");
         ppa_sound_init(m);
+    } else if (type == PPAM_TYPE_PS2) {
+        snprintf(m->name, sizeof(m->name), "%s", "PPA-PS/2/1");
+        ppa_ps2_reset(m);
     } else if (type == PPAM_TYPE_VGA) {
         snprintf(m->name, sizeof(m->name), "%s", "PPA-VGA/1");
         ppa_vga_init(m);
@@ -106,6 +110,7 @@ bool ppam_set_active(PpaModuleBus *bus, int slot, bool active) {
     m->active = active;
     ppa_light_reset(m);
     if (m->type == PPAM_TYPE_VGA) ppa_vga_reset(m);
+    if (m->type == PPAM_TYPE_PS2) ppa_ps2_reset(m);
     return true;
 }
 void ppam_reset(PpaModuleBus *bus) {
@@ -114,6 +119,7 @@ void ppam_reset(PpaModuleBus *bus) {
         ppa_light_reset(&bus->slots[i]);
         ppa_sound_reset(&bus->slots[i]);
         ppa_vga_reset(&bus->slots[i]);
+        ppa_ps2_reset(&bus->slots[i]);
     }
 }
 void ppam_tick(PpaModuleBus *bus, uint32_t cycles) {
@@ -144,6 +150,8 @@ uint8_t ppam_read(PpaModuleBus *bus, uint16_t bank, uint16_t addr) {
         return ppa_light_read(m, offset);
     if (m->type == PPAM_TYPE_VGA)
         return ppa_vga_read(m, offset);
+    if (m->type == PPAM_TYPE_PS2 && offset < 0x10000u)
+        return ppa_ps2_read(m, offset);
     if (offset >= 0x10000u && offset - 0x10000u < m->data_size)
         return m->data[offset - 0x10000u];
     return 0xFF;
@@ -156,6 +164,8 @@ void ppam_write(PpaModuleBus *bus, uint16_t bank,
     if (m->type == PPAM_TYPE_SOUND) ppa_sound_write(m, offset, value);
     else if (m->type == PPAM_TYPE_LIGHT) ppa_light_write(m, offset, value);
     else if (m->type == PPAM_TYPE_VGA) ppa_vga_write(m, offset, value);
+    else if (m->type == PPAM_TYPE_PS2 && offset < 0x10000u)
+        ppa_ps2_write(m, offset, value);
 }
 const PpaModule *ppam_get(const PpaModuleBus *bus, int slot) {
     return bus && slot >= 0 && slot < PPAM_SLOTS ? &bus->slots[slot] : NULL;
