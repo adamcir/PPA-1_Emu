@@ -16,6 +16,7 @@ static void flush(PpaModule *m) {
 }
 void ppa_ps2_reset(PpaModule *m) {
     if(!m || m->type!=PPAM_TYPE_PS2) return;
+    m->ps2_preview[0]=0;
     memset(m->ps2_pressed,0,sizeof(m->ps2_pressed));
     flush(m);
     m->ps2_scanning=true;
