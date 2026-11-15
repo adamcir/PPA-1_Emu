@@ -11,8 +11,8 @@ SDL3_IMAGE_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(SDL3_IMAGE_PKG) 2>/dev/nul
 SDL3_IMAGE_LIBS := $(shell $(PKG_CONFIG) --libs $(SDL3_IMAGE_PKG) 2>/dev/null)
 
 EMU = out/PPA-1_Emu
-SRC = src/main.c src/logger.c src/gui.c src/config.c modules/ppa_module.c
-EMU_HEADERS = src/gui.h src/logger.h src/config.h modules/ppa_module.h
+SRC = src/main.c src/logger.c src/gui.c src/config.c modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c
+EMU_HEADERS = src/gui.h src/logger.h src/config.h modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 
@@ -45,9 +45,9 @@ out/modules/%.ppamod: modules/%.json modules/build_modules.py | out/modules
 	$(PYTHON) modules/build_modules.py $< $@
 modules: $(MODULE_BINS)
 
-out/ppa_module_test: modules/ppa_module.c modules/ppa_module.h modules/ppa_module_test.c
+out/ppa_module_test: modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h modules/ppa_module_test.c
 	mkdir -p out
-	$(CC) -Imodules modules/ppa_module.c modules/ppa_module_test.c -lm -o $@
+	$(CC) -Imodules modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_module_test.c -lm -o $@
 test-modules: modules out/ppa_module_test
 	./out/ppa_module_test
 
