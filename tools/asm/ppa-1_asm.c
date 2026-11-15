@@ -1327,14 +1327,24 @@ static void pass2(Assembler *a) {
     }
 }
 
-static void write_output(const Assembler *a, const char *path) {
+/* --program exports just the 64 KiB executable bank (0000).
+ * ROMPACK later embeds it in the final 32-bank EEPROM image.
+ * The default full-ROM output is kept for backwards compatibility.
+ */
+static void write_output(const Assembler *a, const char *path, bool program_only) {
+    if (program_only && a->highest > BANK_SIZE) {
+        fprintf(stderr,
+                "--program cannot discard data from ROM bank 0001 or higher; "
+                "move resources into ROMPACK operations.\n");
+        exit(1);
+    }
     FILE *f = fopen(path, "wb");
     if (!f) {
         perror(path);
         exit(1);
     }
 
-    size_t size = ROM_IMAGE_SIZE;
+    size_t size = program_only ? BANK_SIZE : ROM_IMAGE_SIZE;
     if (fwrite(a->output, 1, size, f) != size) {
         perror("fwrite");
         fclose(f);
@@ -1360,7 +1370,7 @@ static void print_symbols(const Assembler *a) {
 static void usage(const char *prog) {
     printf("PPA-1 Assembler\n");
     printf("Usage:\n");
-    printf("  %s input.asm output.bin [--symbols]\n", prog);
+    printf("  %s input.asm output.bin [--symbols] [--program]\n", prog);
     printf("\n");
     printf("Number syntax:\n");
     printf("  0A, FF, 1234       hexadecimal (default; A-F uppercase)\n");
@@ -1418,10 +1428,13 @@ int main(int argc, char **argv) {
     }
 
     bool show_symbols = false;
+    bool program_only = false;
 
     for (int i = 3; i < argc; i++) {
         if (strcmp(argv[i], "--symbols") == 0) {
             show_symbols = true;
+        } else if (strcmp(argv[i], "--program") == 0) {
+            program_only = true;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
             return 1;
@@ -1442,7 +1455,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    write_output(&a, argv[2]);
+    write_output(&a, argv[2], program_only);
 
     if (show_symbols) {
         print_symbols(&a);
