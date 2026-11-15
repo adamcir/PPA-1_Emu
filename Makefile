@@ -14,8 +14,8 @@ EMU = out/PPA-1_Emu
 SRC = src/main.c src/logger.c src/gui.c src/config.c \
       modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c \
       modules/ppa_module_ui.c modules/ppa_module_draw.c \
-      modules/ppa_sound_gui.c modules/ppa_light_gui.c
-EMU_HEADERS = src/gui.h src/logger.h src/config.h \
+      modules/ppa_sound_gui.c modules/ppa_light_gui.c src/irq.c
+EMU_HEADERS = src/gui.h src/logger.h src/config.h src/irq.h \
               modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h \
               modules/ppa_module_ui.h modules/ppa_module_draw.h \
               modules/ppa_sound_gui.h modules/ppa_light_gui.h
@@ -29,7 +29,7 @@ MODULE_DEMO_BINS := $(patsubst modules/%.asm,out/examples/%.bin,$(MODULE_DEMOS))
 MODULE_DEFS := $(wildcard modules/*.json)
 MODULE_BINS := $(patsubst modules/%.json,out/modules/%.ppamod,$(MODULE_DEFS))
 
-.PHONY: all clean run asm emu examples sound-examples modules test-modules
+.PHONY: all clean run asm emu examples sound-examples modules test-modules test-irq
 all: asm emu modules examples
 
 out/asm out/examples out/modules:
@@ -57,6 +57,13 @@ out/ppa_module_test: modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.
 test-modules: modules out/ppa_module_test
 	./out/ppa_module_test
 
+out/irq_test: src/irq.c src/irq.h src/irq_test.c
+	mkdir -p out
+	$(CC) -Isrc src/irq.c src/irq_test.c -o $@
+
+test-irq: out/irq_test
+	./out/irq_test
+
 out/examples/%.bin: examples/%.asm $(ASM) $(wildcard examples/includes/*.inc) | out/examples
 	$(ASM) $< $@
 out/examples/%_demo.bin: modules/%_demo.asm $(ASM) | out/examples
@@ -67,4 +74,4 @@ sound-examples: examples
 # Keep runtime preferences and logs across clean rebuilds.
 clean:
 	rm -rf out/asm out/examples out/modules out/assets
-	rm -f out/PPA-1_Emu out/ppa_module_test
+	rm -f out/PPA-1_Emu out/ppa_module_test out/irq_test

@@ -21,6 +21,7 @@
 #include "logger.h"
 #include "gui.h"
 #include "config.h"
+#include "irq.h"
 #include "../modules/ppa_module.h"
 
 /* Mirror the emulator's existing printf-based diagnostics to latest.log. */
@@ -43,6 +44,7 @@
 #define STACK_PAGE       0xFE00u
 
 static PpaModuleBus g_ppa_modules;
+static PpaIrqController g_irq;
 #define SYSTEM_IO_START  0xFF00u
 #define SYSTEM_IO_END    0xFF7Fu
 #define SYSTEM_RSVD_START 0xFF80u
@@ -67,6 +69,7 @@ static PpaModuleBus g_ppa_modules;
 
 #define FL_Z 0x01
 #define FL_C 0x02
+#define FL_I 0x04 /* SR Interrupt Enable */
 
 #define AOS_ADD 0x0
 #define AOS_SUB 0x1
@@ -109,6 +112,12 @@ typedef struct {
     uint16_t X;
     uint16_t Y;
     uint16_t BR;  /* programmer-visible bank register: BR-HI=0x8, BR-LO=0x9 */
+    uint16_t IVR; /* vector table base in EEPROM bank 0000: A=HI, B=LO */
+    uint8_t irq_step; /* hardware interrupt-entry microsequencer 0=idle */
+    uint8_t irq_number;
+    uint8_t irq_vector_hi;
+    bool sw_irq_pending;
+    uint8_t sw_irq_number;
 
     uint8_t IMM;
     uint8_t DST;
@@ -374,6 +383,7 @@ static void serial_poll_rx(Serial *serial) {
     if (serial->gui_enabled && serial_gui_rx_pop(serial, &ch)) {
         serial->rx = ch;
         serial->status |= SERIAL_ST_RX_READY;
+        ppa_irq_request(&g_irq, PPA_IRQ_SERIAL_RX);
         return;
     }
 
@@ -385,6 +395,7 @@ static void serial_poll_rx(Serial *serial) {
     if (n == 1) {
         serial->rx = ch;
         serial->status |= SERIAL_ST_RX_READY;
+        ppa_irq_request(&g_irq, PPA_IRQ_SERIAL_RX);
     }
 }
 
@@ -451,6 +462,7 @@ static int serial_wait_for_client(Serial *serial) {
             /* A client is connected and already sent a byte. Preserve it. */
             serial->rx = ch;
             serial->status |= SERIAL_ST_RX_READY;
+            ppa_irq_request(&g_irq, PPA_IRQ_SERIAL_RX);
             printf("Terminal connected.\n");
             fflush(stdout);
             return 1;
@@ -533,6 +545,10 @@ static uint8_t system_read8(Memory *memory, Serial *serial, uint16_t addr) {
 
 
     if (addr >= SYSTEM_IO_START && addr <= SYSTEM_IO_END) {
+        if (addr >= PPA_IRQ_PENDING && addr <= PPA_IRQ_ACTIVE)
+            return ppa_irq_read(&g_irq, addr);
+        if (addr >= PPA_TIMER_LO && addr <= PPA_TIMER_COUNT_HI)
+            return ppa_irq_read(&g_irq, addr);
         if (serial && serial->enabled) serial_poll_rx(serial);
         switch (addr) {
             case SERIAL_TX: return 0;
@@ -560,6 +576,11 @@ static void system_write8(Memory *memory, Serial *serial, uint16_t addr, uint8_t
 
 
     if (addr >= SYSTEM_IO_START && addr <= SYSTEM_IO_END) {
+        if ((addr >= PPA_IRQ_PENDING && addr <= PPA_IRQ_ACTIVE) ||
+            (addr >= PPA_TIMER_LO && addr <= PPA_TIMER_COUNT_HI)) {
+            ppa_irq_write(&g_irq, addr, v);
+            return;
+        }
         if (!serial || !serial->enabled) return;
         switch (addr) {
             case SERIAL_TX:
@@ -820,7 +841,7 @@ static void dump_mem(CPU *cpu, Memory *memory, Serial *serial, uint16_t start, u
 }
 
 static inline bool valid_reg(uint8_t r) {
-    return r <= 0x9;
+    return r <= 0xB;
 }
 
 /*
@@ -829,6 +850,7 @@ static inline bool valid_reg(uint8_t r) {
  *   0x4 X-HI, 0x5 X-LO
  *   0x6 Y-HI, 0x7 Y-LO
  *   0x8 BR-HI, 0x9 BR-LO
+ *   0xA IVR-HI, 0xB IVR-LO
  *
  * X/Y are stored as uint16_t, therefore their byte halves are accessed
  * explicitly instead of taking host-endian byte pointers.
@@ -845,6 +867,8 @@ static inline uint8_t selected_reg_read(CPU *cpu) {
         case 0x7: return (uint8_t)(cpu->Y & 0xFF);
         case 0x8: return (uint8_t)(cpu->BR >> 8);
         case 0x9: return (uint8_t)(cpu->BR & 0xFF);
+        case 0xA: return (uint8_t)(cpu->IVR >> 8);
+        case 0xB: return (uint8_t)cpu->IVR;
         default:  return 0;
     }
 }
@@ -861,6 +885,8 @@ static inline void selected_reg_write(CPU *cpu, uint8_t value) {
         case 0x7: cpu->Y = (uint16_t)((cpu->Y & 0xFF00) | value); break;
         case 0x8: cpu->BR = (uint16_t)(((uint16_t)value << 8) | (cpu->BR & 0x00FF)); break;
         case 0x9: cpu->BR = (uint16_t)((cpu->BR & 0xFF00) | value); break;
+        case 0xA: cpu->IVR = (uint16_t)(((uint16_t)value << 8) | (cpu->IVR & 0xFF)); break;
+        case 0xB: cpu->IVR = (uint16_t)((cpu->IVR & 0xFF00) | value); break;
         default: break;
     }
 }
@@ -1057,10 +1083,61 @@ static inline void cpu_fault(CPU *cpu) {
     cpu->halted = true;
 }
 
+/*
+ * Hardwired IRQ entry controller. One bus transfer per CPU microstep:
+ * five saved bytes on the ordinary RAM stack, followed by two EEPROM
+ * vector reads. Neither IRQ nor INT can interrupt a partial instruction.
+ */
+static bool cpu_irq_entry_step(CPU *cpu, Memory *memory, Serial *serial) {
+    uint16_t vector = (uint16_t)(cpu->IVR + 2u * cpu->irq_number);
+    switch (cpu->irq_step) {
+        case 1: push8(cpu, memory, serial, (uint8_t)(cpu->PC >> 8)); break;
+        case 2: push8(cpu, memory, serial, (uint8_t)cpu->PC); break;
+        case 3: push8(cpu, memory, serial, (uint8_t)(cpu->BR >> 8)); break;
+        case 4: push8(cpu, memory, serial, (uint8_t)cpu->BR); break;
+        case 5:
+            push8(cpu, memory, serial, cpu->SR);
+            cpu->SR &= (uint8_t)~FL_I;
+            break;
+        case 6:
+            cpu->irq_vector_hi = bus_read_bank8(cpu, memory, serial, 0x0000,
+                                               vector, BUS_OP_READ);
+            break;
+        case 7: {
+            uint8_t lo = bus_read_bank8(cpu, memory, serial, 0x0000,
+                                       (uint16_t)(vector + 1u), BUS_OP_READ);
+            cpu->PC = (uint16_t)(((uint16_t)cpu->irq_vector_hi << 8) | lo);
+            cpu->irq_step = 0;
+            return true;
+        }
+        default: cpu_fault(cpu); return true;
+    }
+    if (cpu->halted) { cpu->irq_step = 0; ppa_irq_leave(&g_irq); return true; }
+    ++cpu->irq_step;
+    return false;
+}
+
 static bool cpu_microstep_impl(CPU *cpu, Memory *memory, Serial *serial) {
     if (cpu->halted) return true;
 
+    if (cpu->irq_step) return cpu_irq_entry_step(cpu, memory, serial);
     if (cpu->STEP == 0) {
+        /* Fetch is blocked while IRQ entry saves the interrupted context. */
+        int irq = -1;
+        if (!g_irq.servicing) {
+            if (cpu->sw_irq_pending) {
+                irq = cpu->sw_irq_number;
+                cpu->sw_irq_pending = false;
+            } else if (cpu->SR & FL_I) {
+                irq = ppa_irq_next(&g_irq);
+            }
+        }
+        if (irq >= 0) {
+            cpu->irq_number = (uint8_t)irq;
+            cpu->irq_step = 1;
+            ppa_irq_enter(&g_irq, (unsigned)irq);
+            return cpu_irq_entry_step(cpu, memory, serial);
+        }
         cpu->IR = fetch_program8(cpu, memory, serial);
         controller_select_alu(cpu);
         cpu->STEP = 1;
@@ -1596,6 +1673,50 @@ static bool cpu_microstep_impl(CPU *cpu, Memory *memory, Serial *serial) {
             }
             break;
 
+        case 0x28: /* EI */
+            cpu->SR |= FL_I;
+            finish_instruction(cpu);
+            return true;
+        case 0x29: /* DI */
+            cpu->SR &= (uint8_t)~FL_I;
+            finish_instruction(cpu);
+            return true;
+        case 0x2A: /* IRET; reverse stack layout SR, BR-LO, BR-HI, PC-LO, PC-HI */
+            if (!g_irq.servicing) { cpu_fault(cpu); return true; }
+            if (cpu->STEP == 1) {
+                cpu->SR = pop8(cpu, memory, serial);
+            } else if (cpu->STEP == 2) {
+                cpu->BR = (uint16_t)((cpu->BR & 0xFF00) | pop8(cpu, memory, serial));
+            } else if (cpu->STEP == 3) {
+                cpu->BR = (uint16_t)((cpu->BR & 0x00FF) |
+                                    ((uint16_t)pop8(cpu, memory, serial) << 8));
+            } else if (cpu->STEP == 4) {
+                cpu->ABR = pop8(cpu, memory, serial);
+            } else if (cpu->STEP == 5) {
+                cpu->AAR = pop8(cpu, memory, serial);
+            }
+            if (cpu->halted) return true;
+            if (cpu->STEP == 5) {
+                cpu->PC = (uint16_t)(((uint16_t)cpu->AAR << 8) | cpu->ABR);
+                ppa_irq_leave(&g_irq);
+                finish_instruction(cpu);
+                return true;
+            }
+            ++cpu->STEP;
+            return false;
+        case 0x2B: /* INT #n, software interrupt 0..7; unconditional */
+            if (cpu->STEP == 1) {
+                cpu->IMM = fetch_program8(cpu, memory, serial);
+                if (cpu->IMM >= PPA_IRQ_LINES || g_irq.servicing) {
+                    cpu_fault(cpu);
+                    return true;
+                }
+                cpu->sw_irq_number = cpu->IMM;
+                cpu->sw_irq_pending = true;
+                finish_instruction(cpu);
+                return true;
+            }
+            break;
         default:
             printf("Unknown opcode %02X at %04X\n", cpu->IR, (uint16_t)(cpu->PC - 1));
             cpu_fault(cpu);
@@ -1608,8 +1729,11 @@ static bool cpu_microstep_impl(CPU *cpu, Memory *memory, Serial *serial) {
 }
 
 static bool cpu_microstep(CPU *cpu, Memory *memory, Serial *serial) {
+    /* RX raises IRQ2 at the receive-event source itself. */
+    if (serial && serial->enabled) serial_poll_rx(serial);
     bool complete = cpu_microstep_impl(cpu, memory, serial);
     ppam_tick(&g_ppa_modules, 1u);
+    ppa_irq_tick(&g_irq);
     return complete;
 }
 
@@ -1650,6 +1774,7 @@ static void gui_cpu_reset_state(GuiBackendContext *g) {
     g->microcycle_count = 0;
     g->instruction_count = 0;
     ppam_reset(&g_ppa_modules);
+    ppa_irq_reset(&g_irq);
 }
 
 static void gui_dump_cpu_state(const GuiBackendContext *g,
@@ -2442,6 +2567,7 @@ int main(int argc, char **argv) {
     Serial serial = {0};
 
     ppam_bus_init(&g_ppa_modules);
+    ppa_irq_reset(&g_irq);
     memory_init_blank(&memory);
     memory.rom_size = config.rom_size;
     memory.ram_size = config.ram_size;

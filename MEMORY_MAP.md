@@ -28,7 +28,12 @@ CPU PUSH/POP/CALL/RET stack is always the final 256 bytes of
 installed RAM. At 2 MiB this is 101F:FF00-FFFF, with first PUSH writing
 to 101F:FFFF. For less than 256 bytes RAM, stack operations halt with ERROR.
 RAM outside the installed byte count remains unpopulated.
-SERIAL/1: F000:FF00-FF03. Reserved I/O: F000:FF80-FFFF.
+SERIAL/1: F000:FF00-FF03. IRQ/1 controller: F000:FF10-FF14.
+Timer: F000:FF20-FF24. Reserved I/O: F000:FF80-FFFF.
+The IRQ controller's registers, vector-table protocol and hardware
+microsequence are specified in docs/IRQ.md. IVR-HI/LO have operational
+register encodings 0A/0B; IRQ handler vectors are fetched from bank
+0000 at the byte address held in IVR (two bytes per vector).
 Old binaries using bank 0040 for RAM or 0050 for I/O must be updated.
 
 Configure GUI capacities in Preferences (decimal byte values, PWR OFF).

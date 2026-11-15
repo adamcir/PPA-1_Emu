@@ -504,6 +504,8 @@ static int parse_reg(const char *text) {
     if (stricmp_ascii(text, "Y-LO") == 0) return 0x7;
     if (stricmp_ascii(text, "BR-HI") == 0) return 0x8;
     if (stricmp_ascii(text, "BR-LO") == 0) return 0x9;
+    if (stricmp_ascii(text, "IVR-HI") == 0) return 0xA;
+    if (stricmp_ascii(text, "IVR-LO") == 0) return 0xB;
     return -1;
 }
 
@@ -690,9 +692,17 @@ static int instruction_size(const char *mnemonic, Operand ops[], int n, int line
         return 3;
     }
 
-    if (stricmp_ascii(mnemonic, "RET") == 0) {
-        if (n != 0) fatal_line(line, "RET takes no operands");
+    if (stricmp_ascii(mnemonic, "RET") == 0 ||
+        stricmp_ascii(mnemonic, "EI") == 0 ||
+        stricmp_ascii(mnemonic, "DI") == 0 ||
+        stricmp_ascii(mnemonic, "IRET") == 0) {
+        if (n != 0) fatal_line(line, "instruction takes no operands");
         return 1;
+    }
+    if (stricmp_ascii(mnemonic, "INT") == 0) {
+        if (n != 1 || (ops[0].type != OT_IMM && ops[0].type != OT_VALUE))
+            fatal_line(line, "INT requires immediate IRQ number #0..#7");
+        return 2;
     }
 
     fatal_linef(line, "unknown instruction '%s'", mnemonic);
@@ -879,6 +889,16 @@ static void encode_instruction(Assembler *a, const char *mnemonic, Operand ops[]
 
     if (stricmp_ascii(mnemonic, "RET") == 0) {
         emit8(a, 0x27, line);
+        return;
+    }
+    if (stricmp_ascii(mnemonic, "EI") == 0) { emit8(a, 0x28, line); return; }
+    if (stricmp_ascii(mnemonic, "DI") == 0) { emit8(a, 0x29, line); return; }
+    if (stricmp_ascii(mnemonic, "IRET") == 0) { emit8(a, 0x2A, line); return; }
+    if (stricmp_ascii(mnemonic, "INT") == 0) {
+        uint8_t irq = get_u8_expr(a, ops[0].text, line, false);
+        if (irq >= 8) fatal_line(line, "INT IRQ number must be 0..7");
+        emit8(a, 0x2B, line);
+        emit8(a, irq, line);
         return;
     }
 
@@ -1362,6 +1382,7 @@ static void usage(const char *prog) {
     printf("  X-HI/X-LO            8-bit halves of X (register codes 04/05)\n");
     printf("  Y-HI/Y-LO            8-bit halves of Y (register codes 06/07)\n");
     printf("  BR-HI/BR-LO          bank register halves (register codes 08/09)\n");
+    printf("  IVR-HI/IVR-LO        IRQ vector table base in ROM bank 0000 (0A/0B)\n");
     printf("  SP/SR                controller-only; not valid ASM registers\n");
     printf("  LD D,$372D           direct load: D <- MEM[BR:372D] (opcode 04)\n");
     printf("  LD C,X               indirect load: C <- MEM[BR:X] (opcode 05)\n");
@@ -1371,6 +1392,9 @@ static void usage(const char *prog) {
     printf("Subroutines:\n");
     printf("  CALL label           opcode 26, pushes return address in CPU\n");
     printf("  RET                  opcode 27, returns from subroutine\n");
+    printf("  EI / DI              opcode 28/29, enable/disable maskable IRQ\n");
+    printf("  IRET                 opcode 2A, restore SR, BR, PC from IRQ stack\n");
+    printf("  INT #5               opcode 2B, synchronous interrupt 0..7\n");
     printf("\n");
     printf("Directives:\n");
     printf("  .include \"file.inc\"\n");
