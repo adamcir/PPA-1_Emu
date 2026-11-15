@@ -1,6 +1,7 @@
 #include "ppa_vga_gui.h"
 #include "ppa_module.h"
 #include "ppa_module_draw.h"
+#include "ppa_monitor.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -11,7 +12,7 @@ static uint32_t rgba(const uint8_t *p,unsigned index) {
     return ((uint32_t)c[0]<<24)|((uint32_t)c[1]<<16)|((uint32_t)c[2]<<8)|255u;
 }
 static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
-                         const SDL_FRect *screen) {
+                         const SDL_FRect *screen,const PpaMonitor *monitor) {
     if(!v->vga_vram || !v->vga_palette || !v->vga_width || !v->vga_height) return;
     unsigned w=v->vga_width,h=v->vga_height;
     uint64_t count=(uint64_t)w*h;
@@ -98,6 +99,11 @@ static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
         for(uint64_t i=0;i<count;i++)
             pixels[i]=rgba(palette,i<v->vga_vram_size?mem[i]:0);
     }
+    /* Monitor picture controls never modify hardware VRAM. */
+    if(monitor && (monitor->brightness!=50 || monitor->contrast!=50 ||
+                   monitor->saturation!=50 || monitor->gamma!=50))
+        for(uint64_t i=0;i<count;i++)
+            pixels[i]=ppa_monitor_adjust_pixel(monitor,pixels[i]);
     SDL_Texture *tex=SDL_CreateTexture(r,SDL_PIXELFORMAT_RGBA8888,
         SDL_TEXTUREACCESS_STREAMING,(int)w,(int)h);
     if(tex) {
@@ -111,6 +117,8 @@ static void draw_scanout(SDL_Renderer *r,const PPA1ModuleInfo *v,
 void ppa_vga_gui_draw(SDL_Renderer *r,TTF_Font *font,
                       const PPA1ModuleInfo *info,int slot) {
     if(!r||!info) return;
+    PpaMonitor *monitor=ppa_monitor_for_slot(slot);
+    ppa_monitor_tick(monitor,info);
     SDL_SetRenderDrawColor(r,20,22,24,255);
     SDL_RenderClear(r);
     char s[160];
@@ -138,7 +146,8 @@ void ppa_vga_gui_draw(SDL_Renderer *r,TTF_Font *font,
     SDL_FRect bounds={48,123,1184,564};
     SDL_SetRenderDrawColor(r,0,0,0,255);
     SDL_RenderFillRect(r,&bounds);
-    if(info->active && info->vga_enabled && info->vga_vram &&
+    if(monitor && monitor->state==PPA_MONITOR_ACTIVE &&
+       info->active && info->vga_enabled && info->vga_vram &&
        info->vga_width && info->vga_height) {
         float xratio=bounds.w/info->vga_width;
         float yratio=bounds.h/info->vga_height;
@@ -146,14 +155,12 @@ void ppa_vga_gui_draw(SDL_Renderer *r,TTF_Font *font,
         SDL_FRect display={bounds.x+(bounds.w-info->vga_width*scale)*0.5f,
             bounds.y+(bounds.h-info->vga_height*scale)*0.5f,
             info->vga_width*scale,info->vga_height*scale};
-        draw_scanout(r,info,&display);
-    } else {
-        ppa_mod_text(r,font,525,370,(SDL_Color){80,85,85,255},
-                     "NO VIDEO SIGNAL");
+        draw_scanout(r,info,&display,monitor);
     }
     snprintf(s,sizeof(s),"VIDEO MEMORY: %u BYTES  |  64 KiB BANKED APERTURE",
              info->vga_vram_size);
     ppa_mod_text(r,font,36,720,(SDL_Color){211,220,218,255},s);
     ppa_mod_text(r,font,36,749,(SDL_Color){150,160,159,255},
                  "PPA-BUS/1 VIDEO OUTPUT  /  DIGITAL RGB MONITOR");
+    ppa_monitor_draw(r,font,info,slot,&bounds);
 }
