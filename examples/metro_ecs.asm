@@ -372,6 +372,8 @@ update_scene:
     JZ .done
     MOV A,B
     ST $0006,A
+    MOV A,#FF
+    ST $000E,A
 
     CMP B,#00
     JZ .draw_depo
@@ -404,6 +406,10 @@ update_ars:
     MOV BR-HI,#10
     MOV BR-LO,#00
     LD A,$0005
+    CMP A,#20
+    JC .limit80
+    CMP A,#30
+    JC .limit70
     CMP A,#40
     JC .limit80
     CMP A,#60
@@ -422,6 +428,9 @@ update_ars:
     JMP .commit
 .limit80:
     MOV B,#50
+    JMP .commit
+.limit70:
+    MOV B,#46
     JMP .commit
 .limit60:
     MOV B,#3C
@@ -582,14 +591,22 @@ draw_text:
     ; Font rows are indexed by ASCII from 20h through 5Ah.
     SUB B,#20
     MOV C,B
+    MOV D,#00
     SHL B
+    JNC .font_mul2
+    INC D
+.font_mul2:
     SHL B
+    JNC .font_mul4
+    INC D
+.font_mul4:
     ADD B,C
+    JNC .font_mul5
+    INC D
+.font_mul5:
     MOV X-HI,#60
+    ADD X-HI,D
     MOV X-LO,B
-    JNC .font_ok
-    INC X-HI
-.font_ok:
     LD Y-HI,$0012
     LD Y-LO,$0013
     LD A,$0014
@@ -1436,7 +1453,7 @@ draw_panel_static:
     RET
 
 draw_panel_dynamic:
-    ; Real speed indicator 0..40, with indicator lights.
+    ; The analog speed bar covers 0..80 km/h.
     MOV Y-HI,#B9
     MOV Y-LO,#AD
     MOV A,#00
@@ -1446,6 +1463,7 @@ draw_panel_dynamic:
     MOV BR-HI,#10
     MOV BR-LO,#00
     LD B,$0000
+    SHR B
     CMP B,#00
     JZ .bar_done
     MOV Y-HI,#B9
@@ -1454,7 +1472,48 @@ draw_panel_dynamic:
     MOV C,#04
     CALL fill_rect
 .bar_done:
-    ; W/S press state lights in the lower panel.
+    ; Digital km/h readout using two real VGA font characters.
+    MOV Y-HI,#B0
+    MOV Y-LO,#EF
+    MOV A,#0F
+    MOV B,#18
+    MOV C,#06
+    CALL fill_rect
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$0000
+    MOV C,#00
+.tens:
+    CMP A,#0A
+    JC .digits_ready
+    SUB A,#0A
+    INC C
+    JMP .tens
+.digits_ready:
+    ST $0015,A
+    ST $0016,C
+    MOV B,C
+    SHL B
+    MOV X-HI,#50
+    MOV X-LO,#TXT_DIGIT0-5000
+    ADD X-LO,B
+    MOV Y-HI,#B0
+    MOV Y-LO,#F2
+    MOV A,#00
+    CALL draw_text
+
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD B,$0015
+    SHL B
+    MOV X-HI,#50
+    MOV X-LO,#TXT_DIGIT0-5000
+    ADD X-LO,B
+    MOV Y-HI,#B0
+    MOV Y-LO,#F7
+    MOV A,#00
+    CALL draw_text
+    ; Lamps indicate W/S key-down, but notch stays latched on release.
     MOV BR-HI,#10
     MOV BR-LO,#00
     LD D,$0001
@@ -1481,73 +1540,6 @@ draw_panel_dynamic:
     MOV B,#06
     MOV C,#04
     CALL fill_rect
-    ; Controller handle moves up for traction, down while braking.
-    MOV Y-HI,#D5
-    MOV Y-LO,#E0
-    MOV A,#0F
-    MOV B,#57
-    MOV C,#11
-    CALL fill_rect
-    MOV Y-HI,#D5
-    MOV Y-LO,#F5
-    MOV A,#08
-    MOV B,#17
-    MOV C,#11
-    CALL fill_rect
-    MOV Y-HI,#D3
-    MOV Y-LO,#7E
-    MOV A,#00
-    MOV B,#09
-    MOV C,#14
-    CALL fill_rect
-    MOV BR-HI,#10
-    MOV BR-LO,#00
-    LD D,$0002
-    CMP D,#00
-    JNZ .brake_handle
-    LD D,$0001
-    CMP D,#00
-    JNZ .traction_handle
-    MOV Y-HI,#DF
-    MOV Y-LO,#ED
-    JMP .handle
-.traction_handle:
-    MOV Y-HI,#D7
-    MOV Y-LO,#2D
-    JMP .handle
-.brake_handle:
-    MOV Y-HI,#E4
-    MOV Y-LO,#ED
-.handle:
-    MOV A,#06
-    MOV B,#46
-    MOV C,#05
-    CALL fill_rect
-    ; Brown grip, dark Bakelite tip.
-    MOV BR-HI,#10
-    MOV BR-LO,#00
-    LD D,$0002
-    CMP D,#00
-    JNZ .cap_brake
-    LD D,$0001
-    CMP D,#00
-    JNZ .cap_power
-    MOV Y-HI,#DE
-    MOV Y-LO,#EB
-    JMP .cap_draw
-.cap_power:
-    MOV Y-HI,#D6
-    MOV Y-LO,#2B
-    JMP .cap_draw
-.cap_brake:
-    MOV Y-HI,#E3
-    MOV Y-LO,#EB
-.cap_draw:
-    MOV A,#00
-    MOV B,#0A
-    MOV C,#07
-    CALL fill_rect
-    ; Identify the actual W/S inputs next to the controller lights.
     MOV X-HI,#50
     MOV X-LO,#TXT_W-5000
     MOV Y-HI,#EC
@@ -1560,19 +1552,231 @@ draw_panel_dynamic:
     MOV Y-LO,#E9
     MOV A,#00
     CALL draw_text
+    ; ARS lamp panel reflects actual approach codes 0/40/60/70/80.
+    MOV Y-HI,#A9
+    MOV Y-LO,#56
+    MOV A,#00
+    MOV B,#08
+    MOV C,#12
+    CALL fill_rect
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$000C
+    CMP A,#00
+    JZ .ars_red
+    CMP A,#50
+    JZ .ars_green
+    MOV A,#0E
+    MOV Y-HI,#B2
+    MOV Y-LO,#16
+    MOV B,#08
+    MOV C,#04
+    CALL fill_rect
+    JMP .ars_text
+.ars_red:
+    MOV Y-HI,#A9
+    MOV Y-LO,#56
+    MOV A,#0C
+    MOV B,#08
+    MOV C,#04
+    CALL fill_rect
+    JMP .ars_text
+.ars_green:
+    MOV Y-HI,#B9
+    MOV Y-LO,#96
+    MOV A,#0A
+    MOV B,#08
+    MOV C,#04
+    CALL fill_rect
+.ars_text:
+    MOV Y-HI,#C1
+    MOV Y-LO,#11
+    MOV A,#08
+    MOV B,#12
+    MOV C,#06
+    CALL fill_rect
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$000C
+    CMP A,#00
+    JZ .ars_0
+    CMP A,#28
+    JZ .ars_40
+    CMP A,#3C
+    JZ .ars_60
+    CMP A,#46
+    JZ .ars_70
+    JMP .ars_80
+.ars_0:
     MOV X-HI,#50
-    MOV X-LO,#TXT_TAH-5000
-    MOV Y-HI,#E9
-    MOV Y-LO,#35
+    MOV X-LO,#TXT_ARS0-5000
+    MOV Y-HI,#C1
+    MOV Y-LO,#15
+    MOV A,#0F
+    CALL draw_text
+    JMP .warning
+.ars_40:
+    MOV X-HI,#50
+    MOV X-LO,#TXT_ARS40-5000
+    MOV Y-HI,#C1
+    MOV Y-LO,#14
+    MOV A,#0F
+    CALL draw_text
+    JMP .warning
+.ars_60:
+    MOV X-HI,#50
+    MOV X-LO,#TXT_ARS60-5000
+    MOV Y-HI,#C1
+    MOV Y-LO,#14
+    MOV A,#0F
+    CALL draw_text
+    JMP .warning
+.ars_70:
+    MOV X-HI,#50
+    MOV X-LO,#TXT_ARS70-5000
+    MOV Y-HI,#C1
+    MOV Y-LO,#14
+    MOV A,#0F
+    CALL draw_text
+    JMP .warning
+.ars_80:
+    MOV X-HI,#50
+    MOV X-LO,#TXT_ARS80-5000
+    MOV Y-HI,#C1
+    MOV Y-LO,#14
+    MOV A,#0F
+    CALL draw_text
+.warning:
+    ; Distinct overspeed warning next to ARS.
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$000D
+    CMP A,#00
+    JNZ .warn_on
+    MOV Y-HI,#B8
+    MOV Y-LO,#5F
+    MOV A,#08
+    MOV B,#04
+    MOV C,#04
+    CALL fill_rect
+    JMP .controller
+.warn_on:
+    MOV Y-HI,#B8
+    MOV Y-LO,#5F
+    MOV A,#0C
+    MOV B,#04
+    MOV C,#04
+    CALL fill_rect
+.controller:
+    ; Analog-style KV-35 controller notch indicator + grip.
+    MOV Y-HI,#D3
+    MOV Y-LO,#5E
+    MOV A,#0F
+    MOV B,#58
+    MOV C,#15
+    CALL fill_rect
+    MOV Y-HI,#D3
+    MOV Y-LO,#75
+    MOV A,#08
+    MOV B,#17
+    MOV C,#15
+    CALL fill_rect
+    MOV Y-HI,#D2
+    MOV Y-LO,#3E
+    MOV A,#00
+    MOV B,#09
+    MOV C,#17
+    CALL fill_rect
+    MOV Y-HI,#CE
+    MOV Y-LO,#57
+    MOV A,#0F
+    MOV B,#14
+    MOV C,#06
+    CALL fill_rect
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$0009
+    CMP A,#00
+    JZ .set_pos_0
+    CMP A,#01
+    JZ .set_pos_1
+    CMP A,#02
+    JZ .set_pos_2
+    CMP A,#03
+    JZ .set_pos_3
+    CMP A,#04
+    JZ .set_pos_4
+    CMP A,#05
+    JZ .set_pos_5
+    CMP A,#06
+    JZ .set_pos_6
+    JMP .set_pos_3
+.set_pos_0:
+    MOV Y-HI,#E4
+    MOV Y-LO,#ED
+    MOV X-HI,#50
+    MOV X-LO,#TXT_T2-5000
+    JMP .grip
+.set_pos_1:
+    MOV Y-HI,#E2
+    MOV Y-LO,#6D
+    MOV X-HI,#50
+    MOV X-LO,#TXT_T1A-5000
+    JMP .grip
+.set_pos_2:
+    MOV Y-HI,#DF
+    MOV Y-LO,#ED
+    MOV X-HI,#50
+    MOV X-LO,#TXT_T1-5000
+    JMP .grip
+.set_pos_3:
+    MOV Y-HI,#DD
+    MOV Y-LO,#6D
+    MOV X-HI,#50
+    MOV X-LO,#TXT_ZERO-5000
+    JMP .grip
+.set_pos_4:
+    MOV Y-HI,#DA
+    MOV Y-LO,#ED
+    MOV X-HI,#50
+    MOV X-LO,#TXT_X1-5000
+    JMP .grip
+.set_pos_5:
+    MOV Y-HI,#D8
+    MOV Y-LO,#6D
+    MOV X-HI,#50
+    MOV X-LO,#TXT_X2-5000
+    JMP .grip
+.set_pos_6:
+    MOV Y-HI,#D5
+    MOV Y-LO,#ED
+    MOV X-HI,#50
+    MOV X-LO,#TXT_X3-5000
+    JMP .grip
+.grip:
+    ; Save Y before text call: draw_text changes both pointers.
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    ST $0017,Y-HI
+    ST $0018,Y-LO
+    ; Fixed notch text at upper left of controller housing.
+    MOV Y-HI,#CE
+    MOV Y-LO,#58
     MOV A,#00
     CALL draw_text
-    MOV X-HI,#50
-    MOV X-LO,#TXT_BRAKE-5000
-    MOV Y-HI,#E9
-    MOV Y-LO,#4B
-    MOV A,#00
-    CALL draw_text
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD Y-HI,$0017
+    LD Y-LO,$0018
+    MOV A,#06
+    MOV B,#46
+    MOV C,#04
+    CALL fill_rect
+    ; One dark Bakelite tip at fixed right edge of the handle.
+    ; The controller's full handle moves up and down with notch.
     RET
+
+
 draw_view_common:
     MOV A,#08
     CALL fill_view
@@ -2185,43 +2389,592 @@ draw_station_luka:
     RET
 
 draw_motion:
+    ; Do not animate when the position is unchanged.
+    ; Phase is selected from actual track position (RAM 1000:0004).
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$0004
+    SHR A
+    SHR A
+    SHR A
+    SHR A
+    SHR A
+    AND A,#03
+    ST $000F,A
+    LD B,$000E
+    CMP A,B
+    JZ .done
+    ST $000E,A
+
+    ; Erase the old rail-side signal, sleepers and wall ribs.
+    MOV Y-HI,#24
+    MOV Y-LO,#EE
+    MOV A,#00
+    MOV B,#1C
+    MOV C,#54
+    CALL fill_rect
+    MOV Y-HI,#63
+    MOV Y-LO,#3C
+    MOV A,#00
+    MOV B,#4C
+    MOV C,#25
+    CALL fill_rect
     MOV BR-HI,#10
     MOV BR-LO,#00
     LD A,$0006
     CMP A,#01
-    JNZ .done
-    LD A,$0000
-    CMP A,#00
-    JZ .done
-    MOV Y-HI,#83
-    MOV Y-LO,#C2
-    MOV A,#00
-    MOV B,#3F
-    MOV C,#03
-    CALL fill_rect
-    MOV BR-HI,#10
-    MOV BR-LO,#00
-    LD A,$0004
-    AND A,#80
-    JZ .line_a
-    MOV Y-HI,#83
-    MOV Y-LO,#C6
-    MOV A,#06
-    MOV B,#34
-    MOV C,#02
-    CALL fill_rect
-    JMP .done
-.line_a:
-    MOV Y-HI,#87
-    MOV Y-LO,#8E
-    MOV A,#06
-    MOV B,#2D
-    MOV C,#02
-    CALL fill_rect
+    JNZ .station
+    CALL moving_walls
+    JMP .track
+.station:
+    CALL moving_platform
+.track:
+    CALL moving_sleepers
+    CALL moving_rails
+    CALL moving_signal
 .done:
     RET
 
-; Basic frame pacing. Rendering itself also consumes emulated cycles.
+moving_walls:
+    ; Wide/ridged concrete tunnel walls shift in perspective.
+    MOV Y-HI,#1D
+    MOV Y-LO,#35
+    MOV A,#00
+    MOV B,#11
+    MOV C,#39
+    CALL fill_rect
+    MOV Y-HI,#1D
+    MOV Y-LO,#7C
+    MOV A,#00
+    MOV B,#0C
+    MOV C,#39
+    CALL fill_rect
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$000F
+    CMP A,#00
+    JZ .phase0
+    CMP A,#01
+    JZ .phase1
+    CMP A,#02
+    JZ .phase2
+    JMP .phase3
+.phase0:
+    MOV Y-HI,#24
+    MOV Y-LO,#B5
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#24
+    MOV Y-LO,#FC
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#39
+    MOV Y-LO,#F5
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#3A
+    MOV Y-LO,#3C
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#51
+    MOV Y-LO,#B5
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#51
+    MOV Y-LO,#FC
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase1:
+    MOV Y-HI,#28
+    MOV Y-LO,#75
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#28
+    MOV Y-LO,#BC
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#3E
+    MOV Y-LO,#F5
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#3F
+    MOV Y-LO,#3C
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#55
+    MOV Y-LO,#75
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#55
+    MOV Y-LO,#BC
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase2:
+    MOV Y-HI,#2C
+    MOV Y-LO,#35
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#2C
+    MOV Y-LO,#7C
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#43
+    MOV Y-LO,#F5
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#44
+    MOV Y-LO,#3C
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#59
+    MOV Y-LO,#35
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#59
+    MOV Y-LO,#7C
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase3:
+    MOV Y-HI,#2F
+    MOV Y-LO,#F5
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#30
+    MOV Y-LO,#3C
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#48
+    MOV Y-LO,#F5
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#49
+    MOV Y-LO,#3C
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#5C
+    MOV Y-LO,#F5
+    MOV A,#08
+    MOV B,#11
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#5D
+    MOV Y-LO,#3C
+    MOV A,#08
+    MOV B,#0C
+    MOV C,#02
+    CALL fill_rect
+    RET
+
+moving_platform:
+    ; Platform tiles/pillars scroll laterally while train passes stations.
+    MOV Y-HI,#6C
+    MOV Y-LO,#59
+    MOV A,#07
+    MOV B,#59
+    MOV C,#1A
+    CALL fill_rect
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$000F
+    CMP A,#00
+    JZ .phase0
+    CMP A,#01
+    JZ .phase1
+    CMP A,#02
+    JZ .phase2
+    JMP .phase3
+.phase0:
+    MOV Y-HI,#6C
+    MOV Y-LO,#5E
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#7A
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#96
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#AC
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#59
+    MOV A,#0E
+    MOV B,#59
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase1:
+    MOV Y-HI,#6C
+    MOV Y-LO,#5A
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#76
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#92
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#A8
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#59
+    MOV A,#0E
+    MOV B,#59
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase2:
+    MOV Y-HI,#6C
+    MOV Y-LO,#72
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#8E
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#A4
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#59
+    MOV A,#0E
+    MOV B,#59
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase3:
+    MOV Y-HI,#6C
+    MOV Y-LO,#6E
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#8A
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#A0
+    MOV A,#08
+    MOV B,#03
+    MOV C,#19
+    CALL fill_rect
+    MOV Y-HI,#6C
+    MOV Y-LO,#59
+    MOV A,#0E
+    MOV B,#59
+    MOV C,#02
+    CALL fill_rect
+    RET
+
+moving_sleepers:
+    ; Tie spacing widens towards the front of the cab;
+    ; phase increments are a function of distance, never wall-clock time.
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$000F
+    CMP A,#00
+    JZ .phase0
+    CMP A,#01
+    JZ .phase1
+    CMP A,#02
+    JZ .phase2
+    JMP .phase3
+.phase0:
+    MOV Y-HI,#65
+    MOV Y-LO,#DA
+    MOV A,#06
+    MOV B,#0D
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#71
+    MOV Y-LO,#14
+    MOV A,#06
+    MOV B,#1A
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#81
+    MOV Y-LO,#4B
+    MOV A,#06
+    MOV B,#2B
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase1:
+    MOV Y-HI,#67
+    MOV Y-LO,#1A
+    MOV A,#06
+    MOV B,#0D
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#73
+    MOV Y-LO,#94
+    MOV A,#06
+    MOV B,#1A
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#85
+    MOV Y-LO,#0B
+    MOV A,#06
+    MOV B,#2B
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase2:
+    MOV Y-HI,#68
+    MOV Y-LO,#5A
+    MOV A,#06
+    MOV B,#0D
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#76
+    MOV Y-LO,#14
+    MOV A,#06
+    MOV B,#1A
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#88
+    MOV Y-LO,#CB
+    MOV A,#06
+    MOV B,#2B
+    MOV C,#02
+    CALL fill_rect
+    RET
+.phase3:
+    MOV Y-HI,#69
+    MOV Y-LO,#9A
+    MOV A,#06
+    MOV B,#0D
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#78
+    MOV Y-LO,#94
+    MOV A,#06
+    MOV B,#1A
+    MOV C,#02
+    CALL fill_rect
+    MOV Y-HI,#8C
+    MOV Y-LO,#8B
+    MOV A,#06
+    MOV B,#2B
+    MOV C,#02
+    CALL fill_rect
+    RET
+
+moving_rails:
+    ; Fixed rail vanishing point; moving ties make translation visible.
+    MOV Y-HI,#62
+    MOV Y-LO,#1B
+    MOV A,#07
+    MOV B,#02
+    MOV C,#0A
+    CALL fill_rect
+    MOV Y-HI,#62
+    MOV Y-LO,#24
+    MOV A,#07
+    MOV B,#02
+    MOV C,#0A
+    CALL fill_rect
+    MOV Y-HI,#6E
+    MOV Y-LO,#97
+    MOV A,#07
+    MOV B,#02
+    MOV C,#08
+    CALL fill_rect
+    MOV Y-HI,#6E
+    MOV Y-LO,#A8
+    MOV A,#07
+    MOV B,#02
+    MOV C,#08
+    CALL fill_rect
+    MOV Y-HI,#78
+    MOV Y-LO,#93
+    MOV A,#07
+    MOV B,#03
+    MOV C,#09
+    CALL fill_rect
+    MOV Y-HI,#78
+    MOV Y-LO,#AD
+    MOV A,#07
+    MOV B,#03
+    MOV C,#09
+    CALL fill_rect
+    MOV Y-HI,#83
+    MOV Y-LO,#CC
+    MOV A,#07
+    MOV B,#03
+    MOV C,#0B
+    CALL fill_rect
+    MOV Y-HI,#83
+    MOV Y-LO,#F7
+    MOV A,#07
+    MOV B,#03
+    MOV C,#0B
+    CALL fill_rect
+    RET
+
+moving_signal:
+    ; Signal head approaches from the distance, grows, passes, reappears.
+    ; Sample aspects follow Metrostroi-like ALS/ARS codes.
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$0005
+    AND A,#1F
+    CMP A,#08
+    JC .far
+    CMP A,#10
+    JC .medium
+    CMP A,#18
+    JC .near
+    JMP .close
+.far:
+    MOV Y-HI,#32
+    MOV Y-LO,#B2
+    MOV A,#08
+    MOV B,#05
+    MOV C,#09
+    CALL fill_rect
+    MOV Y-HI,#35
+    MOV Y-LO,#33
+    MOV B,#03
+    MOV C,#03
+    JMP .lamp
+.medium:
+    MOV Y-HI,#36
+    MOV Y-LO,#74
+    MOV A,#08
+    MOV B,#07
+    MOV C,#0E
+    CALL fill_rect
+    MOV Y-HI,#3B
+    MOV Y-LO,#76
+    MOV B,#03
+    MOV C,#04
+    JMP .lamp
+.near:
+    MOV Y-HI,#3C
+    MOV Y-LO,#B7
+    MOV A,#08
+    MOV B,#0A
+    MOV C,#16
+    CALL fill_rect
+    MOV Y-HI,#44
+    MOV Y-LO,#3A
+    MOV B,#04
+    MOV C,#06
+    JMP .lamp
+.close:
+    MOV Y-HI,#49
+    MOV Y-LO,#3B
+    MOV A,#08
+    MOV B,#0D
+    MOV C,#23
+    CALL fill_rect
+    MOV Y-HI,#53
+    MOV Y-LO,#3E
+    MOV B,#06
+    MOV C,#08
+.lamp:
+    ; A = green, yellow, or red. Preserve Y/B/C from above.
+    MOV BR-HI,#10
+    MOV BR-LO,#00
+    LD A,$000C
+    CMP A,#00
+    JZ .red
+    CMP A,#50
+    JZ .green
+    MOV A,#0E
+    JMP .draw
+.red:
+    MOV A,#0C
+    JMP .draw
+.green:
+    MOV A,#0A
+.draw:
+    CALL fill_rect
+    RET
+
+
 frame_delay:
     MOV D,#02
 .outer:
@@ -2296,6 +3049,51 @@ TXT_W:
     .asciz "W"
 TXT_S:
     .asciz "S"
+
+TXT_T2:
+    .asciz "T2"
+TXT_T1A:
+    .asciz "T1A"
+TXT_T1:
+    .asciz "T1"
+TXT_ZERO:
+    .asciz "0"
+TXT_X1:
+    .asciz "X1"
+TXT_X2:
+    .asciz "X2"
+TXT_X3:
+    .asciz "X3"
+TXT_ARS0:
+    .asciz "0"
+TXT_ARS40:
+    .asciz "40"
+TXT_ARS60:
+    .asciz "60"
+TXT_ARS70:
+    .asciz "70"
+TXT_ARS80:
+    .asciz "80"
+TXT_DIGIT0:
+    .asciz "0"
+TXT_DIGIT1:
+    .asciz "1"
+TXT_DIGIT2:
+    .asciz "2"
+TXT_DIGIT3:
+    .asciz "3"
+TXT_DIGIT4:
+    .asciz "4"
+TXT_DIGIT5:
+    .asciz "5"
+TXT_DIGIT6:
+    .asciz "6"
+TXT_DIGIT7:
+    .asciz "7"
+TXT_DIGIT8:
+    .asciz "8"
+TXT_DIGIT9:
+    .asciz "9"
 
 ; 3x5 font: five bit masks per printable character, 20h..5Ah.
 .org $6000
