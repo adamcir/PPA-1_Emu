@@ -45,7 +45,7 @@ static void draw_row(SDL_Renderer *r, TTF_Font *f, float y,
     float x=23;
     for(size_t i=0;i<n;i++) {
         float width=unit*keys[i].width;
-        unsigned idx=(unsigned)keys[i].code|(keys[i].ext?0x80u:0u);
+        unsigned idx=(unsigned)keys[i].code+(keys[i].ext?256u:0u);
         bool held=info->ps2_pressed[idx]!=0;
         SDL_FRect rect={x,y,width-2,34};
         SDL_SetRenderDrawColor(r,held?84:55,held?166:62,held?99:68,255);
