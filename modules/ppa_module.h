@@ -8,7 +8,13 @@
 #define PPAM_VERSION 1u
 #define PPAM_TYPE_LIGHT 1u
 #define PPAM_TYPE_SOUND 2u
+#define PPAM_TYPE_VGA 3u
 #define PPAM_AUDIO_CHANNELS 4
+#define PPAM_VGA_WIDTH 320u
+#define PPAM_VGA_HEIGHT 200u
+#define PPAM_VGA_VRAM_SIZE (PPAM_VGA_WIDTH * PPAM_VGA_HEIGHT)
+#define PPAM_VGA_PALETTE_COLORS 256u
+#define PPAM_VGA_PALETTE_BYTES (PPAM_VGA_PALETTE_COLORS * 3u)
 #define PPAM_SCOPE_SAMPLES 128
 #define PPAM_MAX_CODE 65536u
 #define PPAM_MAX_DATA (256u * 1024u * 1024u - 65536u)
@@ -31,6 +37,14 @@ typedef struct {
     PpaSoundChannel sound[PPAM_AUDIO_CHANNELS];
     int8_t scope[PPAM_SCOPE_SAMPLES];
     uint32_t noise_state;
+
+    bool vga_enabled;
+    uint8_t vga_mode;
+    uint8_t vga_border;
+    uint8_t vga_palette_index;
+    uint8_t vga_palette[PPAM_VGA_PALETTE_BYTES];
+    uint8_t vga_vram[PPAM_VGA_VRAM_SIZE];
+
     uint32_t remaining_cycles;
     uint32_t pulse_cycles;
     uint8_t *code;

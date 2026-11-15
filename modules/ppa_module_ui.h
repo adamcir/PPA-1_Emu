@@ -18,6 +18,13 @@ typedef struct {
     uint8_t waveform[4];
     bool voice_enabled[4];
     int8_t scope[128];
+
+    bool vga_enabled;
+    uint8_t vga_mode;
+    uint8_t vga_border;
+    const uint8_t *vga_palette;
+    const uint8_t *vga_vram;
+
     uint32_t cycles_remaining;
     char name[64];
     char path[1024];

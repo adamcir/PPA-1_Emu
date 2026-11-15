@@ -1,6 +1,7 @@
 #include "ppa_module.h"
 #include "ppa_sound.h"
 #include "ppa_light.h"
+#include "ppa_vga.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,7 +53,8 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
     uint32_t data_len = ok ? le32(h + 12) : 0;
     uint32_t pulse = ok ? le32(h + 16) : 0;
     ok = ok && !memcmp(h, "PPAM", 4) && le16(h + 4) == PPAM_VERSION &&
-         (type == PPAM_TYPE_LIGHT || type == PPAM_TYPE_SOUND) && code_len <= PPAM_MAX_CODE &&
+         (type == PPAM_TYPE_LIGHT || type == PPAM_TYPE_SOUND ||
+          type == PPAM_TYPE_VGA) && code_len <= PPAM_MAX_CODE &&
          code_len % 8 == 0 && data_len <= PPAM_MAX_DATA &&
          le32(h + 20) == 0 && strlen(path) < sizeof(bus->slots[slot].path);
     uint8_t *code = NULL, *data = NULL;
@@ -84,9 +86,15 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
     m->code_size = code_len;
     m->data = data;
     m->data_size = data_len;
-    snprintf(m->name, sizeof(m->name), "%s",
-             type == PPAM_TYPE_SOUND ? "PPA-SOUND/1" : "LIGHT");
-    if (type == PPAM_TYPE_SOUND) ppa_sound_init(m);
+    if (type == PPAM_TYPE_SOUND) {
+        snprintf(m->name, sizeof(m->name), "%s", "PPA-SOUND/1");
+        ppa_sound_init(m);
+    } else if (type == PPAM_TYPE_VGA) {
+        snprintf(m->name, sizeof(m->name), "%s", "PPA-VGA/1");
+        ppa_vga_init(m);
+    } else {
+        snprintf(m->name, sizeof(m->name), "%s", "LIGHT");
+    }
     snprintf(m->path, sizeof(m->path), "%s", path);
     return true;
 }
@@ -96,6 +104,7 @@ bool ppam_set_active(PpaModuleBus *bus, int slot, bool active) {
     PpaModule *m = &bus->slots[slot];
     m->active = active;
     ppa_light_reset(m);
+    if (m->type == PPAM_TYPE_VGA) ppa_vga_reset(m);
     return true;
 }
 void ppam_reset(PpaModuleBus *bus) {
@@ -103,6 +112,7 @@ void ppam_reset(PpaModuleBus *bus) {
     for (int i = 0; i < PPAM_SLOTS; ++i) {
         ppa_light_reset(&bus->slots[i]);
         ppa_sound_reset(&bus->slots[i]);
+        ppa_vga_reset(&bus->slots[i]);
     }
 }
 void ppam_tick(PpaModuleBus *bus, uint32_t cycles) {
@@ -131,6 +141,8 @@ uint8_t ppam_read(PpaModuleBus *bus, uint16_t bank, uint16_t addr) {
         return ppa_sound_read(m, offset);
     if (m->type == PPAM_TYPE_LIGHT && offset < 0x10000u)
         return ppa_light_read(m, offset);
+    if (m->type == PPAM_TYPE_VGA)
+        return ppa_vga_read(m, offset);
     if (offset >= 0x10000u && offset - 0x10000u < m->data_size)
         return m->data[offset - 0x10000u];
     return 0xFF;
@@ -142,6 +154,7 @@ void ppam_write(PpaModuleBus *bus, uint16_t bank,
     uint32_t offset = (((uint32_t)bank & 0x0FFFu) << 16) | addr;
     if (m->type == PPAM_TYPE_SOUND) ppa_sound_write(m, offset, value);
     else if (m->type == PPAM_TYPE_LIGHT) ppa_light_write(m, offset, value);
+    else if (m->type == PPAM_TYPE_VGA) ppa_vga_write(m, offset, value);
 }
 const PpaModule *ppam_get(const PpaModuleBus *bus, int slot) {
     return bus && slot >= 0 && slot < PPAM_SLOTS ? &bus->slots[slot] : NULL;

@@ -46,7 +46,35 @@ int main(void) {
     ppam_write(&b, 0x3000, 0x10, 0); /* mute all */
     ppam_mix_audio(&b, samples, 512, 44100);
     for (int i = 0; i < 512; ++i) assert(samples[i] == 0);
+
+    assert(ppam_load(&b, 2, "out/modules/ppa-vga-1.ppamod"));
+    assert(ppam_get(&b, 2)->type == PPAM_TYPE_VGA);
+    assert(ppam_set_active(&b, 2, true));
+    assert(ppam_read(&b, 0x4000, 0x18) == 0x40);
+    assert(ppam_read(&b, 0x4000, 0x19) == 0x01);
+    assert(ppam_read(&b, 0x4000, 0x1A) == 0xC8);
+    ppam_write(&b, 0x4000, 0x10, 1);
+    assert(ppam_get(&b, 2)->vga_enabled);
+    ppam_write(&b, 0x4001, 0x0000, 0xE0);
+    ppam_write(&b, 0x4001, 0xF9FF, 0x03);
+    assert(ppam_read(&b, 0x4001, 0x0000) == 0xE0);
+    assert(ppam_read(&b, 0x4001, 0xF9FF) == 0x03);
+    assert(ppam_read(&b, 0x4001, 0xFA00) == 0xFF);
+
+    ppam_write(&b, 0x4000, 0x14, 7);
+    ppam_write(&b, 0x4000, 0x15, 0x12);
+    ppam_write(&b, 0x4000, 0x16, 0x34);
+    ppam_write(&b, 0x4000, 0x17, 0x56);
+    assert(ppam_get(&b, 2)->vga_palette[7 * 3 + 0] == 0x12);
+    assert(ppam_get(&b, 2)->vga_palette[7 * 3 + 1] == 0x34);
+    assert(ppam_get(&b, 2)->vga_palette[7 * 3 + 2] == 0x56);
+    assert(ppam_get(&b, 2)->vga_palette_index == 8);
+
+    ppam_reset(&b);
+    assert(!ppam_get(&b, 2)->vga_enabled);
+    assert(ppam_read(&b, 0x4001, 0x0000) == 0x00);
+
     ppam_bus_destroy(&b);
-    puts("PPAMOD LIGHT loader/bus/pulse tests OK");
+    puts("PPAMOD LIGHT/SOUND/VGA loader and hardware-bus tests OK");
     return 0;
 }

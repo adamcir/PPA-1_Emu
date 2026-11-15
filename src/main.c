@@ -1830,6 +1830,11 @@ static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
         out->voice_enabled[i] = m->sound[i].enabled;
     }
     memcpy(out->scope, m->scope, sizeof(out->scope));
+    out->vga_enabled = m->vga_enabled;
+    out->vga_mode = m->vga_mode;
+    out->vga_border = m->vga_border;
+    out->vga_palette = m->vga_palette;
+    out->vga_vram = m->vga_vram;
     out->cycles_remaining = m->remaining_cycles;
     snprintf(out->name, sizeof(out->name), "%s", m->name);
     snprintf(out->path, sizeof(out->path), "%s", m->path);
