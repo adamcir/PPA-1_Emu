@@ -25,8 +25,18 @@ static void set_paths_from_executable(const char *path) {
     if (!slash) return;
     if (slash == dir) slash[1] = '\0';
     else *slash = '\0';
-    snprintf(g_config_path, sizeof(g_config_path), "%s/config.ini", dir);
-    snprintf(g_log_path, sizeof(g_log_path), "%s/latest.log", dir);
+    /* Check lengths before copying. Do not silently truncate paths. */
+    size_t dir_len = strlen(dir);
+    static const char config_name[] = "/config.ini";
+    static const char log_name[] = "/latest.log";
+    if (dir_len > sizeof(g_config_path) - sizeof(config_name) ||
+        dir_len > sizeof(g_log_path) - sizeof(log_name)) {
+        return; /* Keep previously configured fallback paths. */
+    }
+    memcpy(g_config_path, dir, dir_len);
+    memcpy(g_config_path + dir_len, config_name, sizeof(config_name));
+    memcpy(g_log_path, dir, dir_len);
+    memcpy(g_log_path + dir_len, log_name, sizeof(log_name));
 }
 
 void ppa_config_init_paths(const char *argv0) {

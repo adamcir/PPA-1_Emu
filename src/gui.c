@@ -2038,25 +2038,53 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                 SDL_RenderFillRect(r, &screen);
                 SDL_SetRenderDrawColor(r, 82, 105, 86, 255);
                 SDL_RenderRect(r, &screen);
-                /* 64x24 pixel matrix with discrete illuminated cells. */
-                for (int x = 0; x < 64; x++) {
-                    int sample = info.scope[(x * 2) & 127];
-                    int center = 12 - sample * 10 / 127;
-                    if (center < 0) center = 0;
-                    if (center > 23) center = 23;
-                    for (int y = 0; y < 24; y++) {
-                        bool lit = (y == center) || (y == 12 && x % 4 == 0);
-                        SDL_SetRenderDrawColor(r, lit ? 77 : 11,
-                                               lit ? 241 : 35,
-                                               lit ? 111 : 24, 255);
-                        SDL_FRect px = {201.0f + x * 4.6f,
-                                        148.0f + y * 6.0f,
-                                        3.3f, 4.5f};
-                        SDL_RenderFillRect(r, &px);
+                /* Analog-style oscilloscope: vector trace from real
+                 * audio samples, with major/minor graticule divisions.
+                 * Samples are captured by PPA-SOUND/1's audio mixer. */
+                SDL_FRect plot = {202, 147, 292, 145};
+                SDL_SetRenderDrawColor(r, 16, 49, 31, 255);
+                for (int div = 1; div < 10; ++div) {
+                    float x = plot.x + plot.w * (float)div / 10.0f;
+                    SDL_RenderLine(r, x, plot.y, x, plot.y + plot.h);
+                }
+                for (int div = 1; div < 8; ++div) {
+                    float y = plot.y + plot.h * (float)div / 8.0f;
+                    SDL_RenderLine(r, plot.x, y, plot.x + plot.w, y);
+                }
+                SDL_SetRenderDrawColor(r, 33, 100, 61, 255);
+                SDL_RenderLine(r, plot.x, plot.y + plot.h * 0.5f,
+                               plot.x + plot.w, plot.y + plot.h * 0.5f);
+
+                /* Trigger on a rising zero crossing to reduce horizontal
+                 * jitter; leave the trace centered when silent. */
+                int trigger = 0;
+                for (int i = 1; i < 128 - 1; ++i) {
+                    if (info.scope[i - 1] <= 0 && info.scope[i] > 0) {
+                        trigger = i;
+                        break;
                     }
                 }
+                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+                for (int i = 1; i < 128; ++i) {
+                    int before = (trigger + i - 1) % 128;
+                    int current = (trigger + i) % 128;
+                    float x0 = plot.x + (float)(i - 1) * plot.w /
+                                      (float)(128 - 1);
+                    float x1 = plot.x + (float)i * plot.w /
+                                      (float)(128 - 1);
+                    float y0 = plot.y + plot.h * 0.5f -
+                               (float)info.scope[before] * plot.h * 0.43f / 127.0f;
+                    float y1 = plot.y + plot.h * 0.5f -
+                               (float)info.scope[current] * plot.h * 0.43f / 127.0f;
+                    SDL_SetRenderDrawColor(r, 23, 135, 53, 110);
+                    SDL_RenderLine(r, x0, y0 - 1.0f, x1, y1 - 1.0f);
+                    SDL_RenderLine(r, x0, y0 + 1.0f, x1, y1 + 1.0f);
+                    SDL_SetRenderDrawColor(r, 127, 255, 145, 255);
+                    SDL_RenderLine(r, x0, y0, x1, y1);
+                }
+                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
                 draw_text(r, fonts->small, 206, 309, COL_GREEN,
-                          "64x24 PIXEL WAVE MONITOR");
+                          "OSCILLOSCOPE  /  LIVE AUDIO");
                 snprintf(line, sizeof(line), "MASTER %s  VOL %u",
                          info.sound_master ? "ON" : "OFF",
                          (unsigned)info.sound_volume);
