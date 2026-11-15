@@ -1835,6 +1835,11 @@ static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
     out->vga_border = m->vga_border;
     out->vga_palette = m->vga_palette;
     out->vga_vram = m->vga_vram;
+    out->vga_vram_size = m->vga_vram_size;
+    out->vga_width = m->vga_width;
+    out->vga_height = m->vga_height;
+    out->vga_bpp = m->vga_bpp;
+    out->vga_text = m->vga_text;
     out->cycles_remaining = m->remaining_cycles;
     snprintf(out->name, sizeof(out->name), "%s", m->name);
     snprintf(out->path, sizeof(out->path), "%s", m->path);
