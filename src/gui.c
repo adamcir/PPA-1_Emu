@@ -976,7 +976,7 @@ static void read_log_tail(char lines[][160], int *line_count, int max_lines) {
     if (max_lines < 1) return;
     if (max_lines > 64) max_lines = 64;
 
-    FILE *f = fopen("latest.log", "r");
+    FILE *f = fopen(ppa_log_path(), "r");
     if (!f) return;
 
     char ring[64][160] = {{0}};
@@ -2177,7 +2177,8 @@ void ppa_gui_log_mode(const PPA1GuiState *state) {
 
 int ppa_gui_run_panel(const char *initial_rom,
                       bool initial_tty_enabled,
-                      const PPA1GuiBackend *backend)
+                      const PPA1GuiBackend *backend,
+                      PpaConfig *config)
 {
     if (!backend || !backend->ctx) return 1;
 
@@ -2284,9 +2285,9 @@ int ppa_gui_run_panel(const char *initial_rom,
     };
 
     Preferences prefs = {
-        .auto_run = false,
-        .lamp_test = false,
-        .tty_requested = false
+        .auto_run = config ? config->auto_run : false,
+        .lamp_test = config ? config->lamp_test : false,
+        .tty_requested = config ? config->tty_enabled : false
     };
 
     if (initial_tty_enabled && backend->set_tty_enabled) {
@@ -2560,7 +2561,15 @@ int ppa_gui_run_panel(const char *initial_rom,
                     bool applied = valid && backend->set_memory_size &&
                         backend->set_memory_size(backend->ctx, rom, (uint32_t)size);
                     prefs.memory_size_error = !applied;
-                    if (applied) prefs.editing_memory = 0;
+                    if (applied) {
+                        prefs.editing_memory = 0;
+                        if (config) {
+                            if (rom) config->rom_size = (uint32_t)size;
+                            else config->ram_size = (uint32_t)size;
+                            if (!ppa_config_save(config))
+                                ppa_log_printf("GUI: failed saving %s\n", ppa_config_path());
+                        }
+                    }
                 }
                 continue;
             }
@@ -3218,11 +3227,21 @@ int ppa_gui_run_panel(const char *initial_rom,
                             ? prefs.rom_bytes : prefs.ram_bytes)[0] = '\0';
                     } else if (point_in_rect(x, y, &PREF_LAMP_BUTTON)) {
                         prefs.lamp_test = !prefs.lamp_test;
+                        if (config) {
+                            config->lamp_test = prefs.lamp_test;
+                            if (!ppa_config_save(config))
+                                ppa_log_printf("GUI: failed saving %s\n", ppa_config_path());
+                        }
                         ppa_log_printf("GUI: Lamp test -> %s\n",
                                        prefs.lamp_test ? "ON" : "OFF");
                     } else if (point_in_rect(
                                    x, y, &PREF_AUTORUN_BUTTON)) {
                         prefs.auto_run = !prefs.auto_run;
+                        if (config) {
+                            config->auto_run = prefs.auto_run;
+                            if (!ppa_config_save(config))
+                                ppa_log_printf("GUI: failed saving %s\n", ppa_config_path());
+                        }
                         ppa_log_printf("GUI: Auto RUN after LOAD -> %s\n",
                                        prefs.auto_run ? "ON" : "OFF");
                     } else if (point_in_rect(
@@ -3238,6 +3257,11 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     ? backend->is_tty_enabled(
                                           backend->ctx)
                                     : desired;
+                            if (config) {
+                                config->tty_enabled = prefs.tty_requested;
+                                if (!ppa_config_save(config))
+                                    ppa_log_printf("GUI: failed saving %s\n", ppa_config_path());
+                            }
                             ppa_log_printf(
                                 "GUI: External PTY -> %s\n",
                                 prefs.tty_requested ? "ON" : "OFF");

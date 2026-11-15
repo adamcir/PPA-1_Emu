@@ -20,6 +20,7 @@
 
 #include "logger.h"
 #include "gui.h"
+#include "config.h"
 #include "../modules/ppa_module.h"
 
 /* Mirror the emulator's existing printf-based diagnostics to latest.log. */
@@ -2421,8 +2422,16 @@ static uint32_t parse_hex(const char *s) {
 }
 
 int main(int argc, char **argv) {
-    if (!ppa_log_open("latest.log")) {
-        fprintf(stderr, "Warning: could not open latest.log for writing\n");
+    ppa_config_init_paths(argv[0]);
+    PpaConfig config;
+    if (!ppa_config_load(&config)) {
+        fprintf(stderr, "Warning: could not load/create %s\n",
+                ppa_config_path());
+        ppa_config_defaults(&config);
+    }
+    if (!ppa_log_open(ppa_log_path())) {
+        fprintf(stderr, "Warning: could not open %s for writing\n",
+                ppa_log_path());
     }
 
     printf("PPA-1 Emu\n");
@@ -2434,6 +2443,8 @@ int main(int argc, char **argv) {
 
     ppam_bus_init(&g_ppa_modules);
     memory_init_blank(&memory);
+    memory.rom_size = config.rom_size;
+    memory.ram_size = config.ram_size;
 
     serial.master_fd = -1;
     serial.slave_fd = -1;
@@ -2446,7 +2457,7 @@ int main(int argc, char **argv) {
 
     long long steps = -1;
     bool do_dump = false;
-    bool tty_enabled = false;
+    bool tty_enabled = config.tty_enabled;
     bool no_gui = false;
 
     bool nogui_clock_turbo = true;
@@ -2584,7 +2595,7 @@ int main(int argc, char **argv) {
             .memory_edit = gui_backend_memory_edit
         };
 
-        (void)ppa_gui_run_panel(rom_path, tty_enabled, &gui_backend);
+        (void)ppa_gui_run_panel(rom_path, tty_enabled, &gui_backend, &config);
 
         serial_close(&serial);
         if (memory.rom_file) (void)memory_detach_image(&memory);

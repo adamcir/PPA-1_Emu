@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+#include "config.h"
 
 typedef struct {
     bool requested;
@@ -107,6 +108,7 @@ void ppa_gui_log_mode(const PPA1GuiState *state);
  */
 int ppa_gui_run_panel(const char *initial_rom,
                       bool initial_tty_enabled,
-                      const PPA1GuiBackend *backend);
+                      const PPA1GuiBackend *backend,
+                      PpaConfig *config);
 
 #endif
