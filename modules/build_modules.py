@@ -12,14 +12,14 @@ def build(source: Path, destination: Path) -> None:
     module_type = int(definition["type"])
     pulse_cycles = int(definition.get("pulse_cycles", 0))
     rules = definition.get("rules", [])
-    if version != 1 or module_type not in (1, 2, 3):
-        raise ValueError("PPAMOD v1 supports LIGHT (1), PPA-SOUND/1 (2) and PPA-VGA/1 (3)")
+    if version != 1 or module_type not in (1, 2, 3, 4):
+        raise ValueError("PPAMOD v1 supports LIGHT (1), PPA-SOUND/1 (2) and PPA-VGA/1 (3) and PPA-PS/2/1 (4)")
     if not 0 <= pulse_cycles <= 0xFFFFFFFF:
         raise ValueError("pulse_cycles must fit u32")
     if len(rules) * 8 > 65536:
         raise ValueError("too many rules")
-    if module_type in (2, 3) and rules:
-        raise ValueError("PPA-SOUND/1 and PPA-VGA/1 use device registers, not bytecode rules")
+    if module_type in (2, 3, 4) and rules:
+        raise ValueError("PPA-SOUND/1, PPA-VGA/1 and PPA-PS/2/1 use device registers, not bytecode rules")
 
     code = bytearray()
     for rule in rules:
