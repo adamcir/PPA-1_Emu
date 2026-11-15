@@ -1,4 +1,5 @@
 #include "ppa_module.h"
+#include "ppa_ps2.h"
 #include <assert.h>
 #include <stdio.h>
 
@@ -126,7 +127,46 @@ int main(void) {
     assert(!ppam_get(&b, 2)->vga_enabled);
     assert(ppam_read(&b, 0x4001, 0x0000) == 0x00);
 
+    /* PPA-PS/2/1: Set 2 make/break and extended keys through slot registers. */
+    assert(ppam_load(&b, 3, "out/modules/ppa-ps2-1.ppamod"));
+    assert(ppam_get(&b, 3)->type == PPAM_TYPE_PS2);
+    assert(!ppam_get(&b, 3)->active);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_STATUS) == 0xFF);
+    assert(ppam_set_active(&b, 3, true));
+    assert(ppam_read(&b, 0x5000, 0x02) == PPAM_TYPE_PS2);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_STATUS) == 4);
+    ppa_ps2_key(&b.slots[3], 0x15, false, true);  /* Q press */
+    ppa_ps2_key(&b.slots[3], 0x15, false, true);  /* OS repeat filtered */
+    assert(ppam_read(&b, 0x5000, PPA_PS2_COUNT) == 1);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0x15);
+    ppa_ps2_key(&b.slots[3], 0x15, false, false);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xF0);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0x15);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_STATUS) == 4);
+    ppa_ps2_key(&b.slots[3], 0x75, true, true); /* arrow up */
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xE0);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0x75);
+    ppa_ps2_key(&b.slots[3], 0x75, true, false);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xE0);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xF0);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0x75);
+    ppam_write(&b, 0x5000, PPA_PS2_COMMAND, 0xED); /* set LEDs */
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xFA);
+    ppam_write(&b, 0x5000, PPA_PS2_COMMAND, 0x04); /* Caps Lock */
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xFA);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_LEDS) == 4);
+    ppam_write(&b, 0x5000, PPA_PS2_COMMAND, 0xF5); /* disable scans */
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xFA);
+    ppa_ps2_key(&b.slots[3], 0x1C, false, true);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_COUNT) == 0);
+    ppam_write(&b, 0x5000, PPA_PS2_COMMAND, 0xFF); /* reset, BAT */
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xFA);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_DATA) == 0xAA);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_LEDS) == 0);
+    ppam_reset(&b);
+    assert(ppam_read(&b, 0x5000, PPA_PS2_COUNT) == 0);
+
     ppam_bus_destroy(&b);
-    puts("PPAMOD LIGHT/SOUND/VGA loader and hardware-bus tests OK");
+    puts("PPAMOD LIGHT/SOUND/VGA/PS2 bus and scan-code tests OK");
     return 0;
 }
