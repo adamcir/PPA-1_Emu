@@ -81,8 +81,11 @@ void ppa_ps2_gui_draw(SDL_Renderer *r,TTF_Font *font,
     snprintf(text,sizeof(text),"FIFO: %u  |  LAST SET2: %02Xh  |  %s",
              info->ps2_count,info->ps2_last,info->ps2_overflow?"OVERFLOW":"READY");
     ppa_mod_text(r,font,54,400,(SDL_Color){213,226,217,255},text);
-    ppa_mod_text(r,font,29,438,(SDL_Color){198,215,208,255},
-                 "CLICK HERE, THEN TYPE ON YOUR PHYSICAL KEYBOARD");
+    char preview[130];
+    snprintf(preview,sizeof(preview),"TYPED: %.75s",info->ps2_preview);
+    ppa_mod_text(r,font,29,420,(SDL_Color){232,245,220,255},preview);
+    ppa_mod_text(r,font,29,442,(SDL_Color){198,215,208,255},
+                 "FOCUS THIS WINDOW AND TYPE ON YOUR KEYBOARD");
     ppa_mod_text(r,font,29,459,(SDL_Color){169,182,176,255},
                  "MAKE/BREAK SCANCODES -> PPA-BUS/1 FIFO");
     ppa_mod_text(r,font,29,480,(SDL_Color){132,151,140,255},
