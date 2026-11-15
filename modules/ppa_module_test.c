@@ -75,6 +75,18 @@ int main(void) {
     assert(ppam_get(&b, 2)->vga_width == 320);
     assert(ppam_get(&b, 2)->vga_height == 200);
     assert(ppam_get(&b, 2)->vga_bpp == 8);
+    ppam_write(&b, 0x4000, 0x12, 0x04);  /* 320x200 CGA-like 4 colors */
+    assert(ppam_get(&b, 2)->vga_bpp == 2);
+    assert(ppam_get(&b, 2)->vga_vram_size == 16000);
+    ppam_write(&b, 0x4000, 0x12, 0x11);  /* 640x480 monochrome */
+    assert(ppam_get(&b, 2)->vga_bpp == 1);
+    assert(ppam_get(&b, 2)->vga_vram_size == 38400);
+    ppam_write(&b, 0x4000, 0x12, 0x0D);  /* 320x200 EGA 16 colors */
+    assert(ppam_get(&b, 2)->vga_vram_size == 32000);
+    ppam_write(&b, 0x4000, 0x20, 3);
+    ppam_write(&b, 0x4001, 0, 0x80);
+    ppam_write(&b, 0x4000, 0x21, 3);
+    assert(ppam_read(&b, 0x4001, 0) == 0x80);
     ppam_write(&b, 0x4000, 0x12, 0x12);  /* mode 12h */
     assert(ppam_get(&b, 2)->vga_width == 640);
     assert(ppam_get(&b, 2)->vga_height == 480);
