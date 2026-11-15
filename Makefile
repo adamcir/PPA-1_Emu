@@ -92,3 +92,7 @@ rom-graphics-demo: out/examples/rom_gfx_demo.bin $(ROMPACK)
 clean:
 	rm -rf out/asm out/examples out/modules out/assets out/tools
 	rm -f out/PPA-1_Emu out/ppa_module_test out/irq_test
+
+.PHONY: test-rompack
+test-rompack: $(ROMPACK)
+	python3 tools/rompack/test_rompack.py $(ROMPACK)
