@@ -536,6 +536,42 @@ static void draw_led(SDL_Renderer *r, PanelFonts *fonts,
     }
 }
 
+/* Compact physical IRQ indicator: amber=pending, red=in service,
+ * green bar=IRQ line unmasked. The LEDs mirror actual controller latches. */
+static void draw_irq_led(SDL_Renderer *r, PanelFonts *fonts,
+                         float x, float y, int line,
+                         bool pending, bool enabled, bool in_service,
+                         bool lamp_test)
+{
+    char label[8];
+    snprintf(label, sizeof(label), "IRQ%d", line);
+    draw_text_center(r, fonts->small,
+                     (SDL_FRect){x - 6.0f, y, 39.0f, 17.0f},
+                     (SDL_Color){220, 216, 198, 255}, label);
+
+    SDL_FRect bezel = {x, y + 18.0f, 26.0f, 23.0f};
+    SDL_FRect lens = {x + 4.0f, y + 22.0f, 18.0f, 15.0f};
+    SDL_SetRenderDrawColor(r, 10, 11, 11, 255);
+    SDL_RenderFillRect(r, &bezel);
+    SDL_SetRenderDrawColor(r, 105, 107, 100, 255);
+    SDL_RenderRect(r, &bezel);
+
+    SDL_Color color = in_service ? COL_RED : COL_ORANGE;
+    bool lit = lamp_test || pending || in_service;
+    SDL_SetRenderDrawColor(r, lit ? color.r : (Uint8)(color.r / 7),
+                           lit ? color.g : (Uint8)(color.g / 7),
+                           lit ? color.b : (Uint8)(color.b / 7), 255);
+    SDL_RenderFillRect(r, &lens);
+
+    /* Separate green mask bar: remains on even if no request is pending. */
+    SDL_FRect mask = {x + 4.0f, y + 44.0f, 18.0f, 3.0f};
+    SDL_SetRenderDrawColor(r,
+        lamp_test || enabled ? COL_GREEN.r : (Uint8)(COL_GREEN.r / 7),
+        lamp_test || enabled ? COL_GREEN.g : (Uint8)(COL_GREEN.g / 7),
+        lamp_test || enabled ? COL_GREEN.b : (Uint8)(COL_GREEN.b / 7), 255);
+    SDL_RenderFillRect(r, &mask);
+}
+
 static void destroy_toggle_textures(ToggleTextures *textures) {
     if (!textures) return;
 
@@ -3399,6 +3435,9 @@ int ppa_gui_run_panel(const char *initial_rom,
         Uint8 status_register = backend->status_register
             ? backend->status_register(backend->ctx)
             : 0;
+        PPA1CpuSnapshot irq_state = {0};
+        if (backend->cpu_snapshot && powered)
+            backend->cpu_snapshot(backend->ctx, &irq_state);
 
         if (data_source_index == 1 && backend->register_value) {
             data = backend->register_value(backend->ctx, register_index);
@@ -3533,37 +3572,41 @@ int ppa_gui_run_panel(const char *initial_rom,
                      COL_GREEN);
         }
 
-        /* Right upper: system status, no separate box. */
+        /* System status and interrupt control signals.
+         * Dedicated indicators correspond to discrete hardware flip-flops.
+         */
         draw_text(renderer, panel_fonts.section, 646, 126,
                   COL_WHITE, "SYSTEM STATUS");
 
         const char *sys_labels[] = {
-            "POWER", "RUN", "HALT", "ERROR", "CLOCK"
+            "POWER", "RUN", "HALT", "ERROR", "CLOCK", "IRQ", "ISR"
         };
         SDL_Color sys_colors[] = {
-            COL_GREEN, COL_GREEN, COL_RED, COL_RED, COL_ORANGE
+            COL_GREEN, COL_GREEN, COL_RED, COL_RED, COL_ORANGE,
+            COL_ORANGE, COL_RED
         };
+        bool irq_eligible = powered &&
+            (irq_state.irq_pending & irq_state.irq_mask) != 0;
         bool sys_on[] = {
             powered,
             powered && running,
             loaded && powered && halted && !error,
             loaded && powered && error,
-            clock_level
+            clock_level,
+            irq_eligible,
+            powered && irq_state.irq_servicing
         };
-        for (int i = 0; i < 5; i++) {
-            float group_gap = i >= 4 ? 18.0f : 0.0f;
-            draw_led(renderer, &panel_fonts,
-                     650.0f + i * 75.0f + group_gap,
-                     175.0f,
-                     sys_labels[i],
-                     prefs.lamp_test || sys_on[i],
+        const float sys_x[] = {
+            650.0f, 725.0f, 800.0f, 875.0f, 968.0f,
+            1060.0f, 1142.0f
+        };
+        for (int i = 0; i < 7; i++) {
+            draw_led(renderer, &panel_fonts, sys_x[i], 175.0f,
+                     sys_labels[i], prefs.lamp_test || sys_on[i],
                      sys_colors[i]);
         }
 
-        /*
-         * STATUS REGISTER is shown semantically, not as raw S7-S0 bits.
-         * PPA-1 currently defines only ZERO (bit 0) and CARRY (bit 1).
-         */
+        /* SR: Z, C and IRQ global enable (bit 2). */
         draw_text(renderer, panel_fonts.label, 646, 226,
                   COL_LIGHT_GRAY, "STATUS REGISTER");
         draw_led(renderer, &panel_fonts, 650, 245, "ZERO",
@@ -3574,6 +3617,26 @@ int ppa_gui_run_panel(const char *initial_rom,
                  prefs.lamp_test ||
                      (powered && ((status_register & 0x02u) != 0)),
                  COL_ORANGE);
+        draw_led(renderer, &panel_fonts, 806, 245, "INT",
+                 prefs.lamp_test ||
+                     (powered && ((status_register & 0x04u) != 0)),
+                 COL_GREEN);
+
+        /* Eight IRQ line indicators: pending orange / active red.
+         * Thin green stripe under each lens displays the IMR mask bit.
+         */
+        draw_text(renderer, panel_fonts.label, 872, 226,
+                  COL_LIGHT_GRAY, "IRQ LINES / MASK");
+        for (int line = 0; line < 8; ++line) {
+            const Uint8 bit = (Uint8)(1u << line);
+            draw_irq_led(renderer, &panel_fonts,
+                         872.0f + (float)line * 43.0f, 242.0f, line,
+                         powered && (irq_state.irq_pending & bit) != 0,
+                         powered && (irq_state.irq_mask & bit) != 0,
+                         powered && irq_state.irq_servicing &&
+                             irq_state.irq_active == (Uint8)line,
+                         prefs.lamp_test);
+        }
 
         /* Lower left: manual switch register. */
         draw_text(renderer, panel_fonts.section, 52, 371,

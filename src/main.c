@@ -2317,6 +2317,10 @@ static void gui_backend_cpu_snapshot(void *ctx, PPA1CpuSnapshot *out) {
     out->bus_bank = g->cpu->bus.bank;
     out->bus_data = g->cpu->bus.data;
     out->bus_operation = (uint8_t)g->cpu->bus.operation;
+    out->irq_pending = g_irq.pending;
+    out->irq_mask = g_irq.mask;
+    out->irq_active = g_irq.active;
+    out->irq_servicing = g_irq.servicing;
 
     out->halted = g->cpu->halted;
     out->error = g->cpu->error;

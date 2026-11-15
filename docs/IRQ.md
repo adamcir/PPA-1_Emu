@@ -91,3 +91,19 @@ HLT remains a hard halt, not an interruptible sleep instruction.
 This is the **first implementation**; the table did not specify
 priority, vectors, timing or nested IRQ semantics, so the preceding
 choices are explicit extension rules, not claims about existing hardware.
+
+## Physical front-panel IRQ indicators
+
+The right-hand SYSTEM STATUS section exposes IRQ hardware states as lamps:
+- **INT** (green): SR bit 2, global interrupt enable.
+- **IRQ** (amber): at least one pending, unmasked IRQ line (IPR & IMR).
+- **ISR** (red): interrupt handler currently active.
+- **IRQ0–IRQ7** (amber/red): each line's pending latch (amber), or
+  current active service (red). LEDs are unlit when idle.
+- **Green stripe beneath each IRQ line**: IMR bit is set for that line.
+- **LAMP TEST** lights every LED and mask stripe, independently of power.
+
+These are read-only electrical-status indicators; they do not acknowledge,
+mask, or otherwise change interrupts. Their signals are available in
+`PPA1CpuSnapshot`; the emulator GUI reads a snapshot and the IRQ
+controller itself remains independent of SDL.

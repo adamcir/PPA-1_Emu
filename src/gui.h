@@ -23,6 +23,12 @@ typedef struct {
     uint8_t bus_data;
     uint8_t bus_operation;
 
+    /* Read-only panel telemetry from the physical IRQ controller. */
+    uint8_t irq_pending;
+    uint8_t irq_mask;
+    uint8_t irq_active; /* 0..7, FF when idle */
+    bool irq_servicing;
+
     bool halted;
     bool error;
 } PPA1CpuSnapshot;
