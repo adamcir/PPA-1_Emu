@@ -1824,9 +1824,9 @@ static void gui_backend_module_ps2_release(void *ctx, int slot) {
     if(slot<0 || slot>=PPAM_SLOTS) return;
     PpaModule *m=&g_ppa_modules.slots[slot];
     if(m->type!=PPAM_TYPE_PS2) return;
-    for(unsigned i=0;i<256;i++) {
+    for(unsigned i=0;i<512;i++) {
         if(m->ps2_pressed[i])
-            ppa_ps2_key(m,(uint8_t)(i&0x7Fu),(i&0x80u)!=0,false);
+            ppa_ps2_key(m,(uint8_t)(i&255u),i>=256u,false);
     }
 }
 static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
