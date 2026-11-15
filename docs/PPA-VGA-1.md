@@ -19,8 +19,17 @@ aperture page and planar selectors. Unsupported mode numbers are ignored.
 | Mode | Resolution | Pixel/character format | VRAM |
 |---|---|---|---|
 | 00h (legacy PPA) | 320 × 200 | 8-bit indexed | 64,000 B |
+| 01h | 40 × 25 characters | text, character + attribute | 2,000 B |
 | 02h | 80 × 25 characters | text, character + attribute | 4,000 B |
 | 03h | 80 × 25 characters | text, character + attribute | 4,000 B |
+| 04h / 05h | 320 × 200 | 2-bit packed (4-color) | 16,000 B |
+| 06h | 640 × 200 | 1-bit packed (2-color) | 16,000 B |
+| 07h | 80 × 25 characters | text, character + attribute | 4,000 B |
+| 0Dh | 320 × 200 | 4-bit planar (16-color) | 32,000 B |
+| 0Eh | 640 × 200 | 4-bit planar (16-color) | 64,000 B |
+| 0Fh | 640 × 350 | 1-bit packed (2-color) | 28,000 B |
+| 10h | 640 × 350 | 4-bit planar (16-color) | 112,000 B |
+| 11h | 640 × 480 | 1-bit packed (2-color) | 38,400 B |
 | 12h | 640 × 480 | 4-bit (16-color) **planar** | 153,600 B |
 | 13h | 320 × 200 | 8-bit (256-color) indexed | 64,000 B |
 | 80h (PPA extension) | 800 × 600 | 24-bit RGB888 | 1,440,000 B |
@@ -51,21 +60,24 @@ modes, a byte at physical offset `n` is addressed as:
 
 Invalid physical addresses read as FFh and ignore writes.
 
-### Planar mode 12h
+### Planar modes 0Dh, 0Eh, 10h and 12h
 
-Four consecutive planes hold 38,400 bytes each (640*480/8).
-In mode 12h, PAGE is fixed to 0 and ignored. Select the plane with
+Four consecutive planes hold `width*height/8` bytes each (38,400
+bytes per plane for mode 12h).
+In planar modes, PAGE is fixed to 0 and ignored. Select the plane with
 PLANE_WRITE (0020h) / PLANE_READ (0021h), value 0–3, and use a byte
-offset in the range 0000h–95FFh within bank base+1.
+offset in the range 0000h–95FFh for mode 12h (other modes use the corresponding
+smaller plane lengths) within bank base+1.
 
 Each bit corresponds to one pixel; most significant bit is the leftmost.
 The four planes' corresponding bits form the 4-bit palette index.
 
-### Text modes 02h / 03h
+### Text modes 01h, 02h, 03h and 07h
 
-80 columns, 25 rows. Each cell is two bytes:
-`VRAM[(row*80+col)*2] = ASCII character`, then
-`VRAM[(row*80+col)*2+1] = attribute`.
+40 columns in mode 01h, otherwise 80 columns; all use 25 rows.
+Each cell is two bytes:
+`VRAM[(row*columns+col)*2] = ASCII character`, then
+`VRAM[(row*columns+col)*2+1] = attribute`.
 
 Attribute: low nibble = foreground EGA color 0–15;
 high nibble = background EGA color 0–15.
@@ -93,7 +105,14 @@ This is not a full IBM VGA character-ROM/code-page emulation.
 | 0021 | R/W | PLANE_READ | 12h plane read selector (0–3) |
 | 0022–0024 | R | VRAM_SIZE | Allocated video RAM bytes, low/mid/high |
 
-Modes 02h, 03h and 12h use standard EGA-like 16-color defaults.
+Classic 1-bit modes store eight pixels per byte (MSB first);
+2-bit modes store four pixels per byte (MSB pair first). CGA modes
+04h/05h use a linear layout and a fixed four-color mapping; they do
+not emulate original CGA interleaved scan-line addressing or palette
+register behavior. Monochrome mode 07h is rendered using programmable
+text colors, rather than precisely modeling an MDA card.
+
+Modes 01h–12h use standard EGA-like 16-color defaults.
 Modes 00h and 13h use a 256-entry programmable RGB DAC. Every entry
 contains three 8-bit color channels.
 
