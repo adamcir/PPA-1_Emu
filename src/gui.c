@@ -1562,6 +1562,33 @@ static void destroy_aux(AuxWindow *aux) {
     memset(aux, 0, sizeof(*aux));
 }
 
+static void store_module_window(const AuxWindow *aux, PpaModuleLayout *layout) {
+    if (!aux || !layout || !aux->window) return;
+    SDL_GetWindowPosition(aux->window, &layout->x, &layout->y);
+    SDL_GetWindowSize(aux->window, &layout->width, &layout->height);
+}
+static void restore_module_window(AuxWindow *aux, const PpaModuleLayout *layout) {
+    if (!aux || !layout || !aux->window) return;
+    if (layout->width >= 540 && layout->height >= 510)
+        SDL_SetWindowSize(aux->window, layout->width, layout->height);
+    if (layout->x != -1 && layout->y != -1)
+        SDL_SetWindowPosition(aux->window, layout->x, layout->y);
+}
+static void save_module_config(PpaConfig *config,
+                               const PPA1GuiBackend *backend, int slot) {
+    if (!config || !backend || !backend->module_info ||
+        slot < 0 || slot >= PPA_CONFIG_MODULE_SLOTS) return;
+    PPA1ModuleInfo info = {0};
+    if (!backend->module_info(backend->ctx, slot, &info)) return;
+    PpaModuleLayout *layout = &config->modules[slot];
+    snprintf(layout->path, sizeof(layout->path), "%s",
+             info.installed ? info.path : "");
+    layout->active = info.installed && info.active;
+    if (!info.installed) layout->visible = false;
+    if (!ppa_config_save(config))
+        ppa_log_printf("GUI: failed saving module layout: %s\n", ppa_config_path());
+}
+
 static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int h) {
     if (aux->window) {
         SDL_RaiseWindow(aux->window);
@@ -1571,14 +1598,17 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
     aux->kind = kind;
 
     Uint64 flags = SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    if (kind == AUX_LOG || kind == AUX_VIEW || kind == AUX_HEX_MEMORY) {
+    if (kind == AUX_LOG || kind == AUX_VIEW || kind == AUX_HEX_MEMORY ||
+        kind == AUX_MODULE_DETAIL) {
         flags |= SDL_WINDOW_RESIZABLE;
     }
 
     aux->window = SDL_CreateWindow(title, w, h, flags);
     if (!aux->window) return;
 
-    if (kind == AUX_LOG) {
+    if (kind == AUX_MODULE_DETAIL) {
+        SDL_SetWindowMinimumSize(aux->window, 540, 510);
+    } else if (kind == AUX_LOG) {
         SDL_SetWindowMinimumSize(aux->window, 560, 300);
     } else if (kind == AUX_VIEW) {
         SDL_SetWindowMinimumSize(aux->window, 680, 520);
@@ -1595,6 +1625,11 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
     }
 
     SDL_SetRenderVSync(aux->renderer, 1);
+    if (kind == AUX_MODULE_DETAIL) {
+        /* Scale each module's own 540x510 virtual front panel gracefully. */
+        SDL_SetRenderLogicalPresentation(aux->renderer, 540, 510,
+                                         SDL_LOGICAL_PRESENTATION_LETTERBOX);
+    }
 
     if (kind == AUX_HEX_MEMORY) {
         SDL_StartTextInput(aux->window);
@@ -1999,130 +2034,10 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         PPA1ModuleInfo info = {0};
         if (backend->module_info)
             backend->module_info(backend->ctx, aux->slot_index, &info);
-        if (!info.installed) {
+        if (info.installed)
+            ppa_module_ui_draw(r, fonts->small, &info, aux->slot_index);
+        else
             draw_aux_header(r, fonts, "PPAMOD", "MODULE NOT INSTALLED");
-        } else {
-            const bool sound = info.type == 2;
-            draw_aux_header(r, fonts, info.name,
-                            sound ? "PPA-SOUND/1 / VIRTUAL SOUND CARD"
-                                  : "LIGHT/1 / VIRTUAL HARDWARE");
-            char line[192];
-            snprintf(line, sizeof(line), "SLOT %d   BANK %04X   %s",
-                     aux->slot_index + 1,
-                     0x2000 + aux->slot_index * 0x1000,
-                     info.active ? "ACTIVE" : "DISABLED");
-            draw_text(r, fonts->mono, 24, 80,
-                      info.active ? COL_GREEN : muted, line);
-            /* Device window is a virtual card face, not part of the CPU panel. */
-            SDL_FRect face = {20, 112, 500, 345};
-            SDL_SetRenderDrawColor(r, 41, 45, 44, 255);
-            SDL_RenderFillRect(r, &face);
-            SDL_SetRenderDrawColor(r, 108, 113, 108, 255);
-            SDL_RenderRect(r, &face);
-            if (sound) {
-                /* Speaker grille. Speaker output is sent to SDL Audio. */
-                SDL_SetRenderDrawColor(r, 17, 19, 19, 255);
-                fill_circle(r, 100, 210, 67);
-                SDL_SetRenderDrawColor(r, 91, 98, 94, 255);
-                fill_circle(r, 100, 210, 55);
-                SDL_SetRenderDrawColor(r, 20, 24, 24, 255);
-                fill_circle(r, 100, 210, 48);
-                SDL_SetRenderDrawColor(r, 75, 81, 78, 255);
-                fill_circle(r, 100, 210, 23);
-                SDL_SetRenderDrawColor(r, 19, 22, 22, 255);
-                fill_circle(r, 100, 210, 16);
-                draw_text(r, fonts->small, 62, 286, COL_WHITE, "SPEAKER");
-
-                SDL_FRect screen = {194, 139, 308, 163};
-                SDL_SetRenderDrawColor(r, 6, 17, 12, 255);
-                SDL_RenderFillRect(r, &screen);
-                SDL_SetRenderDrawColor(r, 82, 105, 86, 255);
-                SDL_RenderRect(r, &screen);
-                /* Analog-style oscilloscope: vector trace from real
-                 * audio samples, with major/minor graticule divisions.
-                 * Samples are captured by PPA-SOUND/1's audio mixer. */
-                SDL_FRect plot = {202, 147, 292, 145};
-                SDL_SetRenderDrawColor(r, 16, 49, 31, 255);
-                for (int div = 1; div < 10; ++div) {
-                    float x = plot.x + plot.w * (float)div / 10.0f;
-                    SDL_RenderLine(r, x, plot.y, x, plot.y + plot.h);
-                }
-                for (int div = 1; div < 8; ++div) {
-                    float y = plot.y + plot.h * (float)div / 8.0f;
-                    SDL_RenderLine(r, plot.x, y, plot.x + plot.w, y);
-                }
-                SDL_SetRenderDrawColor(r, 33, 100, 61, 255);
-                SDL_RenderLine(r, plot.x, plot.y + plot.h * 0.5f,
-                               plot.x + plot.w, plot.y + plot.h * 0.5f);
-
-                /* Trigger on a rising zero crossing to reduce horizontal
-                 * jitter; leave the trace centered when silent. */
-                int trigger = 0;
-                for (int i = 1; i < 128 - 1; ++i) {
-                    if (info.scope[i - 1] <= 0 && info.scope[i] > 0) {
-                        trigger = i;
-                        break;
-                    }
-                }
-                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-                for (int i = 1; i < 128; ++i) {
-                    int before = (trigger + i - 1) % 128;
-                    int current = (trigger + i) % 128;
-                    float x0 = plot.x + (float)(i - 1) * plot.w /
-                                      (float)(128 - 1);
-                    float x1 = plot.x + (float)i * plot.w /
-                                      (float)(128 - 1);
-                    float y0 = plot.y + plot.h * 0.5f -
-                               (float)info.scope[before] * plot.h * 0.43f / 127.0f;
-                    float y1 = plot.y + plot.h * 0.5f -
-                               (float)info.scope[current] * plot.h * 0.43f / 127.0f;
-                    SDL_SetRenderDrawColor(r, 23, 135, 53, 110);
-                    SDL_RenderLine(r, x0, y0 - 1.0f, x1, y1 - 1.0f);
-                    SDL_RenderLine(r, x0, y0 + 1.0f, x1, y1 + 1.0f);
-                    SDL_SetRenderDrawColor(r, 127, 255, 145, 255);
-                    SDL_RenderLine(r, x0, y0, x1, y1);
-                }
-                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
-                draw_text(r, fonts->small, 206, 309, COL_GREEN,
-                          "OSCILLOSCOPE  /  LIVE AUDIO");
-                snprintf(line, sizeof(line), "MASTER %s  VOL %u",
-                         info.sound_master ? "ON" : "OFF",
-                         (unsigned)info.sound_volume);
-                draw_text(r, fonts->mono, 38, 335, COL_WHITE, line);
-                for (int ch = 0; ch < 4; ++ch) {
-                    snprintf(line, sizeof(line),
-                             "CH%d: %5u Hz  W%d  VOL %3u  %s",
-                             ch + 1, (unsigned)info.freq[ch],
-                             (unsigned)info.waveform[ch],
-                             (unsigned)info.voice_volume[ch],
-                             info.voice_enabled[ch] ? "ON" : "OFF");
-                    draw_text(r, fonts->small, 38,
-                              360.0f + 21.0f * ch,
-                              info.voice_enabled[ch] ? COL_GREEN : muted,
-                              line);
-                }
-                draw_text(r, fonts->small, 24, 473, muted,
-                          "WRITE 0010=1  0011=volume  CH1: 0020-0024.");
-            } else {
-                /* LIGHT is rendered through the same PPAM window host. */
-                SDL_SetRenderDrawColor(r, 16, 19, 18, 255);
-                fill_circle(r, 154, 267, 100);
-                SDL_Color led = info.active && info.light_on
-                    ? COL_GREEN : (SDL_Color){40, 60, 45, 255};
-                SDL_SetRenderDrawColor(r, led.r, led.g, led.b, 255);
-                fill_circle(r, 154, 267, 75);
-                draw_text(r, fonts->section, 282, 220,
-                          info.light_on ? COL_GREEN : muted,
-                          info.light_on ? "LIGHT ON" : "LIGHT OFF");
-                snprintf(line, sizeof(line), "PULSE %u cycles",
-                         (unsigned)info.cycles_remaining);
-                draw_text(r, fonts->mono, 282, 263, COL_WHITE, line);
-                draw_text(r, fonts->small, 282, 299, muted,
-                          "INPUT: WRITE 0010");
-                draw_text(r, fonts->small, 24, 474, muted,
-                          "Nonzero = ON (timed); zero = OFF.");
-            }
-        }
     } else if (aux->kind == AUX_LOG) {
         draw_aux_header(r, fonts, "LATEST.LOG",
                         "LIVE EMULATOR TRACE");
@@ -2240,7 +2155,8 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     SDL_Window *window = SDL_CreateWindow(
         "PROGRAMBLE PROCESSOR A-1",
-        1280, 820,
+        config ? config->panel_width : 1280,
+        config ? config->panel_height : 820,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!window) {
         close_fonts(&panel_fonts);
@@ -2250,6 +2166,8 @@ int ppa_gui_run_panel(const char *initial_rom,
         return 1;
     }
 
+    if (config && config->panel_x != -1 && config->panel_y != -1)
+        SDL_SetWindowPosition(window, config->panel_x, config->panel_y);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, NULL);
     if (!renderer) {
         SDL_DestroyWindow(window);
@@ -2340,6 +2258,24 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow module_detail_windows[8] = {{0}};
     ModuleDialogState module_file = {0};
     TerminalWindow uart_terminal = {0};
+    bool layout_dirty = false;
+    Uint64 last_layout_save = 0;
+    if (config) {
+        for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
+            PPA1ModuleInfo info = {0};
+            const PpaModuleLayout *layout = &config->modules[slot];
+            if (!layout->visible || !backend->module_info ||
+                !backend->module_info(backend->ctx, slot, &info) ||
+                !info.installed) continue;
+            char title[96];
+            snprintf(title, sizeof(title), "PPA-1 SLOT %d - %s",
+                     slot + 1, info.name);
+            open_aux(&module_detail_windows[slot], AUX_MODULE_DETAIL,
+                     title, 540, 510);
+            module_detail_windows[slot].slot_index = slot;
+            restore_module_window(&module_detail_windows[slot], layout);
+        }
+    }
 
     bool switches[16] = {0};
     bool panel_running = true;
@@ -2507,6 +2443,24 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            if (config && (event.type == SDL_EVENT_WINDOW_MOVED ||
+                           event.type == SDL_EVENT_WINDOW_RESIZED)) {
+                Uint32 wid = event.window.windowID;
+                if (wid == main_window_id) {
+                    SDL_GetWindowPosition(window, &config->panel_x, &config->panel_y);
+                    SDL_GetWindowSize(window, &config->panel_width, &config->panel_height);
+                    layout_dirty = true;
+                }
+                for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
+                    if (module_detail_windows[slot].window &&
+                        wid == SDL_GetWindowID(module_detail_windows[slot].window)) {
+                        store_module_window(&module_detail_windows[slot],
+                                            &config->modules[slot]);
+                        layout_dirty = true;
+                        break;
+                    }
+                }
+            }
             if (event.type == SDL_EVENT_QUIT) {
                 panel_running = false;
                 continue;
@@ -2516,33 +2470,42 @@ int ppa_gui_run_panel(const char *initial_rom,
                 Uint32 id = event.window.windowID;
                 if (id == main_window_id) {
                     panel_running = false;
-                } else if (module_detail_windows[0].window &&
-                           id == SDL_GetWindowID(module_detail_windows[0].window)) {
-                    destroy_aux(&module_detail_windows[0]);
-                } else if (prefs_window.window && id == SDL_GetWindowID(prefs_window.window)) {
-                    destroy_aux(&prefs_window);
-                } else if (view_window.window && id == SDL_GetWindowID(view_window.window)) {
-                    destroy_aux(&view_window);
-                } else if (hex_window.window && id == SDL_GetWindowID(hex_window.window)) {
-                    destroy_aux(&hex_window);
-                } else if (log_window.window && id == SDL_GetWindowID(log_window.window)) {
-                    destroy_aux(&log_window);
-                } else if (credits_window.window &&
-                           id == SDL_GetWindowID(credits_window.window)) {
-                    destroy_aux(&credits_window);
-                } else if (modules_window.window &&
-                           id == SDL_GetWindowID(modules_window.window)) {
-                    destroy_aux(&modules_window);
-                } else if (uart_terminal.window &&
-                           id == SDL_GetWindowID(uart_terminal.window)) {
-                    close_terminal(&uart_terminal, backend);
-                    ppa_log_printf("GUI: built-in UART terminal window closed.\n");
-                }
-                for (int slot = 1; slot < 8; ++slot) {
-                    if (module_detail_windows[slot].window &&
-                        id == SDL_GetWindowID(module_detail_windows[slot].window)) {
-                        destroy_aux(&module_detail_windows[slot]);
-                        break;
+                } else {
+                    bool module_handled = false;
+                    for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
+                        if (module_detail_windows[slot].window &&
+                            id == SDL_GetWindowID(module_detail_windows[slot].window)) {
+                            if (config) {
+                                store_module_window(&module_detail_windows[slot],
+                                                    &config->modules[slot]);
+                                config->modules[slot].visible = false;
+                                layout_dirty = true;
+                            }
+                            destroy_aux(&module_detail_windows[slot]);
+                            module_handled = true;
+                            break;
+                        }
+                    }
+                    if (!module_handled) {
+                        if (prefs_window.window && id == SDL_GetWindowID(prefs_window.window))
+                            destroy_aux(&prefs_window);
+                        else if (view_window.window && id == SDL_GetWindowID(view_window.window))
+                            destroy_aux(&view_window);
+                        else if (hex_window.window && id == SDL_GetWindowID(hex_window.window))
+                            destroy_aux(&hex_window);
+                        else if (log_window.window && id == SDL_GetWindowID(log_window.window))
+                            destroy_aux(&log_window);
+                        else if (credits_window.window &&
+                                 id == SDL_GetWindowID(credits_window.window))
+                            destroy_aux(&credits_window);
+                        else if (modules_window.window &&
+                                 id == SDL_GetWindowID(modules_window.window))
+                            destroy_aux(&modules_window);
+                        else if (uart_terminal.window &&
+                                 id == SDL_GetWindowID(uart_terminal.window)) {
+                            close_terminal(&uart_terminal, backend);
+                            ppa_log_printf("GUI: built-in UART terminal window closed.\n");
+                        }
                     }
                 }
                 continue;
@@ -3209,20 +3172,28 @@ int ppa_gui_run_panel(const char *initial_rom,
                             if (!backend->is_powered(backend->ctx) &&
                                 backend->module_activate &&
                                 backend->module_activate(
-                                    backend->ctx, slot, !info.active))
+                                    backend->ctx, slot, !info.active)) {
                                 ppa_log_printf("GUI: MODULE SLOT %d %s\n",
                                                slot + 1,
                                                info.active ? "OFF" : "ACTIVE");
+                                save_module_config(config, backend, slot);
+                            }
                             break;
                         } else if (point_in_rect(x, y, &module_rects[2])) {
                             if (!backend->is_powered(backend->ctx) &&
                                 backend->module_eject &&
-                                backend->module_eject(backend->ctx, slot))
+                                backend->module_eject(backend->ctx, slot)) {
                                 ppa_log_printf("GUI: MODULE SLOT %d EJECT\n",
                                                slot + 1);
-                            if (!backend->is_powered(backend->ctx) &&
-                                module_detail_windows[slot].window)
-                                destroy_aux(&module_detail_windows[slot]);
+                                if (module_detail_windows[slot].window) {
+                                    if (config) store_module_window(
+                                        &module_detail_windows[slot],
+                                        &config->modules[slot]);
+                                    destroy_aux(&module_detail_windows[slot]);
+                                }
+                                if (config) config->modules[slot].visible = false;
+                                save_module_config(config, backend, slot);
+                            }
                             break;
                         } else if (point_in_rect(x, y, &module_rects[3])) {
                             if (info.installed && (info.type == 1 ||
@@ -3235,6 +3206,15 @@ int ppa_gui_run_panel(const char *initial_rom,
                                          AUX_MODULE_DETAIL,
                                          title, 540, 510);
                                 module_detail_windows[slot].slot_index = slot;
+                                if (config && module_detail_windows[slot].window) {
+                                    if (!config->modules[slot].visible)
+                                        restore_module_window(&module_detail_windows[slot],
+                                                              &config->modules[slot]);
+                                    config->modules[slot].visible = true;
+                                    store_module_window(&module_detail_windows[slot],
+                                                        &config->modules[slot]);
+                                    save_module_config(config, backend, slot);
+                                }
                             }
                             break;
                         }
@@ -3307,6 +3287,7 @@ int ppa_gui_run_panel(const char *initial_rom,
             ppa_log_printf("GUI: PPAMOD %s SLOT %d: %s\n",
                            ok ? "LOADED" : "FAILED",
                            module_file.slot + 1, module_file.path);
+            if (ok) save_module_config(config, backend, module_file.slot);
         }
 
         if (file_state.load_requested && file_state.rom_path[0]) {
@@ -3750,6 +3731,13 @@ int ppa_gui_run_panel(const char *initial_rom,
             }
         }
 
+        if (config && layout_dirty &&
+            SDL_GetTicks() - last_layout_save >= 750) {
+            if (!ppa_config_save(config))
+                ppa_log_printf("GUI: failed saving window layout\n");
+            last_layout_save = SDL_GetTicks();
+            layout_dirty = false;
+        }
         draw_aux_window(&prefs_window, &fonts, &prefs, backend);
         draw_aux_window(&view_window, &fonts, &prefs, backend);
         draw_aux_window(&hex_window, &fonts, &prefs, backend);
@@ -3763,6 +3751,19 @@ int ppa_gui_run_panel(const char *initial_rom,
     }
 
     backend->set_running(backend->ctx, false);
+    if (config) {
+        SDL_GetWindowPosition(window, &config->panel_x, &config->panel_y);
+        SDL_GetWindowSize(window, &config->panel_width, &config->panel_height);
+        for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
+            if (module_detail_windows[slot].window) {
+                store_module_window(&module_detail_windows[slot],
+                                    &config->modules[slot]);
+                config->modules[slot].visible = true;
+            }
+        }
+        if (!ppa_config_save(config))
+            ppa_log_printf("GUI: failed saving final layout\n");
+    }
     close_terminal(&uart_terminal, backend);
 
     destroy_aux(&prefs_window);

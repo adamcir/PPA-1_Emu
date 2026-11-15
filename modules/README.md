@@ -1,5 +1,33 @@
 # Layout of module sources and compiled cards
 
+## Independent module user interfaces
+
+The emulator owns only SDL windows and dispatches each module's render
+callback. All device-specific drawing lives inside `modules/`:
+
+- `ppa_sound.c/.h`: sound registers, oscillators and 16-bit audio mixer.
+- `ppa_sound_gui.c/.h`: PPA-SOUND/1 VST-like panel, oscilloscope,
+  speaker and per-voice status.
+- `ppa_light.c/.h`: LIGHT register and pulse implementation.
+- `ppa_light_gui.c/.h`: LIGHT indicator face.
+- `ppa_module_ui.c/.h`: thin device-type UI dispatcher.
+- `ppa_module_draw.c/.h`: shared SDL drawing primitives.
+
+No individual card UI is drawn inside the emulator's `src/gui.c`.
+The module protocol remains the safe PPAMOD v1 device model, **not** a
+native VST plug-in loader.
+
+### Saved module rack
+
+`out/config.ini` automatically stores slots 1-8, device paths, active
+states, window visibility and each module window's x/y/width/height.
+The main emulator window's position and size are also retained.
+Installed cards and their windows are restored at the next startup,
+provided their `.ppamod` files still exist. Missing files are logged
+without stopping startup. `make clean` deliberately preserves
+`out/config.ini` and `out/latest.log`.
+
+
 The `modules/` directory contains device host code (`ppa_module.c`,
 `ppa_module.h`), unit tests, device definitions (`light.json` and
 `ppa-sound-1.json`), and the `build_modules.py` compiler.

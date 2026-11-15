@@ -11,8 +11,14 @@ SDL3_IMAGE_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(SDL3_IMAGE_PKG) 2>/dev/nul
 SDL3_IMAGE_LIBS := $(shell $(PKG_CONFIG) --libs $(SDL3_IMAGE_PKG) 2>/dev/null)
 
 EMU = out/PPA-1_Emu
-SRC = src/main.c src/logger.c src/gui.c src/config.c modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c
-EMU_HEADERS = src/gui.h src/logger.h src/config.h modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h
+SRC = src/main.c src/logger.c src/gui.c src/config.c \
+      modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c \
+      modules/ppa_module_ui.c modules/ppa_module_draw.c \
+      modules/ppa_sound_gui.c modules/ppa_light_gui.c
+EMU_HEADERS = src/gui.h src/logger.h src/config.h \
+              modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h \
+              modules/ppa_module_ui.h modules/ppa_module_draw.h \
+              modules/ppa_sound_gui.h modules/ppa_light_gui.h
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 
@@ -58,5 +64,7 @@ out/examples/%_demo.bin: modules/%_demo.asm $(ASM) | out/examples
 examples: $(EXAMPLE_BINS) $(MODULE_DEMO_BINS)
 sound-examples: examples
 
+# Keep runtime preferences and logs across clean rebuilds.
 clean:
-	rm -rf out/
+	rm -rf out/asm out/examples out/modules out/assets
+	rm -f out/PPA-1_Emu out/ppa_module_test

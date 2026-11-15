@@ -2469,6 +2469,22 @@ int main(int argc, char **argv) {
     const char *rom_path = NULL;
 
     /*
+     * Restore installed module cards before parsing command-line overrides.
+     * Missing or obsolete files do not prevent the emulator from booting.
+     * GUI slot edits are persisted separately in config.ini.
+     */
+    for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
+        const PpaModuleLayout *saved = &config.modules[slot];
+        if (!saved->path[0]) continue;
+        if (!ppam_load(&g_ppa_modules, slot, saved->path)) {
+            printf("CONFIG: Unable to restore SLOT %d from %s\n",
+                   slot + 1, saved->path);
+        } else if (saved->active) {
+            ppam_set_active(&g_ppa_modules, slot, true);
+        }
+    }
+
+    /*
      * GUI is the default mode. The first non-option argument is the ROM image.
      * --nogui explicitly selects the classic console frontend.
      */

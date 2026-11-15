@@ -5,6 +5,15 @@
 #include <stdint.h>
 
 #define PPA_CONFIG_MAX_MEMORY 2097152u
+#define PPA_CONFIG_MODULE_SLOTS 8
+#define PPA_CONFIG_MODULE_PATH 1024
+
+typedef struct {
+    char path[PPA_CONFIG_MODULE_PATH];
+    bool active;
+    bool visible;
+    int x, y, width, height;
+} PpaModuleLayout;
 
 typedef struct {
     uint32_t rom_size;
@@ -12,6 +21,8 @@ typedef struct {
     bool auto_run;
     bool lamp_test;
     bool tty_enabled;
+    int panel_x, panel_y, panel_width, panel_height;
+    PpaModuleLayout modules[PPA_CONFIG_MODULE_SLOTS];
 } PpaConfig;
 
 /* Paths are relative to the executable directory, not the caller's CWD. */

@@ -64,6 +64,16 @@ void ppa_config_defaults(PpaConfig *config) {
     config->auto_run = false;
     config->lamp_test = false;
     config->tty_enabled = false;
+    config->panel_x = -1;
+    config->panel_y = -1;
+    config->panel_width = 1280;
+    config->panel_height = 820;
+    for (int i = 0; i < PPA_CONFIG_MODULE_SLOTS; ++i) {
+        config->modules[i].x = -1;
+        config->modules[i].y = -1;
+        config->modules[i].width = 540;
+        config->modules[i].height = 510;
+    }
 }
 
 static char *trim(char *p) {
@@ -85,6 +95,16 @@ static bool parse_memory(const char *s, uint32_t *dst) {
     return true;
 }
 
+static bool parse_int_range(const char *s, int *dst, int lo, int hi) {
+    if (!s || !*s) return false;
+    char *end = NULL;
+    errno = 0;
+    long value = strtol(s, &end, 10);
+    if (errno || !end || *end || value < lo || value > hi) return false;
+    *dst = (int)value;
+    return true;
+}
+
 static bool parse_bool(const char *s, bool *dst) {
     if (!strcmp(s, "1") || !strcmp(s, "true")) { *dst = true; return true; }
     if (!strcmp(s, "0") || !strcmp(s, "false")) { *dst = false; return true; }
@@ -99,7 +119,7 @@ bool ppa_config_load(PpaConfig *config) {
         if (errno == ENOENT) return ppa_config_save(config);
         return false;
     }
-    char line[256];
+    char line[2048];
     while (fgets(line, sizeof(line), f)) {
         char *key = trim(line);
         if (!*key || *key == ';' || *key == '#') continue;
@@ -113,6 +133,26 @@ bool ppa_config_load(PpaConfig *config) {
         else if (!strcmp(key, "auto_run")) parse_bool(val, &config->auto_run);
         else if (!strcmp(key, "lamp_test")) parse_bool(val, &config->lamp_test);
         else if (!strcmp(key, "tty_enabled")) parse_bool(val, &config->tty_enabled);
+        else if (!strcmp(key, "panel_x")) parse_int_range(val, &config->panel_x, -32768, 32768);
+        else if (!strcmp(key, "panel_y")) parse_int_range(val, &config->panel_y, -32768, 32768);
+        else if (!strcmp(key, "panel_width")) parse_int_range(val, &config->panel_width, 640, 8192);
+        else if (!strcmp(key, "panel_height")) parse_int_range(val, &config->panel_height, 480, 8192);
+        else {
+            /* slot1_path, slot1_active, slot1_visible, slot1_x ... */
+            if (strncmp(key, "slot", 4) != 0 || key[4] < '1' || key[4] > '8' ||
+                key[5] != '_') continue;
+            PpaModuleLayout *slot = &config->modules[key[4] - '1'];
+            const char *field = key + 6;
+            if (!strcmp(field, "path")) {
+                if (strlen(val) < sizeof(slot->path))
+                    strcpy(slot->path, val);
+            } else if (!strcmp(field, "active")) parse_bool(val, &slot->active);
+            else if (!strcmp(field, "visible")) parse_bool(val, &slot->visible);
+            else if (!strcmp(field, "x")) parse_int_range(val, &slot->x, -32768, 32768);
+            else if (!strcmp(field, "y")) parse_int_range(val, &slot->y, -32768, 32768);
+            else if (!strcmp(field, "width")) parse_int_range(val, &slot->width, 300, 8192);
+            else if (!strcmp(field, "height")) parse_int_range(val, &slot->height, 300, 8192);
+        }
     }
     return fclose(f) == 0;
 }
@@ -132,10 +172,34 @@ bool ppa_config_save(const PpaConfig *config) {
         "ram_size=%u\n"
         "auto_run=%u\n"
         "lamp_test=%u\n"
-        "tty_enabled=%u\n",
+        "tty_enabled=%u\n"
+        "panel_x=%d\n"
+        "panel_y=%d\n"
+        "panel_width=%d\n"
+        "panel_height=%d\n",
         (unsigned)config->rom_size, (unsigned)config->ram_size,
         config->auto_run ? 1u : 0u, config->lamp_test ? 1u : 0u,
-        config->tty_enabled ? 1u : 0u);
+        config->tty_enabled ? 1u : 0u,
+        config->panel_x, config->panel_y,
+        config->panel_width, config->panel_height);
+    for (int i = 0; i < PPA_CONFIG_MODULE_SLOTS && written >= 0; ++i) {
+        const PpaModuleLayout *slot = &config->modules[i];
+        int n = fprintf(f,
+            "\n# Module slot %d\n"
+            "slot%d_path=%s\n"
+            "slot%d_active=%u\n"
+            "slot%d_visible=%u\n"
+            "slot%d_x=%d\n"
+            "slot%d_y=%d\n"
+            "slot%d_width=%d\n"
+            "slot%d_height=%d\n",
+            i + 1, i + 1, slot->path,
+            i + 1, slot->active ? 1u : 0u,
+            i + 1, slot->visible ? 1u : 0u,
+            i + 1, slot->x, i + 1, slot->y,
+            i + 1, slot->width, i + 1, slot->height);
+        if (n < 0) written = -1;
+    }
     bool ok = written >= 0 && fflush(f) == 0;
     if (fclose(f) != 0) ok = false;
     if (ok) ok = rename(tmp, ppa_config_path()) == 0;

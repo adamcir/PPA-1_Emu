@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "config.h"
+#include "../modules/ppa_module_ui.h"
 
 typedef struct {
     bool requested;
@@ -26,22 +27,7 @@ typedef struct {
     bool error;
 } PPA1CpuSnapshot;
 
-typedef struct {
-    bool installed;
-    bool active;
-    bool light_on;
-    uint16_t type;
-    bool sound_master;
-    uint8_t sound_volume;
-    uint16_t freq[4];
-    uint8_t voice_volume[4];
-    uint8_t waveform[4];
-    bool voice_enabled[4];
-    int8_t scope[128];
-    uint32_t cycles_remaining;
-    char name[64];
-    char path[1024];
-} PPA1ModuleInfo;
+
 
 typedef struct {
     void *ctx;
