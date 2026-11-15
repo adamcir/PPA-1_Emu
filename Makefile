@@ -14,11 +14,13 @@ EMU = out/PPA-1_Emu
 SRC = src/main.c src/logger.c src/gui.c src/config.c \
       modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_vga.c \
       modules/ppa_module_ui.c modules/ppa_module_draw.c \
-      modules/ppa_sound_gui.c modules/ppa_light_gui.c modules/ppa_vga_gui.c src/irq.c
+      modules/ppa_sound_gui.c modules/ppa_light_gui.c modules/ppa_vga_gui.c \
+      modules/ppa_monitor.c src/irq.c
 EMU_HEADERS = src/gui.h src/logger.h src/config.h src/irq.h \
               modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h modules/ppa_vga.h \
               modules/ppa_module_ui.h modules/ppa_module_draw.h \
-              modules/ppa_sound_gui.h modules/ppa_light_gui.h modules/ppa_vga_gui.h
+              modules/ppa_sound_gui.h modules/ppa_light_gui.h modules/ppa_vga_gui.h \
+              modules/ppa_monitor.h
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
 
