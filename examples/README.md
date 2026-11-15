@@ -8,26 +8,35 @@ make modules examples
 # Cards: out/modules/*.ppamod
 ```
 
-## Metro driver — Ezh3-style
+## Metro driver — Ečs cab (PPA-1 ASM)
 
-`metro_ezh3.asm` is a small VGA metro-driving game/example.
+`metro_ecs.asm` is a playable metro-driving example with a pale, instrument-rich
+Ečs-inspired control desk. Everything is drawn into PPA-VGA VRAM by the PPA-1
+CPU; no host-rendered images or external bitmaps are used.
 
 Install and activate these cards with CPU power OFF:
 
-- SLOT 1: `out/modules/ppa-vga-1.ppamod`
-- SLOT 2: `out/modules/ppa-ps2-1.ppamod`
-- SLOT 3: `out/modules/ppa-sound-1.ppamod`
+- **SLOT 1:** `out/modules/ppa-vga-1.ppamod` — VGA graphics in mode 13h.
+- **SLOT 2:** `out/modules/ppa-ps2-1.ppamod` — PS/2 Set-2 keyboard input.
+- **SLOT 3:** `out/modules/ppa-sound-1.ppamod` — traction motor tone.
 
-Load `out/examples/metro_ezh3.bin`, power the CPU on and RUN it. Open the VGA monitor VIEW and the PS/2 keyboard VIEW; click the keyboard window so the real keyboard is captured.
+After `make modules examples`, load `out/examples/metro_ecs.bin` as the CPU's
+EEPROM image, power on, and RUN. Open the VGA monitor's VIEW and click the
+keyboard module's VIEW so it captures physical keyboard events.
 
 Controls:
+- **W (hold)** — traction / acceleration.
+- **S (hold)** — brake / deceleration.
+- **Neither** — coast with gentle rolling resistance.
 
-- `W` — traction / accelerate
-- `S` — brake
+The 320x200x8-bit display includes a twin-tiered gray Ečs-like desk with analog
+voltage/current/speed/pressure instruments, ARS lamps, brake-valve area, colored
+lighting/doors/signal buttons, wood trim, a large moving brown controller handle,
+a live speed bar, and VGA pixel-font labels. The outside view has track and tunnel
+perspective, moving sleepers and three simple stations, **DEPO**, **CENTRUM** and
+**LUKA**, on a repeating route.
 
-The demo uses VGA mode 13h (320x200x8), an old brown/black Ezh3-inspired cab desk, a speed bar and controller indicator, moving sleepers in the tunnel, and a looping route through three simple stations: DEPO, CENTRUM and LUKA. Station signs use D/C/L block letters and different stripe colors. PPA-SOUND/1 in SLOT 3 generates a traction tone whose frequency follows train speed.
-
-A CPU clock around 1 MHz is a good starting point.
+Start at around **1 MHz CPU** and adjust for your emulator's rendering speed.
 
 ## PPA-SOUND/1 examples
 
