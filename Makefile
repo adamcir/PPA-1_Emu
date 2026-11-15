@@ -23,6 +23,8 @@ EMU_HEADERS = src/gui.h src/logger.h src/config.h src/irq.h \
               modules/ppa_monitor.h modules/ppa_ps2_gui.h
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
+ROMPACK_SRC = tools/rompack/ppa_rompack.c
+ROMPACK = out/tools/ppa_rompack
 
 EXAMPLE_SRCS := $(wildcard examples/*.asm)
 EXAMPLE_BINS := $(patsubst examples/%.asm,out/examples/%.bin,$(EXAMPLE_SRCS))
@@ -34,7 +36,7 @@ MODULE_BINS := $(patsubst modules/%.json,out/modules/%.ppamod,$(MODULE_DEFS))
 .PHONY: all clean run asm emu examples sound-examples modules test-modules test-irq
 all: asm emu modules examples
 
-out/asm out/examples out/modules:
+out/asm out/examples out/modules out/tools:
 	mkdir -p $@
 
 $(EMU): $(SRC) $(EMU_HEADERS)
@@ -73,7 +75,20 @@ out/examples/%_demo.bin: modules/%_demo.asm $(ASM) | out/examples
 examples: $(EXAMPLE_BINS) $(MODULE_DEMO_BINS)
 sound-examples: examples
 
+$(ROMPACK): $(ROMPACK_SRC) | out/tools
+	$(CC) -O2 -std=gnu11 -Wall -Wextra $< -o $@
+rompack: $(ROMPACK)
+
+# Build demo from game/graphics ASM libraries, then insert any 320x200 BMP.
+# e.g. make rom-graphics-demo BMP=~/Pictures/my_gimp_export.bmp
+.PHONY: rom-graphics-demo rompack
+rom-graphics-demo: out/examples/rom_gfx_demo.bin $(ROMPACK)
+	@if [ -z "$(BMP)" ]; then \
+	  echo "Usage: make rom-graphics-demo BMP=/path/to/gimp-export.bmp"; exit 1; \
+	fi
+	$(ROMPACK) out/examples/rom_gfx_demo.bin out/examples/rom_gfx_demo_packed.bin --bmp 0001:$(BMP)
+
 # Keep runtime preferences and logs across clean rebuilds.
 clean:
-	rm -rf out/asm out/examples out/modules out/assets
+	rm -rf out/asm out/examples out/modules out/assets out/tools
 	rm -f out/PPA-1_Emu out/ppa_module_test out/irq_test
