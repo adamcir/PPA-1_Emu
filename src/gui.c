@@ -3889,8 +3889,8 @@ int ppa_gui_run_panel(const char *initial_rom,
             PPA1ModuleInfo module = {0};
             if (backend->module_info)
                 backend->module_info(backend->ctx, line, &module);
-            char slot_label[8];
-            snprintf(slot_label, sizeof(slot_label), "S%d", line + 1);
+            /* The loop is restricted to slots 1..8: no snprintf truncation. */
+            char slot_label[3] = {'S', (char)('1' + line), '\0'};
             draw_rack_status_lamp(
                 renderer, &panel_fonts, x, 265.0f, slot_label,
                 module.installed && module.active ? COL_GREEN : COL_ORANGE,
