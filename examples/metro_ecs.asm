@@ -1424,26 +1424,26 @@ draw_panel_dynamic:
     ; Identify the actual W/S inputs next to the controller lights.
     MOV X-HI,#50
     MOV X-LO,#TXT_W-5000
-    MOV Y-HI,#ED
-    MOV Y-LO,#3E
+    MOV Y-HI,#EC
+    MOV Y-LO,#DE
     MOV A,#00
     CALL draw_text
     MOV X-HI,#50
     MOV X-LO,#TXT_S-5000
-    MOV Y-HI,#ED
-    MOV Y-LO,#48
+    MOV Y-HI,#EC
+    MOV Y-LO,#E9
     MOV A,#00
     CALL draw_text
     MOV X-HI,#50
     MOV X-LO,#TXT_TAH-5000
-    MOV Y-HI,#E8
-    MOV Y-LO,#64
+    MOV Y-HI,#E9
+    MOV Y-LO,#35
     MOV A,#00
     CALL draw_text
     MOV X-HI,#50
     MOV X-LO,#TXT_BRAKE-5000
-    MOV Y-HI,#E8
-    MOV Y-LO,#8C
+    MOV Y-HI,#E9
+    MOV Y-LO,#4B
     MOV A,#00
     CALL draw_text
     RET
@@ -1911,8 +1911,8 @@ draw_view_common:
     ; Car identification on the pale cab header.
     MOV X-HI,#50
     MOV X-LO,#TXT_ECS-5000
-    MOV Y-HI,#01
-    MOV Y-LO,#10
+    MOV Y-HI,#02
+    MOV Y-LO,#44
     MOV A,#00
     CALL draw_text
     RET
