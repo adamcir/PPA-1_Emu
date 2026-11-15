@@ -1840,6 +1840,11 @@ static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
     out->vga_height = m->vga_height;
     out->vga_bpp = m->vga_bpp;
     out->vga_text = m->vga_text;
+    memcpy(out->ps2_pressed, m->ps2_pressed, sizeof(out->ps2_pressed));
+    out->ps2_count = m->ps2_count;
+    out->ps2_last = m->ps2_last;
+    out->ps2_scanning = m->ps2_scanning;
+    out->ps2_overflow = m->ps2_overflow;
     out->cycles_remaining = m->remaining_cycles;
     snprintf(out->name, sizeof(out->name), "%s", m->name);
     snprintf(out->path, sizeof(out->path), "%s", m->path);
