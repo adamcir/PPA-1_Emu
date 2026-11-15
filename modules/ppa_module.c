@@ -36,6 +36,7 @@ void ppam_eject(PpaModuleBus *bus, int slot) {
     PpaModule *m = &bus->slots[slot];
     free(m->code);
     free(m->data);
+    free(m->vga_vram);
     memset(m, 0, sizeof(*m));
 }
 void ppam_bus_destroy(PpaModuleBus *bus) {
