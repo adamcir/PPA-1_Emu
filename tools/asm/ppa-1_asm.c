@@ -276,6 +276,7 @@ static bool valid_digits_for_base(const char *s, int base) {
             /*
              * PPA-1 numeric syntax is intentionally case-sensitive:
              *   A-F = hexadecimal digits
+             *   b   = binary suffix
              *   d   = decimal suffix
              *   h   = hexadecimal suffix
              *
@@ -370,10 +371,14 @@ static uint32_t parse_number_literal(const char *text, bool *ok) {
 
     /*
      * Suffixes are case-sensitive on purpose.
-     * Only lowercase 'd' means decimal and only lowercase 'h' means
-     * hexadecimal. Uppercase A-F always remain hexadecimal digits.
+     * Only lowercase b/d/h are radix suffixes. Uppercase A-F are
+     * hexadecimal digits (so 0B is hex eleven, never binary zero).
+     * 0b is the only binary prefix spelling; 0B is a hex number.
      */
-    if (len > 1 && s[len - 1] == 'd') {
+    if (len > 1 && s[len - 1] == 'b') {
+        s[len - 1] = '\0';
+        base = 2;
+    } else if (len > 1 && s[len - 1] == 'd') {
         s[len - 1] = '\0';
         base = 10;
     } else if (len > 1 && s[len - 1] == 'h') {
@@ -382,7 +387,7 @@ static uint32_t parse_number_literal(const char *text, bool *ok) {
     } else if (strncmp(s, "0x", 2) == 0 || strncmp(s, "0X", 2) == 0) {
         s += 2;
         base = 16;
-    } else if (strncmp(s, "0b", 2) == 0 || strncmp(s, "0B", 2) == 0) {
+    } else if (strncmp(s, "0b", 2) == 0) {
         s += 2;
         base = 2;
     } else if (s[0] == '%') {
@@ -1340,7 +1345,8 @@ static void usage(const char *prog) {
     printf("Number syntax:\n");
     printf("  0A, FF, 1234       hexadecimal (default; A-F uppercase)\n");
     printf("  0x0A               hexadecimal\n");
-    printf("  0b1010 or %%1010    binary\n");
+    printf("  0b1010, %%1010, 1010b  binary (lowercase b only)\n");
+    printf("  0B                 hexadecimal 0B (eleven)\n");
     printf("  10d                 decimal (lowercase d only)\n");
     printf("  0Ah                 hexadecimal suffix (lowercase h only)\n");
     printf("  'A', '\\n', '\\x1B' character literals\n");
