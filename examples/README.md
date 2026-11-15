@@ -60,7 +60,7 @@ details also scroll. Everything stops moving when train speed reaches zero.
 
 Signal heads change apparent size/position as the train approaches and passes
 them. Demonstration ARS sections show **80/70/60/40/0 km/h** codes, corresponding
-colored lamps, and a red warning indicator when speed exceeds the current code.
+colored lamps, a red warning indicator, and a pulsed audio warning on the\nsecond SOUND channel when speed exceeds the current code.
 The graphical cab includes analog instruments, a KV controller handle, buttons,
 a speed display, and text drawn by the game's own tiny VGA pixel font.
 
