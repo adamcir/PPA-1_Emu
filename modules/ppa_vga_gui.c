@@ -93,22 +93,28 @@ void ppa_vga_gui_draw(SDL_Renderer *r,TTF_Font *font,
     SDL_SetRenderDrawColor(r,20,22,24,255);
     SDL_RenderClear(r);
     char s[160];
-    ppa_mod_face(r,"PPA-VGA/1  |  VGA DISPLAY",font);
+    SDL_FRect housing={16,16,1248,768};
+    SDL_SetRenderDrawColor(r,46,50,51,255);
+    SDL_RenderFillRect(r,&housing);
+    SDL_SetRenderDrawColor(r,125,131,133,255);
+    SDL_RenderRect(r,&housing);
+    ppa_mod_text(r,font,36,32,(SDL_Color){239,244,234,255},
+                 "PPA-VGA/1  |  HIGH-RESOLUTION COLOR MONITOR");
     snprintf(s,sizeof(s),"SLOT %d  /  %s  /  MODE %02Xh  /  %ux%u  /  %u BPP",
              slot+1,info->active?"ACTIVE":"DISABLED",info->vga_mode,
              info->vga_width,info->vga_height,info->vga_bpp);
-    ppa_mod_text(r,font,22,80,(SDL_Color){169,213,170,255},s);
-    SDL_FRect bezel={15,105,510,345};
+    ppa_mod_text(r,font,36,65,(SDL_Color){169,213,170,255},s);
+    SDL_FRect bezel={30,105,1220,600};
     SDL_SetRenderDrawColor(r,10,12,14,255);
     SDL_RenderFillRect(r,&bezel);
     SDL_SetRenderDrawColor(r,110,116,119,255);
     SDL_RenderRect(r,&bezel);
-    SDL_FRect outer={21,111,498,333};
+    SDL_FRect outer={42,117,1196,576};
     unsigned border=info->vga_border;
     const uint8_t *p=info->vga_palette ? info->vga_palette+border*3u : NULL;
     SDL_SetRenderDrawColor(r,p?p[0]:0,p?p[1]:0,p?p[2]:0,255);
     SDL_RenderFillRect(r,&outer);
-    SDL_FRect bounds={25,115,490,325};
+    SDL_FRect bounds={48,123,1184,564};
     SDL_SetRenderDrawColor(r,0,0,0,255);
     SDL_RenderFillRect(r,&bounds);
     if(info->active && info->vga_enabled && info->vga_vram &&
@@ -121,12 +127,12 @@ void ppa_vga_gui_draw(SDL_Renderer *r,TTF_Font *font,
             info->vga_width*scale,info->vga_height*scale};
         draw_scanout(r,info,&display);
     } else {
-        ppa_mod_text(r,font,175,255,(SDL_Color){80,85,85,255},
+        ppa_mod_text(r,font,525,370,(SDL_Color){80,85,85,255},
                      "NO VIDEO SIGNAL");
     }
     snprintf(s,sizeof(s),"VIDEO MEMORY: %u BYTES  |  64 KiB BANKED APERTURE",
              info->vga_vram_size);
-    ppa_mod_text(r,font,22,464,(SDL_Color){211,220,218,255},s);
-    ppa_mod_text(r,font,22,486,(SDL_Color){150,160,159,255},
+    ppa_mod_text(r,font,36,720,(SDL_Color){211,220,218,255},s);
+    ppa_mod_text(r,font,36,749,(SDL_Color){150,160,159,255},
                  "PPA-BUS/1 VIDEO OUTPUT  /  DIGITAL RGB MONITOR");
 }
