@@ -37,7 +37,7 @@ uint8_t ppa_ps2_read(PpaModule *m,uint32_t offset) {
             return (uint8_t)((m->ps2_count?1u:0u) |
                 (m->ps2_overflow?2u:0u) | (m->ps2_scanning?4u:0u));
         case PPA_PS2_CONTROL: return m->ps2_scanning?1u:0u;
-        case PPA_PS2_COUNT: return m->ps2_count;
+        case PPA_PS2_COUNT: return (uint8_t)(m->ps2_count>255u?255u:m->ps2_count);
         case PPA_PS2_LAST: return m->ps2_last;
         case PPA_PS2_LEDS: return m->ps2_leds;
         default: return 0xFF;
