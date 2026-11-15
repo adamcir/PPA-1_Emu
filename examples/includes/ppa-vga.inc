@@ -19,15 +19,15 @@ vga_init:
     MOV BR-HI,#20
     MOV BR-LO,#00
     MOV A,#00
-    ST VGA_MODE,A
-    ST VGA_BORDER,A
+    ST $0012,A
+    ST $0013,A
     MOV A,#01
-    ST VGA_CONTROL,A
+    ST $0010,A
     RET
 
 vga_off:
     MOV BR-HI,#20
     MOV BR-LO,#00
     MOV A,#00
-    ST VGA_CONTROL,A
+    ST $0010,A
     RET
