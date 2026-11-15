@@ -2,6 +2,7 @@
 ; Requires: load modules/light.ppamod into slot 1 and ACTIVATE it
 ; The LED pulses for the module's configured duration on each write.
 
+start:
     MOV BR-HI,#20
     MOV BR-LO,#00
 
