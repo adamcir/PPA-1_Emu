@@ -1421,8 +1421,32 @@ draw_panel_dynamic:
     MOV B,#0A
     MOV C,#07
     CALL fill_rect
+    ; Identify the actual W/S inputs next to the controller lights.
+    MOV X-HI,#50
+    MOV X-LO,#TXT_W-5000
+    MOV Y-HI,#ED
+    MOV Y-LO,#3E
+    MOV A,#00
+    CALL draw_text
+    MOV X-HI,#50
+    MOV X-LO,#TXT_S-5000
+    MOV Y-HI,#ED
+    MOV Y-LO,#48
+    MOV A,#00
+    CALL draw_text
+    MOV X-HI,#50
+    MOV X-LO,#TXT_TAH-5000
+    MOV Y-HI,#E8
+    MOV Y-LO,#64
+    MOV A,#00
+    CALL draw_text
+    MOV X-HI,#50
+    MOV X-LO,#TXT_BRAKE-5000
+    MOV Y-HI,#E8
+    MOV Y-LO,#8C
+    MOV A,#00
+    CALL draw_text
     RET
-
 draw_view_common:
     MOV A,#08
     CALL fill_view
@@ -1884,6 +1908,13 @@ draw_view_common:
     MOV B,#09
     MOV C,#03
     CALL fill_rect
+    ; Car identification on the pale cab header.
+    MOV X-HI,#50
+    MOV X-LO,#TXT_ECS-5000
+    MOV Y-HI,#01
+    MOV Y-LO,#10
+    MOV A,#00
+    CALL draw_text
     RET
 
 draw_tunnel:
@@ -2135,6 +2166,10 @@ TXT_SIGN:
     .asciz "SIGNAL"
 TXT_START:
     .asciz "ROUTE 1"
+TXT_W:
+    .asciz "W"
+TXT_S:
+    .asciz "S"
 
 ; 3x5 font: five bit masks per printable character, 20h..5Ah.
 .org $6000
