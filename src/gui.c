@@ -2722,7 +2722,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                            !event.key.repeat &&
                            event.key.scancode==SDL_SCANCODE_BACKSPACE &&
                            backend->module_ps2_text)
-                            backend->module_ps2_text(backend->ctx,slot,"\\b");
+                            backend->module_ps2_text(backend->ctx,slot,"\b");
                         routed=true;
                     }
                     break;
