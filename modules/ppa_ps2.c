@@ -63,7 +63,10 @@ void ppa_ps2_write(PpaModule *m,uint32_t offset,uint8_t value) {
                 ppa_ps2_reset(m);
                 enqueue(m,0xFA); enqueue(m,0xAA); break;
             case 0xF4: m->ps2_scanning=true; enqueue(m,0xFA); break;
-            case 0xF5: m->ps2_scanning=false; enqueue(m,0xFA); break;
+            case 0xF5:
+                m->ps2_scanning=false;
+                memset(m->ps2_pressed,0,sizeof(m->ps2_pressed));
+                enqueue(m,0xFA); break;
             case 0xED: m->ps2_wait_led=true; enqueue(m,0xFA); break;
             case 0xF2: /* identify MF2 keyboard */
                 enqueue(m,0xFA); enqueue(m,0xAB); enqueue(m,0x83); break;
@@ -79,6 +82,11 @@ void ppa_ps2_key(PpaModule *m,uint8_t scan_set2,bool extended,bool down) {
     if((m->ps2_pressed[idx]!=0)==down) return;
     m->ps2_pressed[idx]=down;
     m->ps2_last=scan_set2;
+    unsigned sequence_length=1u+(extended?1u:0u)+(down?0u:1u);
+    if(m->ps2_count+sequence_length>PPAM_PS2_FIFO_SIZE) {
+        m->ps2_overflow=true;
+        return; /* Never enqueue half of a make/break sequence. */
+    }
     if(extended) enqueue(m,0xE0);
     if(!down) enqueue(m,0xF0);
     enqueue(m,scan_set2);
