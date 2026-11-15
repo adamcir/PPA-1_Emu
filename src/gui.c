@@ -3652,7 +3652,8 @@ int ppa_gui_run_panel(const char *initial_rom,
             draw_rack_status_lamp(
                 renderer, &panel_fonts, x, 265.0f, slot_label,
                 module.installed && module.active ? COL_GREEN : COL_ORANGE,
-                module.installed, prefs.lamp_test, false, false);
+                powered && module.installed,
+                prefs.lamp_test, false, false);
         }
 
         /* Lower left: manual switch register. */
