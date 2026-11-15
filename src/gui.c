@@ -536,40 +536,39 @@ static void draw_led(SDL_Renderer *r, PanelFonts *fonts,
     }
 }
 
-/* Compact physical IRQ indicator: amber=pending, red=in service,
- * green bar=IRQ line unmasked. The LEDs mirror actual controller latches. */
-static void draw_irq_led(SDL_Renderer *r, PanelFonts *fonts,
-                         float x, float y, int line,
-                         bool pending, bool enabled, bool in_service,
-                         bool lamp_test)
+/* Two compact rows share the upper-right panel space. IRQ LEDs display
+ * pending/active hardware latches plus an independent green mask stripe.
+ * Rack LEDs display installed (amber) or activated (green) PPAMOD cards.
+ * These are passive hardware indicators, not interactive buttons. */
+static void draw_rack_status_lamp(SDL_Renderer *r, PanelFonts *fonts,
+                                  float x, float y, const char *label,
+                                  SDL_Color color, bool lit, bool lamp_test,
+                                  bool show_mask, bool mask_enabled)
 {
-    char label[8];
-    snprintf(label, sizeof(label), "IRQ%d", line);
     draw_text_center(r, fonts->small,
-                     (SDL_FRect){x - 6.0f, y, 39.0f, 17.0f},
+                     (SDL_FRect){x - 7.0f, y, 40.0f, 12.0f},
                      (SDL_Color){220, 216, 198, 255}, label);
-
-    SDL_FRect bezel = {x, y + 18.0f, 26.0f, 23.0f};
-    SDL_FRect lens = {x + 4.0f, y + 22.0f, 18.0f, 15.0f};
+    SDL_FRect bezel = {x + 1.0f, y + 13.0f, 24.0f, 17.0f};
+    SDL_FRect lens = {x + 4.0f, y + 16.0f, 18.0f, 11.0f};
     SDL_SetRenderDrawColor(r, 10, 11, 11, 255);
     SDL_RenderFillRect(r, &bezel);
     SDL_SetRenderDrawColor(r, 105, 107, 100, 255);
     SDL_RenderRect(r, &bezel);
-
-    SDL_Color color = in_service ? COL_RED : COL_ORANGE;
-    bool lit = lamp_test || pending || in_service;
-    SDL_SetRenderDrawColor(r, lit ? color.r : (Uint8)(color.r / 7),
-                           lit ? color.g : (Uint8)(color.g / 7),
-                           lit ? color.b : (Uint8)(color.b / 7), 255);
-    SDL_RenderFillRect(r, &lens);
-
-    /* Separate green mask bar: remains on even if no request is pending. */
-    SDL_FRect mask = {x + 4.0f, y + 44.0f, 18.0f, 3.0f};
+    bool on = lit || lamp_test;
     SDL_SetRenderDrawColor(r,
-        lamp_test || enabled ? COL_GREEN.r : (Uint8)(COL_GREEN.r / 7),
-        lamp_test || enabled ? COL_GREEN.g : (Uint8)(COL_GREEN.g / 7),
-        lamp_test || enabled ? COL_GREEN.b : (Uint8)(COL_GREEN.b / 7), 255);
-    SDL_RenderFillRect(r, &mask);
+        on ? color.r : (Uint8)(color.r / 7),
+        on ? color.g : (Uint8)(color.g / 7),
+        on ? color.b : (Uint8)(color.b / 7), 255);
+    SDL_RenderFillRect(r, &lens);
+    if (show_mask) {
+        SDL_FRect mask = {x + 4.0f, y + 32.0f, 18.0f, 3.0f};
+        bool enabled = mask_enabled || lamp_test;
+        SDL_SetRenderDrawColor(r,
+            enabled ? COL_GREEN.r : (Uint8)(COL_GREEN.r / 7),
+            enabled ? COL_GREEN.g : (Uint8)(COL_GREEN.g / 7),
+            enabled ? COL_GREEN.b : (Uint8)(COL_GREEN.b / 7), 255);
+        SDL_RenderFillRect(r, &mask);
+    }
 }
 
 static void destroy_toggle_textures(ToggleTextures *textures) {
@@ -3622,20 +3621,38 @@ int ppa_gui_run_panel(const char *initial_rom,
                      (powered && ((status_register & 0x04u) != 0)),
                  COL_GREEN);
 
-        /* Eight IRQ line indicators: pending orange / active red.
-         * Thin green stripe under each lens displays the IMR mask bit.
-         */
-        draw_text(renderer, panel_fonts.label, 872, 226,
-                  COL_LIGHT_GRAY, "IRQ LINES / MASK");
+        /* IRQ and PPAMOD rack share an aligned eight-column status block.
+         * Top: latched IRQ0..7 with green IMR mask stripe.
+         * Bottom: PPAMOD slots S1..S8 (green active / amber inserted).
+         * Both rows fit above the DISPLAY & CLOCK section divider. */
+        /* Headings sit beside each row to avoid crowding the lamps. */
+        draw_text(renderer, panel_fonts.small, 860, 240,
+                  COL_LIGHT_GRAY, "IRQ LINES");
+        draw_text(renderer, panel_fonts.small, 860, 278,
+                  COL_LIGHT_GRAY, "PPAMOD");
         for (int line = 0; line < 8; ++line) {
             const Uint8 bit = (Uint8)(1u << line);
-            draw_irq_led(renderer, &panel_fonts,
-                         872.0f + (float)line * 43.0f, 242.0f, line,
-                         powered && (irq_state.irq_pending & bit) != 0,
-                         powered && (irq_state.irq_mask & bit) != 0,
-                         powered && irq_state.irq_servicing &&
-                             irq_state.irq_active == (Uint8)line,
-                         prefs.lamp_test);
+            float x = 922.0f + (float)line * 38.0f;
+            char irq_label[8];
+            snprintf(irq_label, sizeof(irq_label), "IRQ%d", line);
+            bool servicing = powered && irq_state.irq_servicing &&
+                             irq_state.irq_active == (Uint8)line;
+            draw_rack_status_lamp(
+                renderer, &panel_fonts, x, 226.0f, irq_label,
+                servicing ? COL_RED : COL_ORANGE,
+                powered && ((irq_state.irq_pending & bit) != 0 || servicing),
+                prefs.lamp_test, true,
+                powered && (irq_state.irq_mask & bit) != 0);
+
+            PPA1ModuleInfo module = {0};
+            if (backend->module_info)
+                backend->module_info(backend->ctx, line, &module);
+            char slot_label[8];
+            snprintf(slot_label, sizeof(slot_label), "S%d", line + 1);
+            draw_rack_status_lamp(
+                renderer, &panel_fonts, x, 265.0f, slot_label,
+                module.installed && module.active ? COL_GREEN : COL_ORANGE,
+                module.installed, prefs.lamp_test, false, false);
         }
 
         /* Lower left: manual switch register. */

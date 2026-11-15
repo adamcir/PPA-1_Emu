@@ -107,3 +107,19 @@ These are read-only electrical-status indicators; they do not acknowledge,
 mask, or otherwise change interrupts. Their signals are available in
 `PPA1CpuSnapshot`; the emulator GUI reads a snapshot and the IRQ
 controller itself remains independent of SDL.
+
+## PPAMOD rack indicators
+
+The main front panel aligns two eight-wide indicator rows in the
+upper-right system area: **IRQ LINES** (`IRQ0`–`IRQ7`) and
+**PPAMOD** (`S1`–`S8`). Each PPAMOD indicator is read from the
+corresponding live module slot via the module-info backend.
+
+- **Green**: module is inserted and activated.
+- **Amber**: module is inserted but inactive.
+- **Dark**: empty slot.
+- **LAMP TEST**: all indicators light regardless of slot contents.
+
+This row is a physical-card-presence/activation display. It does not
+claim that a PPAMOD slot corresponds to the IRQ line above it:
+IRQ line assignment is independent of slot number.
