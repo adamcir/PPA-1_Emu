@@ -1,6 +1,5 @@
 #include "ppa_monitor.h"
 #include "ppa_module_draw.h"
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -167,10 +166,12 @@ uint32_t ppa_monitor_adjust_pixel(const PpaMonitor *m,uint32_t pixel) {
     r=(gray+(r-gray)*sat-127.5f)*contrast+127.5f+light;
     g=(gray+(g-gray)*sat-127.5f)*contrast+127.5f+light;
     b=(gray+(b-gray)*sat-127.5f)*contrast+127.5f+light;
-    float gamma=powf(2.0f,(50.0f-(float)m->gamma)/50.0f);
-    r=255.0f*powf((float)clamp8(r)/255.0f,gamma);
-    g=255.0f*powf((float)clamp8(g)/255.0f,gamma);
-    b=255.0f*powf((float)clamp8(b)/255.0f,gamma);
+    /* Fast bounded gamma approximation: avoids three powf() calls per
+       scanout pixel when displaying multi-megapixel RGB888 frames. */
+    float bend=((float)m->gamma-50.0f)/50.0f;
+    r+=bend*(r*(255.0f-r))/255.0f;
+    g+=bend*(g*(255.0f-g))/255.0f;
+    b+=bend*(b*(255.0f-b))/255.0f;
     return ((uint32_t)clamp8(r)<<24)|((uint32_t)clamp8(g)<<16)|
            ((uint32_t)clamp8(b)<<8)|255u;
 }
@@ -209,7 +210,7 @@ void ppa_monitor_draw(SDL_Renderer *r,TTF_Font *f,const PPA1ModuleInfo *info,
         float span=screen->w-480;
         float movement=span>0?(float)((now/18u)%(unsigned)span):0;
         SDL_FRect area=*screen;
-        area.x+=movement*0.25f-movement*0.125f;
+        area.x+=movement*0.35f;
         popup(r,f,area,"NO VIDEO SIGNAL","CHECK PPA-VGA/1 RGB INPUT");
     } else if(m->state==PPA_MONITOR_ENTERING_SLEEP) {
         popup(r,f,*screen,"ENTERING SLEEP MODE...","NO VIDEO SIGNAL DETECTED");
