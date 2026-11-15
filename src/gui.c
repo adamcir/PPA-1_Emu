@@ -12,6 +12,116 @@
 #include <unistd.h>
 #include <sys/types.h>
 
+static bool ps2_map_scancode(SDL_Scancode sc, uint8_t *code, bool *ext) {
+    *ext = false;
+    switch(sc) {
+        case SDL_SCANCODE_A:*code=0x1C;break;
+        case SDL_SCANCODE_B:*code=0x32;break;
+        case SDL_SCANCODE_C:*code=0x21;break;
+        case SDL_SCANCODE_D:*code=0x23;break;
+        case SDL_SCANCODE_E:*code=0x24;break;
+        case SDL_SCANCODE_F:*code=0x2B;break;
+        case SDL_SCANCODE_G:*code=0x34;break;
+        case SDL_SCANCODE_H:*code=0x33;break;
+        case SDL_SCANCODE_I:*code=0x43;break;
+        case SDL_SCANCODE_J:*code=0x3B;break;
+        case SDL_SCANCODE_K:*code=0x42;break;
+        case SDL_SCANCODE_L:*code=0x4B;break;
+        case SDL_SCANCODE_M:*code=0x3A;break;
+        case SDL_SCANCODE_N:*code=0x31;break;
+        case SDL_SCANCODE_O:*code=0x44;break;
+        case SDL_SCANCODE_P:*code=0x4D;break;
+        case SDL_SCANCODE_Q:*code=0x15;break;
+        case SDL_SCANCODE_R:*code=0x2D;break;
+        case SDL_SCANCODE_S:*code=0x1B;break;
+        case SDL_SCANCODE_T:*code=0x2C;break;
+        case SDL_SCANCODE_U:*code=0x3C;break;
+        case SDL_SCANCODE_V:*code=0x2A;break;
+        case SDL_SCANCODE_W:*code=0x1D;break;
+        case SDL_SCANCODE_X:*code=0x22;break;
+        case SDL_SCANCODE_Y:*code=0x35;break;
+        case SDL_SCANCODE_Z:*code=0x1A;break;
+        case SDL_SCANCODE_1:*code=0x16;break;
+        case SDL_SCANCODE_2:*code=0x1E;break;
+        case SDL_SCANCODE_3:*code=0x26;break;
+        case SDL_SCANCODE_4:*code=0x25;break;
+        case SDL_SCANCODE_5:*code=0x2E;break;
+        case SDL_SCANCODE_6:*code=0x36;break;
+        case SDL_SCANCODE_7:*code=0x3D;break;
+        case SDL_SCANCODE_8:*code=0x3E;break;
+        case SDL_SCANCODE_9:*code=0x46;break;
+        case SDL_SCANCODE_0:*code=0x45;break;
+        case SDL_SCANCODE_RETURN:*code=0x5A;break;
+        case SDL_SCANCODE_ESCAPE:*code=0x76;break;
+        case SDL_SCANCODE_BACKSPACE:*code=0x66;break;
+        case SDL_SCANCODE_TAB:*code=0x0D;break;
+        case SDL_SCANCODE_SPACE:*code=0x29;break;
+        case SDL_SCANCODE_MINUS:*code=0x4E;break;
+        case SDL_SCANCODE_EQUALS:*code=0x55;break;
+        case SDL_SCANCODE_LEFTBRACKET:*code=0x54;break;
+        case SDL_SCANCODE_RIGHTBRACKET:*code=0x5B;break;
+        case SDL_SCANCODE_BACKSLASH:*code=0x5D;break;
+        case SDL_SCANCODE_NONUSBACKSLASH:*code=0x61;break;
+        case SDL_SCANCODE_SEMICOLON:*code=0x4C;break;
+        case SDL_SCANCODE_APOSTROPHE:*code=0x52;break;
+        case SDL_SCANCODE_GRAVE:*code=0x0E;break;
+        case SDL_SCANCODE_COMMA:*code=0x41;break;
+        case SDL_SCANCODE_PERIOD:*code=0x49;break;
+        case SDL_SCANCODE_SLASH:*code=0x4A;break;
+        case SDL_SCANCODE_CAPSLOCK:*code=0x58;break;
+        case SDL_SCANCODE_F1:*code=0x05;break;
+        case SDL_SCANCODE_F2:*code=0x06;break;
+        case SDL_SCANCODE_F3:*code=0x04;break;
+        case SDL_SCANCODE_F4:*code=0x0C;break;
+        case SDL_SCANCODE_F5:*code=0x03;break;
+        case SDL_SCANCODE_F6:*code=0x0B;break;
+        case SDL_SCANCODE_F7:*code=0x83;break;
+        case SDL_SCANCODE_F8:*code=0x0A;break;
+        case SDL_SCANCODE_F9:*code=0x01;break;
+        case SDL_SCANCODE_F10:*code=0x09;break;
+        case SDL_SCANCODE_F11:*code=0x78;break;
+        case SDL_SCANCODE_F12:*code=0x07;break;
+        case SDL_SCANCODE_LCTRL:*code=0x14;break;
+        case SDL_SCANCODE_RCTRL:*code=0x14;*ext=true;break;
+        case SDL_SCANCODE_LSHIFT:*code=0x12;break;
+        case SDL_SCANCODE_RSHIFT:*code=0x59;break;
+        case SDL_SCANCODE_LALT:*code=0x11;break;
+        case SDL_SCANCODE_RALT:*code=0x11;*ext=true;break;
+        case SDL_SCANCODE_LGUI:*code=0x1F;*ext=true;break;
+        case SDL_SCANCODE_RGUI:*code=0x27;*ext=true;break;
+        case SDL_SCANCODE_UP:*code=0x75;*ext=true;break;
+        case SDL_SCANCODE_DOWN:*code=0x72;*ext=true;break;
+        case SDL_SCANCODE_LEFT:*code=0x6B;*ext=true;break;
+        case SDL_SCANCODE_RIGHT:*code=0x74;*ext=true;break;
+        case SDL_SCANCODE_INSERT:*code=0x70;*ext=true;break;
+        case SDL_SCANCODE_DELETE:*code=0x71;*ext=true;break;
+        case SDL_SCANCODE_HOME:*code=0x6C;*ext=true;break;
+        case SDL_SCANCODE_END:*code=0x69;*ext=true;break;
+        case SDL_SCANCODE_PAGEUP:*code=0x7D;*ext=true;break;
+        case SDL_SCANCODE_PAGEDOWN:*code=0x7A;*ext=true;break;
+        case SDL_SCANCODE_NUMLOCKCLEAR:*code=0x77;break;
+        case SDL_SCANCODE_SCROLLLOCK:*code=0x7E;break;
+        case SDL_SCANCODE_KP_0:*code=0x70;break;
+        case SDL_SCANCODE_KP_1:*code=0x69;break;
+        case SDL_SCANCODE_KP_2:*code=0x72;break;
+        case SDL_SCANCODE_KP_3:*code=0x7A;break;
+        case SDL_SCANCODE_KP_4:*code=0x6B;break;
+        case SDL_SCANCODE_KP_5:*code=0x73;break;
+        case SDL_SCANCODE_KP_6:*code=0x74;break;
+        case SDL_SCANCODE_KP_7:*code=0x6C;break;
+        case SDL_SCANCODE_KP_8:*code=0x75;break;
+        case SDL_SCANCODE_KP_9:*code=0x7D;break;
+        case SDL_SCANCODE_KP_PERIOD:*code=0x71;break;
+        case SDL_SCANCODE_KP_PLUS:*code=0x79;break;
+        case SDL_SCANCODE_KP_MINUS:*code=0x7B;break;
+        case SDL_SCANCODE_KP_MULTIPLY:*code=0x7C;break;
+        case SDL_SCANCODE_KP_DIVIDE:*code=0x4A;*ext=true;break;
+        case SDL_SCANCODE_KP_ENTER:*code=0x5A;*ext=true;break;
+        default:return false;
+    }
+    return true;
+}
+
 #define PANEL_W 1280
 #define PANEL_H 760
 
@@ -2510,6 +2620,15 @@ int ppa_gui_run_panel(const char *initial_rom,
                 continue;
             }
 
+            if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+                for(int slot=0;slot<8;slot++) {
+                    if(module_detail_windows[slot].window &&
+                       event.window.windowID ==
+                       SDL_GetWindowID(module_detail_windows[slot].window) &&
+                       backend->module_ps2_release)
+                        backend->module_ps2_release(backend->ctx,slot);
+                }
+            }
             if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
                 Uint32 id = event.window.windowID;
                 if (id == main_window_id) {
@@ -2525,6 +2644,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 config->modules[slot].visible = false;
                                 layout_dirty = true;
                             }
+                            if(backend->module_ps2_release)
+                                backend->module_ps2_release(backend->ctx,slot);
                             destroy_aux(&module_detail_windows[slot]);
                             module_handled = true;
                             break;
@@ -2556,6 +2677,33 @@ int ppa_gui_run_panel(const char *initial_rom,
             }
 
 
+
+            /* SDL physical scancodes are translated to PS/2 Set 2 only
+               while the corresponding keyboard window owns focus. */
+            if (event.type == SDL_EVENT_KEY_DOWN ||
+                event.type == SDL_EVENT_KEY_UP) {
+                bool routed=false;
+                for(int slot=0;slot<8;slot++) {
+                    if(!module_detail_windows[slot].window ||
+                       event.key.windowID != SDL_GetWindowID(
+                           module_detail_windows[slot].window)) continue;
+                    PPA1ModuleInfo info={0};
+                    if(backend->module_info &&
+                       backend->module_info(backend->ctx,slot,&info) &&
+                       info.installed && info.type==4) {
+                        uint8_t scan=0; bool extended=false;
+                        if(!event.key.repeat &&
+                           ps2_map_scancode(event.key.scancode,&scan,&extended) &&
+                           backend->module_ps2_key)
+                            backend->module_ps2_key(
+                                backend->ctx,slot,scan,extended,
+                                event.type==SDL_EVENT_KEY_DOWN);
+                        routed=true;
+                    }
+                    break;
+                }
+                if(routed) continue;
+            }
             if (prefs_window.window &&
                 event.type == SDL_EVENT_TEXT_INPUT &&
                 event.text.windowID == SDL_GetWindowID(prefs_window.window) &&
@@ -3264,7 +3412,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                         } else if (point_in_rect(x, y, &module_rects[3])) {
                             if (info.installed && (info.type == 1 ||
                                                    info.type == 2 ||
-                                                   info.type == 3)) {
+                                                   info.type == 3 ||
+                                                   info.type == 4)) {
                                 char title[96];
                                 snprintf(title, sizeof(title),
                                          "PPA-1 SLOT %d - %s",
