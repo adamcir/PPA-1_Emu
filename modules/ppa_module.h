@@ -9,6 +9,8 @@
 #define PPAM_TYPE_LIGHT 1u
 #define PPAM_TYPE_SOUND 2u
 #define PPAM_TYPE_VGA 3u
+#define PPAM_TYPE_PS2 4u
+#define PPAM_PS2_FIFO_SIZE 256u
 #define PPAM_AUDIO_CHANNELS 4
 #define PPAM_VGA_WIDTH 320u
 #define PPAM_VGA_HEIGHT 200u
@@ -53,6 +55,13 @@ typedef struct {
     uint8_t vga_plane_write;
     uint8_t vga_plane_read;
     uint16_t vga_page; /* 64 KiB aperture page number. */
+
+    /* PS/2 Scan Code Set 2: independent keyboard controller and FIFO. */
+    uint8_t ps2_fifo[PPAM_PS2_FIFO_SIZE];
+    uint8_t ps2_pressed[256];
+    uint8_t ps2_head, ps2_tail, ps2_last, ps2_leds;
+    uint16_t ps2_count;
+    bool ps2_scanning, ps2_overflow, ps2_wait_led;
 
     uint32_t remaining_cycles;
     uint32_t pulse_cycles;
