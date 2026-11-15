@@ -13,6 +13,7 @@
 #define PPAM_VGA_WIDTH 320u
 #define PPAM_VGA_HEIGHT 200u
 #define PPAM_VGA_VRAM_SIZE (PPAM_VGA_WIDTH * PPAM_VGA_HEIGHT)
+#define PPAM_VGA_MAX_VRAM (1920u * 1080u * 3u)
 #define PPAM_VGA_PALETTE_COLORS 256u
 #define PPAM_VGA_PALETTE_BYTES (PPAM_VGA_PALETTE_COLORS * 3u)
 #define PPAM_SCOPE_SAMPLES 128
@@ -43,7 +44,15 @@ typedef struct {
     uint8_t vga_border;
     uint8_t vga_palette_index;
     uint8_t vga_palette[PPAM_VGA_PALETTE_BYTES];
-    uint8_t vga_vram[PPAM_VGA_VRAM_SIZE];
+    uint8_t *vga_vram; /* On-card memory, allocated by the emulated adapter. */
+    uint32_t vga_vram_size;
+    uint16_t vga_width;
+    uint16_t vga_height;
+    uint8_t vga_bpp;
+    uint8_t vga_text;
+    uint8_t vga_plane_write;
+    uint8_t vga_plane_read;
+    uint16_t vga_page; /* 64 KiB aperture page number. */
 
     uint32_t remaining_cycles;
     uint32_t pulse_cycles;
