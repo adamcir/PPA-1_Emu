@@ -70,6 +70,46 @@ int main(void) {
     assert(ppam_get(&b, 2)->vga_palette[7 * 3 + 2] == 0x56);
     assert(ppam_get(&b, 2)->vga_palette_index == 8);
 
+    /* IBM VGA-compatible PPA register mode numbers (not BIOS calls). */
+    ppam_write(&b, 0x4000, 0x12, 0x13);  /* mode 13h */
+    assert(ppam_get(&b, 2)->vga_width == 320);
+    assert(ppam_get(&b, 2)->vga_height == 200);
+    assert(ppam_get(&b, 2)->vga_bpp == 8);
+    ppam_write(&b, 0x4000, 0x12, 0x12);  /* mode 12h */
+    assert(ppam_get(&b, 2)->vga_width == 640);
+    assert(ppam_get(&b, 2)->vga_height == 480);
+    assert(ppam_get(&b, 2)->vga_vram_size == 153600);
+    ppam_write(&b, 0x4000, 0x20, 2);    /* select write plane 2 */
+    ppam_write(&b, 0x4001, 0x0000, 0x80);
+    ppam_write(&b, 0x4000, 0x21, 2);    /* select read plane 2 */
+    assert(ppam_read(&b, 0x4001, 0x0000) == 0x80);
+    ppam_write(&b, 0x4000, 0x21, 0);
+    assert(ppam_read(&b, 0x4001, 0x0000) == 0);
+    ppam_write(&b, 0x4000, 0x12, 0x02); /* 80x25 character/attribute memory */
+    assert(ppam_get(&b, 2)->vga_text);
+    assert(ppam_read(&b, 0x4001, 0) == ' ');
+    assert(ppam_read(&b, 0x4001, 1) == 7);
+    ppam_write(&b, 0x4001, 0, 'A');
+    ppam_write(&b, 0x4001, 1, 0x1E);
+    assert(ppam_read(&b, 0x4001, 0) == 'A');
+    assert(ppam_read(&b, 0x4001, 1) == 0x1E);
+
+    ppam_write(&b, 0x4000, 0x12, 0x83); /* Full HD RGB888 */
+    assert(ppam_get(&b, 2)->vga_width == 1920);
+    assert(ppam_get(&b, 2)->vga_height == 1080);
+    assert(ppam_get(&b, 2)->vga_vram_size == 6220800u);
+    assert(ppam_read(&b, 0x4000, 0x1E) == 24);
+    ppam_write(&b, 0x4001, 0, 0x22);   /* pixel 0 red byte */
+    ppam_write(&b, 0x4000, 0x1C, 1);   /* next 64 KiB VRAM page */
+    ppam_write(&b, 0x4001, 0, 0xAB);
+    assert(ppam_read(&b, 0x4001, 0) == 0xAB);
+    ppam_write(&b, 0x4000, 0x1C, 0);
+    assert(ppam_read(&b, 0x4001, 0) == 0x22);
+    ppam_write(&b, 0x4000, 0x12, 0x55); /* unsupported -> unchanged */
+    assert(ppam_read(&b, 0x4000, 0x12) == 0x83);
+    ppam_write(&b, 0x4000, 0x1C, 0xFF);
+    assert(ppam_read(&b, 0x4001, 0) == 0xFF);
+
     ppam_reset(&b);
     assert(!ppam_get(&b, 2)->vga_enabled);
     assert(ppam_read(&b, 0x4001, 0x0000) == 0x00);
