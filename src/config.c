@@ -67,7 +67,7 @@ void ppa_config_defaults(PpaConfig *config) {
     config->panel_x = -1;
     config->panel_y = -1;
     config->panel_width = 1280;
-    config->panel_height = 820;
+    config->panel_height = 798;
     for (int i = 0; i < PPA_CONFIG_MODULE_SLOTS; ++i) {
         config->modules[i].x = -1;
         config->modules[i].y = -1;

@@ -2300,10 +2300,39 @@ int ppa_gui_run_panel(const char *initial_rom,
         return 1;
     }
 
+    /*
+     * Startup uses the panel's natural 1280x760 aspect ratio plus its 38px
+     * menu bar, never a saved maximized/fullscreen-sized window. Scale down
+     * uniformly if the desktop work area is smaller (taskbars included).
+     * Manual window resizing still works normally during this session.
+     */
+    const int natural_width = PANEL_W;
+    const int natural_height = PANEL_H + 38;
+    int initial_width = natural_width;
+    int initial_height = natural_height;
+    SDL_Rect usable_bounds = {0};
+    bool have_usable_bounds =
+        SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &usable_bounds);
+    if (have_usable_bounds) {
+        int max_width = usable_bounds.w - 32;
+        int max_height = usable_bounds.h - 32;
+        if (max_width < 480) max_width = usable_bounds.w;
+        if (max_height < 320) max_height = usable_bounds.h;
+        if (max_width > 0 && max_height > 38) {
+            float scale = 1.0f;
+            if (max_width < PANEL_W)
+                scale = (float)max_width / (float)PANEL_W;
+            if ((float)(max_height - 38) / (float)PANEL_H < scale)
+                scale = (float)(max_height - 38) / (float)PANEL_H;
+            if (scale < 0.01f) scale = 0.01f;
+            initial_width = (int)((float)PANEL_W * scale);
+            initial_height = (int)((float)PANEL_H * scale) + 38;
+        }
+    }
+
     SDL_Window *window = SDL_CreateWindow(
         "PROGRAMBLE PROCESSOR A-1",
-        config ? config->panel_width : 1280,
-        config ? config->panel_height : 820,
+        initial_width, initial_height,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!window) {
         close_fonts(&panel_fonts);
@@ -2313,8 +2342,21 @@ int ppa_gui_run_panel(const char *initial_rom,
         return 1;
     }
 
-    if (config && config->panel_x != -1 && config->panel_y != -1)
+    /* Keep a remembered position only if the complete panel still fits
+     * inside the current desktop work area (e.g. after unplugging a monitor).
+     */
+    if (config && have_usable_bounds &&
+        config->panel_x >= usable_bounds.x &&
+        config->panel_y >= usable_bounds.y &&
+        (int64_t)config->panel_x + initial_width <=
+            (int64_t)usable_bounds.x + usable_bounds.w &&
+        (int64_t)config->panel_y + initial_height <=
+            (int64_t)usable_bounds.y + usable_bounds.h) {
         SDL_SetWindowPosition(window, config->panel_x, config->panel_y);
+    } else {
+        SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED,
+                             SDL_WINDOWPOS_CENTERED);
+    }
     SDL_Renderer *renderer = SDL_CreateRenderer(window, NULL);
     if (!renderer) {
         SDL_DestroyWindow(window);
@@ -2407,31 +2449,14 @@ int ppa_gui_run_panel(const char *initial_rom,
     TerminalWindow uart_terminal = {0};
     bool layout_dirty = false;
     Uint64 last_layout_save = 0;
+    /* Installed modules are restored by the emulator backend, not here.
+     * A new GUI session starts with every module detail window closed,
+     * even if an older config.ini still contains slotN_visible=1. Retain
+     * each module's geometry for the next explicit click on VIEW.
+     */
     if (config) {
-        for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
-            PPA1ModuleInfo info = {0};
-            const PpaModuleLayout *layout = &config->modules[slot];
-            if (!layout->visible || !backend->module_info ||
-                !backend->module_info(backend->ctx, slot, &info) ||
-                !info.installed) continue;
-            char title[96];
-            snprintf(title, sizeof(title), "PPA-1 SLOT %d - %s",
-                     slot + 1, info.name);
-            open_aux(&module_detail_windows[slot], AUX_MODULE_DETAIL,
-                     title, info.type == 3 ? 1280 : 540,
-                     info.type == 3 ? 800 : 510);
-            module_detail_windows[slot].slot_index = slot;
-            if (info.type == 3 && module_detail_windows[slot].renderer) {
-                SDL_SetWindowMinimumSize(module_detail_windows[slot].window,
-                                         960, 640);
-                SDL_SetRenderLogicalPresentation(
-                    module_detail_windows[slot].renderer, 1280, 800,
-                    SDL_LOGICAL_PRESENTATION_LETTERBOX);
-            }
-            if(info.type==4 && module_detail_windows[slot].window)
-                SDL_StartTextInput(module_detail_windows[slot].window);
-            restore_module_window(&module_detail_windows[slot], layout);
-        }
+        for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot)
+            config->modules[slot].visible = false;
     }
 
     bool switches[16] = {0};
@@ -4053,11 +4078,11 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_GetWindowPosition(window, &config->panel_x, &config->panel_y);
         SDL_GetWindowSize(window, &config->panel_width, &config->panel_height);
         for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
-            if (module_detail_windows[slot].window) {
+            if (module_detail_windows[slot].window)
                 store_module_window(&module_detail_windows[slot],
                                     &config->modules[slot]);
-                config->modules[slot].visible = true;
-            }
+            /* Closing the emulator closes its module windows, not cards. */
+            config->modules[slot].visible = false;
         }
         if (!ppa_config_save(config))
             ppa_log_printf("GUI: failed saving final layout\n");
