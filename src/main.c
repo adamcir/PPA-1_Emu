@@ -1829,6 +1829,24 @@ static void gui_backend_module_ps2_release(void *ctx, int slot) {
             ppa_ps2_key(m,(uint8_t)(i&255u),i>=256u,false);
     }
 }
+static void gui_backend_module_ps2_text(void *ctx, int slot, const char *utf8) {
+    (void)ctx;
+    if(slot<0 || slot>=PPAM_SLOTS || !utf8) return;
+    PpaModule *m=&g_ppa_modules.slots[slot];
+    if(m->type!=PPAM_TYPE_PS2 || !m->active) return;
+    size_t n=strlen(m->ps2_preview);
+    if(utf8[0]=='\\b' && !utf8[1]) {
+        if(n) {
+            /* Delete the last UTF-8 codepoint without breaking its bytes. */
+            do { n--; } while(n && ((unsigned char)m->ps2_preview[n]&0xC0)==0x80);
+            m->ps2_preview[n]=0;
+        }
+    } else {
+        size_t len=strlen(utf8);
+        if(len && n+len<sizeof(m->ps2_preview))
+            memcpy(m->ps2_preview+n,utf8,len+1);
+    }
+}
 static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
     (void)ctx;
     const PpaModule *m = ppam_get(&g_ppa_modules, slot);
@@ -1858,6 +1876,7 @@ static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
     out->vga_bpp = m->vga_bpp;
     out->vga_text = m->vga_text;
     memcpy(out->ps2_pressed, m->ps2_pressed, sizeof(out->ps2_pressed));
+    memcpy(out->ps2_preview, m->ps2_preview, sizeof(out->ps2_preview));
     out->ps2_count = m->ps2_count;
     out->ps2_last = m->ps2_last;
     out->ps2_scanning = m->ps2_scanning;
@@ -2771,6 +2790,7 @@ int main(int argc, char **argv) {
             .module_info = gui_backend_module_info,
             .module_ps2_key = gui_backend_module_ps2_key,
             .module_ps2_release = gui_backend_module_ps2_release,
+            .module_ps2_text = gui_backend_module_ps2_text,
             .memory_inspect = gui_backend_memory_inspect,
             .memory_edit = gui_backend_memory_edit
         };
