@@ -30,6 +30,11 @@ typedef struct {
     uint8_t vga_bpp;
     uint8_t vga_text;
 
+    uint8_t ps2_pressed[256];
+    uint16_t ps2_count;
+    uint8_t ps2_last;
+    bool ps2_scanning, ps2_overflow;
+
     uint32_t cycles_remaining;
     char name[64];
     char path[1024];
