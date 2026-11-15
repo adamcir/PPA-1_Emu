@@ -58,7 +58,7 @@ typedef struct {
 
     /* PS/2 Scan Code Set 2: independent keyboard controller and FIFO. */
     uint8_t ps2_fifo[PPAM_PS2_FIFO_SIZE];
-    uint8_t ps2_pressed[256];
+    uint8_t ps2_pressed[512];
     uint8_t ps2_head, ps2_tail, ps2_last, ps2_leds;
     uint16_t ps2_count;
     bool ps2_scanning, ps2_overflow, ps2_wait_led;
