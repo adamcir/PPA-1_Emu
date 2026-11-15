@@ -2,8 +2,10 @@
  * PPA-1 ROM packer - bitmap and binary resource installer.
  * (c) 2026 Adam Cir (Adava), Adava Software, Adava Development
  *
- * Input: a 2 MiB EEPROM image emitted by ppa-1_asm.
- * Output: another 2 MiB image with assets in ROM banks 0001..001F.
+ * Input: a 64 KiB program produced by ppa-1_asm --program,
+ *        or a legacy 2 MiB EEPROM image (backwards compatibility).
+ * Output: a complete 2 MiB EEPROM image with ROM bank 0000 for code,
+ *         optional files and BMPs in ROM banks 0001..001F.
  * BMP: uncompressed Windows BMP, indexed 8-bit, BGR 24-bit or BGRA 32-bit.
  * All images share one fixed 256-color VGA palette: 16 EGA + RGB 6x8x5.
  *
@@ -209,21 +211,32 @@ static void install_file(unsigned bank, unsigned offset, const char *path) {
 }
 static void usage(const char *app) {
     fprintf(stderr,
-        "Usage: %s INPUT_ROM OUTPUT_ROM [operations...]\n"
+        "Usage: %s PROGRAM_FILE OUTPUT_ROM [operations...]\n"
         "  --bmp BANK:FILE         Convert GIMP BMP to PIMG resource, bank 0001..001F\n"
         "  --put BANK:OFFSET:FILE  Insert arbitrary binary data at an ROM address\n"
         "  --info                  Print bank metadata after packing\n"
+        "PROGRAM_FILE is 64 KiB (from assembler --program), or legacy 2 MiB.\n"
+        "No assets are required: ROMPACK still builds the complete 2 MiB image.\n"
         "BANK and OFFSET are hexadecimal, bank 0000 is reserved for ASM code.\n"
-        "Example: %s out/code.bin out/main.bin --bmp 0001:assets/cab_ecs.bmp\n",
+        "Example: %s out/main.prg out/main.bin --bmp 0001:assets/cab_ecs.bmp\n",
         app, app);
 }
 int main(int argc, char **argv) {
-    if (argc < 4) { usage(argv[0]); return 1; }
+    if (argc < 3) { usage(argv[0]); return 1; }
     size_t bytes;
     uint8_t *input = read_file(argv[1], &bytes);
-    if (bytes != ROM_BYTES)
-        fail("assembler ROM must be exactly 2 MiB", argv[1]);
-    memcpy(rom, input, ROM_BYTES);
+    /* Assemble always produces a program first. For legacy callers, a
+     * complete EEPROM is also accepted as the input image. */
+    memset(rom, 0xFF, sizeof(rom));
+    if (bytes == BANK_BYTES) {
+        memcpy(rom, input, BANK_BYTES);
+        fprintf(stdout, "Program: 64 KiB -> EEPROM bank 0000\n");
+    } else if (bytes == ROM_BYTES) {
+        memcpy(rom, input, ROM_BYTES);
+        fprintf(stdout, "Legacy EEPROM input: 2 MiB\n");
+    } else {
+        fail("input must be a 64 KiB program or legacy 2 MiB ROM", argv[1]);
+    }
     free(input);
     int edits = 0;
     for (int i = 3; i < argc; ++i) {
@@ -255,11 +268,11 @@ int main(int argc, char **argv) {
             fail("unrecognized option", argv[i]);
         }
     }
-    if (!edits) fail("no resources specified; use --bmp or --put", NULL);
+    if (!edits) fprintf(stdout, "No assets requested; program-only ROM.\n");
     FILE *f = fopen(argv[2], "wb");
     if (!f) fail(strerror(errno), argv[2]);
     if (fwrite(rom, 1, ROM_BYTES, f) != ROM_BYTES || fclose(f) != 0)
         fail("writing ROM output failed", argv[2]);
-    printf("Saved: %s (2 MiB)\n", argv[2]);
+    printf("ROMPACK complete: %s (2 MiB / 32 ROM banks)\n", argv[2]);
     return 0;
 }
