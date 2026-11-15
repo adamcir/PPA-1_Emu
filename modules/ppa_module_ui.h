@@ -24,6 +24,11 @@ typedef struct {
     uint8_t vga_border;
     const uint8_t *vga_palette;
     const uint8_t *vga_vram;
+    uint32_t vga_vram_size;
+    uint16_t vga_width;
+    uint16_t vga_height;
+    uint8_t vga_bpp;
+    uint8_t vga_text;
 
     uint32_t cycles_remaining;
     char name[64];
