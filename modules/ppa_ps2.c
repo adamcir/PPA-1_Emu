@@ -74,7 +74,7 @@ void ppa_ps2_write(PpaModule *m,uint32_t offset,uint8_t value) {
 void ppa_ps2_key(PpaModule *m,uint8_t scan_set2,bool extended,bool down) {
     if(!m || !m->installed || !m->active ||
        m->type!=PPAM_TYPE_PS2 || !m->ps2_scanning || !scan_set2) return;
-    unsigned idx=scan_set2|(extended?0x80u:0u);
+    unsigned idx=(unsigned)scan_set2+(extended?256u:0u);
     if((m->ps2_pressed[idx]!=0)==down) return;
     m->ps2_pressed[idx]=down;
     m->ps2_last=scan_set2;
