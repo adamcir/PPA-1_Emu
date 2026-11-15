@@ -3232,7 +3232,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                             break;
                         } else if (point_in_rect(x, y, &module_rects[3])) {
                             if (info.installed && (info.type == 1 ||
-                                                   info.type == 2)) {
+                                                   info.type == 2 ||
+                                                   info.type == 3)) {
                                 char title[96];
                                 snprintf(title, sizeof(title),
                                          "PPA-1 SLOT %d - %s",
