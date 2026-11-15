@@ -1,8 +1,10 @@
 # PPA-1 ROM packer (C)
 
-`ppa_rompack.c` is a standalone native CLI for adding data to a **2 MiB
-PPA-1 EEPROM image** produced by `ppa-1_asm`. It does not modify an EEPROM
-while the emulator is running; the output file must be loaded by the emulator.
+`ppa_rompack.c` is the final stage that turns a **64 KiB program file**
+produced by `ppa-1_asm --program` into a **complete 2 MiB PPA-1 EEPROM image**.
+Optional assets can be inserted in other ROM banks. ROMPACK must run
+even when no assets are present. The output is a file to load into the
+emulator; ROMPACK does not update emulated memory while the CPU runs.
 
 Build: `make rompack`.
 
@@ -13,19 +15,19 @@ select uncompressed Windows BMP (8-bit indexed or 24-bit RGB; 32-bit BI_RGB
 also accepted). RLE and bitfield-compressed BMP variants are not supported.
 
 ```sh
-out/tools/ppa_rompack out/main.code.bin out/main.bin \
+out/tools/ppa_rompack out/main.prg out/main.bin \
   --bmp 0001:assets/cab_ecs.bmp --info
 ```
 
 The example paths are for MetroDriver; the emulator example instead uses
-`out/examples/rom_gfx_demo.bin` as its input EEPROM image.
+`out/examples/rom_gfx_demo.prg` as its input **program** file.
 
 `--bmp HEXBANK:PATH` converts a BMP up to 320×200 pixels into the **PIMG**
 resource format and places it at the start of ROM bank HEXBANK. One PIMG
 image uses one ROM bank (no compression).
 
 ```sh
-out/tools/ppa_rompack input.bin output.bin \
+out/tools/ppa_rompack input.prg output.bin \
   --put 0002:0100:path/to/custom.dat \
   --put 0003:0000:path/to/other.bin
 ```
@@ -35,8 +37,18 @@ a bank. Files **must not cross a 64 KiB bank boundary**. Overlapping
 resources and writes over pre-existing non-`FF` bytes are refused. Bank
 `0000` is reserved for the executable and always protected.
 
-Both input and output are full 2 MiB EEPROM images; the input should be a
-**clean assembler build**, not a previously packed image.
+The recommended input is a **64 KiB program file**: bank 0000 is copied
+into the final EEPROM; banks 0001–001F start as `FF` and receive optional
+assets. For backwards compatibility ROMPACK also accepts a clean 2 MiB
+assembler-produced ROM. The output is **always a 2 MiB image**, never a
+program-only file. Do not use a previously packed image as the input.
+
+```text
+ASM source -> ppa-1_asm --program -> game.prg -> ppa_rompack -> game.bin
+```
+
+Without assets, the command is simply
+`out/tools/ppa_rompack game.prg game.bin`.
 
 ## PIMG v1 bank layout
 
