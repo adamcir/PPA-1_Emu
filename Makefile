@@ -76,7 +76,7 @@ test-irq: out/irq_test
 # Every game/demo now uses ASM -> program bank -> ROMPACK -> final EEPROM.
 out/examples/%.prg: examples/%.asm $(ASM) $(wildcard examples/includes/*.inc) | out/examples
 	$(ASM) $< $@ --program
-out/examples/%_demo.prg: modules/%_demo.asm $(ASM) | out/examples
+out/examples/%_demo.prg: modules/%_demo.asm $(ASM) $(wildcard examples/includes/*.inc) | out/examples
 	$(ASM) $< $@ --program
 
 out/examples/%.bin: out/examples/%.prg $(ROMPACK)

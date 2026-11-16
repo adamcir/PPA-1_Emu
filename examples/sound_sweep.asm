@@ -1,13 +1,14 @@
-; PPA-SOUND/1 test. Insert/activate modules/ppa-sound-1.ppamod in SLOT 1.
+; PPA-SOUND/1 test. Insert/activate modules/ppa-sound-1.ppamod in any slot.
 ; Load assembled EEPROM image, then PWR ON and RUN. Try 100 kHz.
 .org $0000
     JMP start
+.include "includes/ppa-slots.inc"
 .include "includes/ppa-sound.inc"
 
 start:
     CALL sound_init
     CALL sound_silence
-    MOV BR-HI,#20
+    CALL slots_use_sound
     MOV A,#01
     ST $0022,A     ; saw wave
     MOV A,#C0

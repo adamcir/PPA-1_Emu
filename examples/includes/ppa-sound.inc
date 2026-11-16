@@ -1,10 +1,11 @@
-; PPA-SOUND/1 shared ASM driver (SLOT 1 / bank 2000).
-; Include after an initial JMP start; routines live in EEPROM.
+; PPA-SOUND/1 shared ASM driver (automatic type-2 slot discovery).
+; Include AFTER ppa-slots.inc and an initial JMP start; routines live in EEPROM.
 ; CALL sound_init: enable master + four voices, config waveforms/volume.
 ; CALL sound_voice1..4: B=frequency low, C=frequency high.
 ; CALL sound_silence: all frequency registers zero.
 ; CALL sound_stop: master off.
-; Calls may modify BR, sound_init / sound_stop also modify A.
+; sound_init discovers the first active SOUND module and caches its bank.
+; Calls modify BR; sound_init / sound_stop also modify A.
 ; Keep BR=0 when reading EEPROM with LD A,Y.
 
 SOUND_ON EQU $0010
@@ -31,18 +32,21 @@ SOUND_CH4_VOL EQU $0053
 SOUND_CH4_ENABLE EQU $0054
 
 sound_init:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_bind_sound
+    CMP A,#FF
+    JZ .missing
+    CALL slots_use_sound
     MOV A,#FF
     ST $0011,A
     MOV A,#01
     ST $0010,A
     CALL sound_waveforms
     RET
+.missing:
+    RET
 
 sound_waveforms:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_sound
     MOV A,#02
     ST $0022,A
     ST $0042,A
@@ -65,26 +69,22 @@ sound_waveforms:
     RET
 
 sound_voice1:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_sound
     ST $0020,B
     ST $0021,C
     RET
 sound_voice2:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_sound
     ST $0030,B
     ST $0031,C
     RET
 sound_voice3:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_sound
     ST $0040,B
     ST $0041,C
     RET
 sound_voice4:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_sound
     ST $0050,B
     ST $0051,C
     RET
@@ -99,8 +99,7 @@ sound_silence:
     RET
 
 sound_stop:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_sound
     MOV A,#00
     ST $0010,A
     RET

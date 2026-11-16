@@ -1,19 +1,22 @@
-; PPA-VGA/1 text mode 02h demo (SLOT 1, module active).
-; Text VRAM: bank 2001, 80x25, char/attribute pairs.
+; PPA-VGA/1 text mode 02h demo (ANY active slot).
+; Text VRAM: discovered VGA register bank +1, 80x25, char/attribute pairs.
 .org $0000
     JMP start
+.include "includes/ppa-slots.inc"
 
 .include "includes/ppa-vga.inc"
 
 start:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_bind_vga
+    CMP A,#FF
+    JZ .missing
+    CALL slots_use_vga
     MOV A,#02
     ST $0012,A          ; mode 02h, 80x25
     MOV A,#01
     ST $0010,A          ; enable video
 
-    MOV BR-LO,#01
+    CALL slots_use_vga_vram
     MOV A,#50           ; P
     ST $0000,A
     MOV A,#1E           ; yellow on blue
@@ -51,4 +54,6 @@ start:
     MOV A,#1E
     ST $0011,A
 
+    HLT
+.missing:
     HLT

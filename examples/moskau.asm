@@ -1,10 +1,11 @@
 ; PPA-1 ASM - Moskau (Dschinghis Khan), MIDI adaptation.
 ; Original user-supplied MIDI reduced to four oscillator voices.
-; Uses includes/ppa-sound.inc (SLOT 1, bank 2000).
+; Uses includes/ppa-sound.inc and automatic PPAMOD SOUND scan (any slot).
 ; Starting CPU speed: approx. 100 kHz. Tune by ear.
 ; Data table at EEPROM 0000:1000, relative to Y pointer.
 .org $0000
     JMP start
+.include "includes/ppa-slots.inc"
 .include "includes/ppa-sound.inc"
 
 start:

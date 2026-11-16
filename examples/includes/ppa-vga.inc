@@ -1,5 +1,5 @@
-; PPA-VGA/1 shared ASM definitions for SLOT 1.
-; Registers: bank 2000. VRAM: bank 2001, addresses 0000-F9FF.
+; PPA-VGA/1 shared ASM driver (automatic type-3 slot discovery).
+; Include ppa-slots.inc first. Register bank is discovered; VRAM is its +1 bank.
 ; Mode 0 = 320x200x8 indexed color.
 
 VGA_CONTROL EQU $0010
@@ -33,18 +33,21 @@ VGA_MODE_1280X720_RGB EQU $82
 VGA_MODE_1920X1080_RGB EQU $83
 
 vga_init:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_bind_vga
+    CMP A,#FF
+    JZ .missing
+    CALL slots_use_vga
     MOV A,#00
     ST $0012,A
     ST $0013,A
     MOV A,#01
     ST $0010,A
     RET
+.missing:
+    RET
 
 vga_off:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_vga
     MOV A,#00
     ST $0010,A
     RET
@@ -52,16 +55,14 @@ vga_off:
 ; Modesetting uses bank 2000, register 0012h.
 ; The BIOS-style mode number is passed in A.
 vga_set_mode:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_vga
     ST $0012,A
     RET
 
 ; Select 64 KiB VRAM aperture page (A=low byte, B=high byte).
 ; This changes the physical VRAM behind bank 2001.
 vga_set_page:
-    MOV BR-HI,#20
-    MOV BR-LO,#00
+    CALL slots_use_vga
     ST $001C,A
     MOV A,B
     ST $001D,A

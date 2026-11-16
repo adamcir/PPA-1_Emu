@@ -1,6 +1,6 @@
 ; PPA-1 helper library for simple games (keyboard, pacing and RNG)
 ; (c) 2026 Adam Cir (Adava), Adava Software, Adava Development
-; Requires PPA-PS/2/1 in slot 2 (bank 3000).
+; Requires PPA-PS/2/1 in any active slot; slots_bind_ps2 caches it.
 ; RAM 1000:0040 and 0041 reserved for this library.
 ;
 ; game_keyboard_init   -- initialize PS/2 scanner (set-2), flush FIFO
@@ -18,16 +18,27 @@ game_keyboard_init:
     ST $0040,A
     MOV A,#5D
     ST $0041,A
-    MOV BR-HI,#30
-    MOV BR-LO,#00
+    CALL slots_bind_ps2
+    CMP A,#FF
+    JZ .missing
+    CALL slots_use_ps2
     MOV A,#81
     ST $0012,A
+    RET
+.missing:
     RET
 
 game_poll_key:
 .next:
-    MOV BR-HI,#30
+    ; A missing PS/2 module must not look like DATA_READY=1 (FF reads).
+    MOV BR-HI,#10
     MOV BR-LO,#00
+    LD A,$0063
+    CMP A,#A0
+    JZ .none
+    CMP A,#00
+    JZ .none
+    CALL slots_use_ps2
     LD A,$0011
     AND A,#01
     JZ .none
