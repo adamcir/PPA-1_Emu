@@ -106,3 +106,11 @@ clean:
 .PHONY: test-rompack
 test-rompack: $(ROMPACK)
 	python3 tools/rompack/test_rompack.py $(ROMPACK)
+
+# Python 3 stdlib MIDI converter; GUI additionally needs Tkinter (python3-tk).
+.PHONY: test-midi midi-gui
+test-midi:
+	$(PYTHON) -m unittest discover -s tools/ppa-1_midi-to-asm -p 'test_*.py' -v
+
+midi-gui:
+	$(PYTHON) tools/PPA-1_MIDI-to-ASM.py --gui
