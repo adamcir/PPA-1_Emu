@@ -63,8 +63,10 @@ class ConverterTests(unittest.TestCase):
             self.assertIn('.include "includes/ppa-slots.inc"', code)
             self.assertIn("CALL sound_init", code)
             self.assertIn("ST $0023,A", code)
-            self.assertIn(".org $1000", code)
-            self.assertIn("midi_frames:", code)
+            self.assertIn(".bank 0001", code)
+            self.assertIn("; song finished", code)
+            self.assertIn("ST $0064,B", code)
+            self.assertIn("JZ midi_frame", code)
 
     def test_config_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,6 +81,38 @@ class ConverterTests(unittest.TestCase):
             self.assertEqual(loaded["1:0"], settings["1:0"])
             code = mod.render(parsed, loaded, "sample.mid")
             self.assertIn("    ST $0022,A", code)
+
+    def test_data_crosses_rom_bank_without_sidecars(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            parsed = self.sample(Path(tmp) / "long.mid")
+            cfg = mod.defaults(parsed[0])
+            voice = ((440, 110), (0, 0), (0, 0), (0, 0))
+            frames = [(10, voice)] * 4682
+            with patch.object(mod, "frames_from_midi", return_value=frames):
+                asm = mod.render(parsed, cfg, "long.mid")
+                self.assertIn(".bank 0001", asm)
+                self.assertIn(".bank 0002", asm)
+                self.assertEqual(asm.count(".bank 0001"), 1)
+                self.assertIn(".byte $FF,$FF ; switch to next ROM bank", asm)
+                self.assertIn(".byte $00,$00 ; song finished", asm)
+                out = Path(tmp) / "music.asm"
+                total, banks = mod.export_song(parsed, cfg, "long.mid", out)
+                self.assertEqual((total, banks), (4682, 2))
+                self.assertTrue(out.exists())
+                self.assertEqual(list(Path(tmp).glob("music.bank*.bin")), [])
+
+    def test_longer_than_180_seconds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "long.mid"
+            path.write_bytes(mid([chunk(b"long", [
+                (0, bytes((0x90, 0x3C, 0x64))),
+                (480 * 400, bytes((0x80, 0x3C, 0x00)))])]))
+            parsed = mod.parse_midi(path)
+            frames = mod.frames_from_midi(parsed, mod.defaults(parsed[0]))
+            self.assertGreater(sum(length for length, _ in frames) * 10, 180000)
+            asm = mod.render(parsed, mod.defaults(parsed[0]), "long.mid")
+            self.assertIn(".bank 0001", asm)
 
     def test_invalid_midi_and_duplicate_voices(self):
         with tempfile.TemporaryDirectory() as tmp:

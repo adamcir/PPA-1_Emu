@@ -211,8 +211,6 @@ def frames_from_midi(parsed, config, unit_ms=10):
         if key in active:
             actions[quantize(tick)].append((order, key, kind, a, b))
     endtime = quantize(endtick) + max(1, (200 + unit_ms - 1) // unit_ms)
-    if endtime * unit_ms > 180000:
-        raise MidiError("MIDI duration exceeds 180 seconds")
     held = defaultdict(lambda: defaultdict(list))
     sustain = defaultdict(bool)
     released = defaultdict(lambda: defaultdict(list))
@@ -269,11 +267,9 @@ def frames_from_midi(parsed, config, unit_ms=10):
     split = []
     for duration, state in out:
         while duration > 0:
-            take = min(65535, duration)
+            take = min(65534, duration)
             split.append((take, state))
             duration -= take
-    if len(split) > (65536 - 0x1000 - 2) // 14:
-        raise MidiError("Song exceeds one ROM bank; increase --tick-ms, shorten MIDI or disable tracks")
     return split
 
 def render(parsed, config, name, unit_ms=10, clock_hz=100000):
@@ -295,6 +291,7 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
         "; Source: " + name.replace(";", "_").replace("\n", " "),
         "; %d event frames; %dms tick; %d microsteps/s approximate clock" %
         (len(frames), unit_ms, clock_hz),
+        "; Data banks are embedded with .bank directly in this ASM.",
         ".org $0000",
         "    JMP midi_start",
         '.include "includes/ppa-slots.inc"',
@@ -310,16 +307,28 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
         "    CMP A,#00",
         "    JZ midi_no_sound",
         "    CALL slots_use_sound",
+        "    MOV BR-HI,#10",
+        "    MOV BR-LO,#00",
+        "    MOV A,#01",
+        "    ST $0064,A       ; current music ROM bank",
+        "    CALL slots_use_sound",
     ]
     for i, wave in enumerate(waves):
         lines += ["    MOV A,#%02X" % wave, "    ST $%04X,A" % (0x22 + i * 16)]
     lines += [
-        "    MOV Y-HI,#10", "    MOV Y-LO,#00",
+        "    MOV Y-HI,#00", "    MOV Y-LO,#00",
         "midi_frame:",
         "    CALL midi_next",
         "    MOV X-HI,A",
         "    CALL midi_next",
         "    MOV X-LO,A",
+        "    MOV A,X-HI",
+        "    CMP A,#FF",
+        "    JNZ midi_duration",
+        "    MOV A,X-LO",
+        "    CMP A,#FF",
+        "    JZ midi_frame      ; crossed to next data bank",
+        "midi_duration:",
         "    MOV A,X-HI",
         "    OR A,X-LO",
         "    JZ midi_done",
@@ -348,30 +357,68 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
         "    JNZ midi_wait",
         "    JMP midi_frame",
         "midi_next:",
-        "    MOV BR-HI,#00",
+        "    PUSH B",
+        "    MOV BR-HI,#10",
         "    MOV BR-LO,#00",
+        "    LD B,$0064",
+        "    MOV BR-HI,#00",
+        "    MOV BR-LO,B",
         "    LD A,Y",
         "    INC Y-LO",
         "    JNZ midi_next_no_carry",
         "    INC Y-HI",
+        "    JNZ midi_next_no_carry",
+        "    INC B",
+        "    MOV BR-HI,#10",
+        "    MOV BR-LO,#00",
+        "    ST $0064,B",
         "midi_next_no_carry:",
+        "    POP B",
         "    RET",
         "midi_done:",
         "    CALL sound_stop",
         "midi_no_sound:",
         "    HLT",
         "",
-        ".org $1000",
-        "midi_frames:",
-        "; duration HI, LO; then for each oscillator: frequency LO, HI, volume",
+        "; Music frame banks start at ROM 0001.",
     ]
-    for duration, voices in frames:
-        data = [duration >> 8, duration & 255]
-        for hz, volume in voices:
-            data.extend((hz & 255, hz >> 8, volume))
-        lines.append("    .byte " + ",".join("$%02X" % val for val in data))
-    lines.append("    .byte $00,$00 ; end")
+
+    # Each data bank contains at most 4681 complete 14-byte frames,
+    # ending with a 2-byte continuation (FFFF) or EOF (0000).
+    # The byte reader increments BR automatically after Y wraps.
+    frames_per_bank = (65536 - 2) // 14
+    bank_count = max(1, (len(frames) + frames_per_bank - 1) // frames_per_bank)
+    if bank_count > 31:
+        raise MidiError(
+            "Music exceeds 31 data banks (2 MiB physical EEPROM). "
+            "Increase --tick-ms, omit tracks or expand PPA-1 ROM hardware.")
+    for bank in range(1, bank_count + 1):
+        lines.extend(["", ".bank %04X" % bank, ".org $0000",
+                      "; MIDI data bank %04X of %04X" % (bank, bank_count)])
+        segment = frames[(bank - 1) * frames_per_bank:bank * frames_per_bank]
+        for duration, voices in segment:
+            values = [duration >> 8, duration & 255]
+            for hz, volume in voices:
+                values.extend((hz & 255, hz >> 8, volume))
+            lines.append("    .byte " + ",".join("$%02X" % n for n in values))
+        if bank < bank_count:
+            lines.append("    .byte $FF,$FF ; switch to next ROM bank")
+        else:
+            lines.append("    .byte $00,$00 ; song finished")
     return "\n".join(lines) + "\n"
+
+
+def export_song(parsed, config, name, output_path, unit_ms=10, clock_hz=100000):
+    """Write one multi-bank ASM file; assembler/ROMPACK do bank placement."""
+    frames = frames_from_midi(parsed, config, unit_ms)
+    asm = render(parsed, config, name, unit_ms, clock_hz)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(asm, encoding="utf-8")
+    bank_count = max(1, (len(frames) + (65536 - 2) // 14 - 1) //
+                     ((65536 - 2) // 14))
+    return len(frames), bank_count
+
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="PPA-1_MIDI-to-ASM")
@@ -403,10 +450,11 @@ def main(argv=None):
             save_config(args.write_config, parsed[0], config)
             print("Saved config:", args.write_config)
         if args.output:
-            asm = render(parsed, config, args.midi.name, args.tick_ms, args.clock_hz)
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(asm, encoding="utf-8")
-            print("Generated:", args.output, len(asm), "bytes")
+            frame_count, bank_count = export_song(
+                parsed, config, args.midi.name, args.output,
+                args.tick_ms, args.clock_hz)
+            print("Generated:", args.output, frame_count, "frames,",
+                  bank_count, "ROM music banks")
         elif not args.list and not args.write_config:
             ap.error("Specify -o, --list, --write-config, or --gui")
     except (MidiError, OSError, ValueError, TypeError) as exc:

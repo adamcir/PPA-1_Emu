@@ -1,7 +1,7 @@
 """Tkinter editor for per-track MIDI-to-ASM settings (optional standard library)."""
 from pathlib import Path
 from midi_to_asm import (WAVES, POLY, MidiError, Settings, parse_midi,
-                         defaults, validate, save_config, load_config, render)
+                         defaults, validate, save_config, load_config, export_song)
 
 def launch(initial_file=None, clock_hz=100000, tick_ms=10):
     try:
@@ -115,14 +115,17 @@ def launch(initial_file=None, clock_hz=100000, tick_ms=10):
 
     def export():
         config = read_table()
-        code = render(current[0], config, Path(file_var.get()).name,
-                      int(tick_var.get()), int(clock_var.get()))
         path = filedialog.asksaveasfilename(defaultextension=".asm",
                     filetypes=[("PPA-1 ASM", "*.asm")])
         if path:
-            Path(path).write_text(code, encoding="utf-8")
+            frames, banks = export_song(current[0], config,
+                Path(file_var.get()).name, Path(path),
+                int(tick_var.get()), int(clock_var.get()))
             messagebox.showinfo("ASM exported",
-                 "Saved: " + path + "\nCopy into examples/ to resolve includes.")
+                 "Saved: " + path + "\n" + str(frames) + " frames across " +
+                 str(banks) + " embedded ROM banks.\n"
+                 "Move the single ASM to examples/ for included libraries, "
+                 "then run make out/examples/<name>.bin.")
 
     def store():
         config = read_table()

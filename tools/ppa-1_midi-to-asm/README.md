@@ -54,43 +54,81 @@ Set the actual PPA-1 CPU clock to match `--clock-hz`; adjust the
 setting until the tempo sounds correct. No polyphonic MIDI renderer,
 DAC, MIDI synthesizer, or hardware MIDI interface is required.
 
-## Output ASM
+## Long MIDI: one ASM, multi-bank PRG, ROMPACK
 
-The output is ordinary PPA-1 assembly:
+There is **no 180-second time limit**. The MIDI converter emits **one**
+`.asm` source with `.bank 0001`, `.bank 0002`, etc. and embedded
+`.byte` music frames. It does **not** write companion data files.
 
-- Loads the existing `includes/ppa-slots.inc` and
-  `includes/ppa-sound.inc`.
-- `sound_init` **finds the first active SOUND card regardless of slot**.
-  If no SOUND card is found, it halts without attempting to play.
-- Configures four oscillator waveforms and plays frequency/volume
-  changes by writing the PPA-SOUND/1 registers.
-- Uses a 14-byte event frame in ROM bank `0000` at `1000`:
-  16-bit big-endian duration; 4 × (frequency low/high, volume).
-- Ends on a zero-duration marker, stops the master and halts.
-- Uses RAM `1000:0061` reserved by the common slot library.
-- Only supports one 64KiB program bank (no cross-bank frame streaming).
-  Rejects input requiring more than the available 4388 frames.
-  A denser timeline may be obtained by increasing `--tick-ms` or
-  disabling tracks; very large/long pieces must be shortened.
+Pipeline:
 
-**Copy generated ASM into `examples/`**, or keep your source there.
-Assembler include paths are resolved relative to the ASM file; an
-arbitrary ASM file generated elsewhere should be moved to `examples/`
-before building. ROMPACK builds the final EEPROM image:
+```text
+MIDI + per-track JSON
+       |
+       v
+aria_math.asm          (one source containing code and .bank data)
+       |
+       v  PPA-1 assembler --program
+aria_math.prg          (1 to 32 whole 64 KiB banks, contiguous)
+       |
+       v  ROMPACK
+aria_math.bin          (2 MiB EEPROM; bank placement already correct)
+```
 
-    out/asm/ppa-1_asm examples/my-song.asm out/examples/my-song.prg --program
-    out/tools/ppa_rompack out/examples/my-song.prg out/examples/my-song.bin
+Each music frame occupies 14 bytes: duration HI/LO plus four triples of
+frequency LO/HI and volume. A music data bank contains at most 4681 frames,
+followed by the 2-byte **FFFF** marker if another bank follows or **0000**
+at the end of the song. The ASM code remains entirely in bank `0000`.
+A data-reading routine uses `BR` to select the current ROM data bank,
+increments `Y` after every byte, and advances the bank stored in
+RAM `1000:0064` when `Y` rolls over from `FFFF` to `0000`.
+On the next `FFFF` marker it loops to read the next frame. This is
+not an instruction `JMP` across banks: PPA-1 can only fetch executable
+instructions from ROM bank `0000`, while `BR` selects the data bank.
+This is realizable on the existing PPA-1 hardware.
 
-Load the image in the PPA-1 emulator. Insert and activate
-`out/modules/ppa-sound-1.ppamod` in **any** PPAMOD slot, POWER ON,
-RUN. The generated player automatically locates the sound card.
+The present EEPROM has 32 banks total: one code bank and 31 data banks.
+There is therefore a **physical storage capacity**, but no artificial
+song-duration limit. Large files that exceed 31 data banks produce a
+clear error instead of silently truncating music.
+
+### Conversion
+
+Run in the repository root:
+
+```sh
+python3 tools/PPA-1_MIDI-to-ASM.py /path/to/aria_math.mid \
+  --config /path/to/aria_math.json -o examples/aria_math.asm
+make out/examples/aria_math.bin
+```
+
+Expected intermediate files:
+
+```text
+examples/aria_math.asm
+out/examples/aria_math.prg
+out/examples/aria_math.bin
+```
+
+The generated ASM includes `includes/ppa-slots.inc` and
+`includes/ppa-sound.inc`, so keep the ASM within `examples/` or
+provide those includes relative to its location. Place
+`ppa-sound-1.ppamod` in **any active module slot**. The player uses the
+existing PPAMOD discovery library.
+
+No `--put` arguments or bank-splitting scripts are needed for the music.
+Existing single-bank ASM examples still build as a 64 KiB PRG.
+The assembler and ROMPACK accept a multi-bank PRG automatically.
+
+The musical timing remains approximate because it uses CPU busy loops.
+Tune `--clock-hz` and `--tick-ms` for the intended emulation speed.
 
 ## Tests
 
     make test-midi
 
 This runs MIDI parser/format/track selection, sustain, mono priority,
-config roundtrip and ASM generation tests. External MIDI files are
+config roundtrip, long-song/bank-boundary and ASM generation tests. External MIDI files are
 not required: tests construct self-contained SMF fixtures in memory.
 
 ## Hardware considerations

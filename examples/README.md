@@ -66,6 +66,26 @@ The format is documented in `ppa-gfx.inc`: per-bank PIMG resource,
 The converter supports 8-, 24- and uncompressed 32-bit Windows BMP;
 it maps BMP color values to one shared 256-color VGA palette.
 
+## PPA-1_MIDI-to-ASM: embedded multi-bank music
+
+The MIDI converter can now generate music longer than 180 seconds
+without producing separate `.bankXXXX.bin` files.
+
+```sh
+python3 tools/PPA-1_MIDI-to-ASM.py /path/to/song.mid \
+  --config /path/to/song.json -o examples/song.asm
+make out/examples/song.bin
+```
+
+The **single ASM** contains the executable player in ROM bank `0000`
+and music data as `.bank 0001`, `.bank 0002`, etc., including
+`FFFF` continuation markers. The assembler builds a bank-aligned
+multi-bank PRG and ROMPACK copies all occupied banks into the final
+2 MiB EEPROM image. The PPA-1 reads the next music bank using `BR`
+while its instruction fetch remains in bank `0000`.
+
+Detailed converter options: `tools/ppa-1_midi-to-asm/README.md`.
+
 ## PPA-SOUND/1 examples
 
 For standalone sound examples, install `out/modules/ppa-sound-1.ppamod` into **any PPAMOD slot** with CPU power OFF, click ACTIVATE, and open VIEW. The library scans by device type instead of assuming bank `2000`.

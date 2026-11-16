@@ -215,7 +215,7 @@ static void usage(const char *app) {
         "  --bmp BANK:FILE         Convert GIMP BMP to PIMG resource, bank 0001..001F\n"
         "  --put BANK:OFFSET:FILE  Insert arbitrary binary data at an ROM address\n"
         "  --info                  Print bank metadata after packing\n"
-        "PROGRAM_FILE is 64 KiB (from assembler --program), or legacy 2 MiB.\n"
+        "PROGRAM_FILE is 1..32 aligned 64 KiB banks from assembler --program.\n"
         "No assets are required: ROMPACK still builds the complete 2 MiB image.\n"
         "BANK and OFFSET are hexadecimal, bank 0000 is reserved for ASM code.\n"
         "Example: %s out/main.prg out/main.bin --bmp 0001:assets/cab_ecs.bmp\n",
@@ -225,18 +225,16 @@ int main(int argc, char **argv) {
     if (argc < 3) { usage(argv[0]); return 1; }
     size_t bytes;
     uint8_t *input = read_file(argv[1], &bytes);
-    /* Assemble always produces a program first. For legacy callers, a
-     * complete EEPROM is also accepted as the input image. */
+    /* The assembler emits exactly N banks (1..32) as a contiguous PRG.
+     * It has already positioned .bank payloads; we only pad to 2 MiB.
+     * This also retains compatibility with 64 KiB and full-image inputs. */
     memset(rom, 0xFF, sizeof(rom));
-    if (bytes == BANK_BYTES) {
-        memcpy(rom, input, BANK_BYTES);
-        fprintf(stdout, "Program: 64 KiB -> EEPROM bank 0000\n");
-    } else if (bytes == ROM_BYTES) {
-        memcpy(rom, input, ROM_BYTES);
-        fprintf(stdout, "Legacy EEPROM input: 2 MiB\n");
-    } else {
-        fail("input must be a 64 KiB program or legacy 2 MiB ROM", argv[1]);
+    if (!bytes || bytes > ROM_BYTES || bytes % BANK_BYTES) {
+        fail("PRG must contain 1..32 complete 64 KiB ROM banks", argv[1]);
     }
+    memcpy(rom, input, bytes);
+    printf("Program: %zu ROM bank(s) -> EEPROM banks 0000..%04zX\n",
+           bytes / BANK_BYTES, bytes / BANK_BYTES - 1u);
     free(input);
     int edits = 0;
     for (int i = 3; i < argc; ++i) {

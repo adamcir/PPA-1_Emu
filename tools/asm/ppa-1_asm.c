@@ -14,7 +14,7 @@
 #include <limits.h>
 #include <setjmp.h>
 
-#define MAX_SOURCE_LINES 8192
+#define MAX_SOURCE_LINES 160000 /* multi-bank MIDI rows: up to 31 ROM data banks */
 #define MAX_LINE_LEN     1024
 #define MAX_SYMBOLS      1024
 #define MAX_NAME_LEN     64
@@ -554,7 +554,7 @@ static Operand classify_operand(const char *text) {
     return o;
 }
 
-static int split_operands(char *s, Operand out[8]) {
+static int split_operands(char *s, Operand out[16]) {
     int count = 0;
     bool in_quote = false;
     char *start = s;
@@ -568,7 +568,7 @@ static int split_operands(char *s, Operand out[8]) {
 
             char *part = trim(start);
             if (*part) {
-                if (count >= 8) return -1;
+                if (count >= 16) return -1;
                 out[count++] = classify_operand(part);
             }
 
@@ -997,7 +997,7 @@ static void handle_directive(Assembler *a, char *line, int line_no, int pass) {
     }
 
     if (strcmp(directive, ".BYTE") == 0 || strcmp(directive, "DB") == 0) {
-        Operand ops[8];
+        Operand ops[16];
         int n = split_operands(args, ops);
         if (n <= 0) fatal_line(line_no, ".byte requires at least one value");
 
@@ -1012,7 +1012,7 @@ static void handle_directive(Assembler *a, char *line, int line_no, int pass) {
     }
 
     if (strcmp(directive, ".WORD") == 0 || strcmp(directive, "DW") == 0) {
-        Operand ops[8];
+        Operand ops[16];
         int n = split_operands(args, ops);
         if (n <= 0) fatal_line(line_no, ".word requires at least one value");
 
@@ -1133,7 +1133,7 @@ static void process_line(Assembler *a, const SourceLine *sl, int pass) {
     strtoupper(mnemonic);
 
     char *optext = trim(p);
-    Operand ops[8];
+    Operand ops[16];
     int n = 0;
 
     if (*optext) {
@@ -1327,24 +1327,21 @@ static void pass2(Assembler *a) {
     }
 }
 
-/* --program exports just the 64 KiB executable bank (0000).
- * ROMPACK later embeds it in the final 32-bank EEPROM image.
- * The default full-ROM output is kept for backwards compatibility.
+/* --program produces a bank-aligned PRG containing every used ROM bank,
+ * from bank 0000 to the last nonempty bank. ROMPACK pads it to the full
+ * 2 MiB EEPROM. A small program still produces exactly 64 KiB.
+ * No implicit bank jumps: CPU instructions remain in ROM bank 0000.
  */
 static void write_output(const Assembler *a, const char *path, bool program_only) {
-    if (program_only && a->highest > BANK_SIZE) {
-        fprintf(stderr,
-                "--program cannot discard data from ROM bank 0001 or higher; "
-                "move resources into ROMPACK operations.\n");
-        exit(1);
-    }
     FILE *f = fopen(path, "wb");
     if (!f) {
         perror(path);
         exit(1);
     }
 
-    size_t size = program_only ? BANK_SIZE : ROM_IMAGE_SIZE;
+    size_t size = program_only
+        ? (((a->highest ? a->highest : 1u) + BANK_SIZE - 1u) / BANK_SIZE) * BANK_SIZE
+        : ROM_IMAGE_SIZE;
     if (fwrite(a->output, 1, size, f) != size) {
         perror("fwrite");
         fclose(f);
@@ -1352,7 +1349,8 @@ static void write_output(const Assembler *a, const char *path, bool program_only
     }
 
     fclose(f);
-    printf("Wrote %zu bytes (64 x 64 KiB ROM banks) to %s\n", size, path);
+    printf("Wrote %zu bytes (%zu x 64 KiB ROM banks) to %s\n",
+           size, size / BANK_SIZE, path);
 }
 
 static void print_symbols(const Assembler *a) {
@@ -1415,7 +1413,7 @@ static void usage(const char *prog) {
     printf("  .ascii \"text\"\n");
     printf("  .asciz \"text\"\n");
     printf("  NAME EQU 0A\n");
-    printf("\nOutput is always a complete 4 MiB EEPROM image; unused bytes are FF.\n");
+    printf("\n--program emits a bank-aligned PRG (64 KiB..2 MiB); ROMPACK pads unused banks.\n");
 }
 
 int main(int argc, char **argv) {
@@ -1441,26 +1439,30 @@ int main(int argc, char **argv) {
         }
     }
 
-    Assembler a;
-    memset(&a, 0, sizeof(a));
+    /* The source-line array is deliberately large for multi-bank MIDI;
+     * allocate on heap rather than exhausting the host thread stack. */
+    Assembler *a = calloc(1, sizeof(*a));
+    if (!a) { perror("calloc assembler"); return 1; }
 
-    load_source(&a, argv[1]);
-    pass1(&a);
-    pass2(&a);
+    load_source(a, argv[1]);
+    pass1(a);
+    pass2(a);
 
     if (g_error_count != 0) {
         fprintf(stderr, "\nAssembly failed: %zu error%s. No binary written.\n",
                 g_error_count, g_error_count == 1 ? "" : "s");
-        free_source(&a);
+        free_source(a);
+        free(a);
         return 1;
     }
 
-    write_output(&a, argv[2], program_only);
+    write_output(a, argv[2], program_only);
 
     if (show_symbols) {
-        print_symbols(&a);
+        print_symbols(a);
     }
 
-    free_source(&a);
+    free_source(a);
+    free(a);
     return 0;
 }
