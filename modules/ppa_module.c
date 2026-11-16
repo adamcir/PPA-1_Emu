@@ -9,9 +9,9 @@
 
 /*
  * PPAM 1.0: binary, little-endian. No native executable code is loaded.
- * Header (24 bytes):
+ * Header (24 bytes), unchanged from PPAMOD v1:
  *   00  "PPAM"
- *   04  version u16 (1)
+ *   04  file format version u16 (1 legacy, 2 identity block)
  *   06  type u16 (1 = LIGHT)
  *   08  code_size u32
  *   0C  data_size u32 (may be larger than 2 MiB)
@@ -20,7 +20,12 @@
  * Code is a series of eight-byte records:
  *   event u8 (1=WRITE), action u8 (1=LIGHT_PULSE),
  *   slot_offset u32, pulse_cycles u16 (0=default).
- * Data after code is read-only, bank mapped from relative offset 0x10000.
+ * V2: 64-byte identity block immediately after the 24-byte header:
+ *     00..2F printable ASCII name, NUL padded (max 47 chars)
+ *     30 major, 31 minor, 32 patch, 33..3F reserved (zero).
+ * Then bytecode and optional data as before. Data are read-only from
+ * relative offset 0x10000. The bus identity window is independent of
+ * the binary .ppamod file header and the device register banks.
  */
 static uint16_t le16(const uint8_t *p) {
     return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
@@ -50,15 +55,30 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
     if (!f) return false;
     uint8_t h[24];
     bool ok = fread(h, 1, sizeof(h), f) == sizeof(h);
+    uint16_t format = ok ? le16(h + 4) : 0;
     uint16_t type = ok ? le16(h + 6) : 0;
     uint32_t code_len = ok ? le32(h + 8) : 0;
     uint32_t data_len = ok ? le32(h + 12) : 0;
     uint32_t pulse = ok ? le32(h + 16) : 0;
-    ok = ok && !memcmp(h, "PPAM", 4) && le16(h + 4) == PPAM_VERSION &&
+    ok = ok && !memcmp(h, "PPAM", 4) &&
+         (format == PPAM_VERSION || format == PPAM_LEGACY_VERSION) &&
          (type == PPAM_TYPE_LIGHT || type == PPAM_TYPE_SOUND ||
           type == PPAM_TYPE_VGA || type == PPAM_TYPE_PS2) && code_len <= PPAM_MAX_CODE &&
          code_len % 8 == 0 && data_len <= PPAM_MAX_DATA &&
          le32(h + 20) == 0 && strlen(path) < sizeof(bus->slots[slot].path);
+    uint8_t identity[PPAM_ID_BLOCK_SIZE] = {0};
+    if (ok && format == PPAM_VERSION) {
+        ok = fread(identity, 1, sizeof(identity), f) == sizeof(identity);
+        /* Name must be NUL terminated, ASCII and have zero reserved bytes. */
+        bool terminated = false;
+        for (unsigned i = 0; ok && i < PPAM_ID_NAME_SIZE; ++i) {
+            if (!identity[i]) { terminated = true; continue; }
+            if (terminated || identity[i] < 32 || identity[i] > 126) ok = false;
+        }
+        if (!terminated || !identity[0]) ok = false;
+        for (unsigned i = 51; ok && i < sizeof(identity); ++i)
+            if (identity[i] != 0) ok = false;
+    }
     uint8_t *code = NULL, *data = NULL;
     if (ok && code_len) {
         code = malloc(code_len);
@@ -83,6 +103,8 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
     m->installed = true;
     m->active = false; /* Explicit activation in MODULES UI. */
     m->type = type;
+    m->format_version = (uint8_t)format;
+    m->module_version_major = 1;
     m->pulse_cycles = pulse ? pulse : 1000u;
     m->code = code;
     m->code_size = code_len;
@@ -99,6 +121,13 @@ bool ppam_load(PpaModuleBus *bus, int slot, const char *path) {
         ppa_vga_init(m);
     } else {
         snprintf(m->name, sizeof(m->name), "%s", "LIGHT");
+    }
+    if (format == PPAM_VERSION) {
+        memcpy(m->name, identity, PPAM_ID_NAME_SIZE);
+        m->name[PPAM_ID_NAME_SIZE - 1] = '\0';
+        m->module_version_major = identity[48];
+        m->module_version_minor = identity[49];
+        m->module_version_patch = identity[50];
     }
     snprintf(m->path, sizeof(m->path), "%s", path);
     return true;
@@ -128,6 +157,52 @@ void ppam_tick(PpaModuleBus *bus, uint32_t cycles) {
         if (bus->slots[i].type == PPAM_TYPE_LIGHT)
             ppa_light_tick(&bus->slots[i], cycles);
 }
+
+int ppam_find_type(const PpaModuleBus *bus, uint16_t type, unsigned occurrence) {
+    if (!bus || !type) return -1;
+    for (int i = 0; i < PPAM_SLOTS; ++i) {
+        const PpaModule *m = &bus->slots[i];
+        if (!m->installed || !m->active || m->type != type) continue;
+        if (occurrence == 0) return i;
+        --occurrence;
+    }
+    return -1;
+}
+unsigned ppam_count_type(const PpaModuleBus *bus, uint16_t type) {
+    if (!bus || !type) return 0;
+    unsigned result = 0;
+    for (int i = 0; i < PPAM_SLOTS; ++i)
+        if (bus->slots[i].installed && bus->slots[i].active &&
+            bus->slots[i].type == type) ++result;
+    return result;
+}
+
+static uint8_t ppam_identity_read(const PpaModule *m, unsigned slot,
+                                  uint32_t offset) {
+    if (offset >= PPAM_ID_NAME_OFFSET &&
+        offset < PPAM_ID_NAME_OFFSET + PPAM_ID_NAME_WINDOW) {
+        unsigned i = (unsigned)(offset - PPAM_ID_NAME_OFFSET);
+        return i < PPAM_ID_NAME_SIZE ? (uint8_t)m->name[i] : 0;
+    }
+    switch (offset) {
+        case 0x00: return 'P';
+        case 0x01: return 'P';
+        case 0x02: return (uint8_t)m->type;
+        case 0x03: return m->format_version;
+        case 0x04: return m->module_version_major;
+        case 0x05: return m->module_version_minor;
+        case 0x06: return m->module_version_patch;
+        case 0x07: return (uint8_t)strlen(m->name);
+        case 0x08: return (uint8_t)PPAM_ID_NAME_OFFSET;
+        case 0x09: return (uint8_t)(PPAM_ID_NAME_OFFSET >> 8);
+        case 0x0A: return (uint8_t)(slot + 1u);
+        case 0x0B: return (uint8_t)(PPAM_SLOT_BASE(slot) >> 8);
+        case 0x0C: return (uint8_t)PPAM_SLOT_BASE(slot);
+        case 0x0D: return m->active ? 1u : 0u;
+        case 0x0E: return (uint8_t)(m->type >> 8);
+        default: return 0;
+    }
+}
 static PpaModule *get_bank(PpaModuleBus *bus, uint16_t bank) {
     if (!bus || bank < 0x2000u || bank > 0x9FFFu) return NULL;
     PpaModule *m = &bus->slots[(bank - 0x2000u) >> 12];
@@ -137,13 +212,10 @@ uint8_t ppam_read(PpaModuleBus *bus, uint16_t bank, uint16_t addr) {
     PpaModule *m = get_bank(bus, bank);
     if (!m) return 0xFF;
     uint32_t offset = (((uint32_t)bank & 0x0FFFu) << 16) | addr;
-    switch (offset) {
-        case 0x00: return 'P';
-        case 0x01: return 'P';
-        case 0x02: return (uint8_t)m->type;
-        case 0x03: return PPAM_VERSION;
-        default: break;
-    }
+    if (offset < 0x10u ||
+        (offset >= PPAM_ID_NAME_OFFSET &&
+         offset < PPAM_ID_NAME_OFFSET + PPAM_ID_NAME_WINDOW))
+        return ppam_identity_read(m, (bank - 0x2000u) >> 12, offset);
     if (m->type == PPAM_TYPE_SOUND && offset < 0x10000u)
         return ppa_sound_read(m, offset);
     if (m->type == PPAM_TYPE_LIGHT && offset < 0x10000u)
@@ -161,6 +233,10 @@ void ppam_write(PpaModuleBus *bus, uint16_t bank,
     PpaModule *m = get_bank(bus, bank);
     if (!m) return;
     uint32_t offset = (((uint32_t)bank & 0x0FFFu) << 16) | addr;
+    /* Card identity is read-only and never reaches device registers. */
+    if (offset < 0x10u ||
+        (offset >= PPAM_ID_NAME_OFFSET &&
+         offset < PPAM_ID_NAME_OFFSET + PPAM_ID_NAME_WINDOW)) return;
     if (m->type == PPAM_TYPE_SOUND) ppa_sound_write(m, offset, value);
     else if (m->type == PPAM_TYPE_LIGHT) ppa_light_write(m, offset, value);
     else if (m->type == PPAM_TYPE_VGA) ppa_vga_write(m, offset, value);

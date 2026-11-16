@@ -11,6 +11,29 @@ int main(void) {
     assert(ppam_read(&b, 0x2000, 0x10) == 0xFF);
     assert(ppam_set_active(&b, 0, true));
     assert(ppam_read(&b, 0x2000, 0) == 'P');
+    /* Identity is in a ROM-like window, always relative to slot base. */
+    assert(ppam_read(&b, 0x2000, 0x02) == PPAM_TYPE_LIGHT);
+    assert(ppam_read(&b, 0x2000, 0x03) == 2); /* PPAMOD file format */
+    assert(ppam_read(&b, 0x2000, 0x04) == 1);
+    assert(ppam_read(&b, 0x2000, 0x05) == 0);
+    assert(ppam_read(&b, 0x2000, 0x06) == 0);
+    assert(ppam_read(&b, 0x2000, 0x07) == 7); /* LIGHT/1 */
+    assert(ppam_read(&b, 0x2000, 0x08) == 0x80);
+    assert(ppam_read(&b, 0x2000, 0x09) == 0);
+    assert(ppam_read(&b, 0x2000, 0x0A) == 1);
+    assert(ppam_read(&b, 0x2000, 0x0B) == 0x20);
+    assert(ppam_read(&b, 0x2000, 0x0C) == 0);
+    assert(ppam_read(&b, 0x2000, 0x0D) == 1);
+    assert(ppam_read(&b, 0x2000, 0x80) == 'L');
+    assert(ppam_read(&b, 0x2000, 0x86) == '1');
+    assert(ppam_read(&b, 0x2000, 0x87) == 0);
+    ppam_write(&b, 0x2000, 0x80, 0x41);
+    ppam_write(&b, 0x2000, 0x04, 0x41);
+    assert(ppam_read(&b, 0x2000, 0x80) == 'L');
+    assert(ppam_read(&b, 0x2000, 0x04) == 1);
+    assert(ppam_find_type(&b, PPAM_TYPE_LIGHT, 0) == 0);
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 0) == -1);
+    assert(ppam_count_type(&b, PPAM_TYPE_LIGHT) == 1);
     assert(ppam_read(&b, 0x2000, 0x10) == 0);
     ppam_write(&b, 0x2000, 0x10, 1);
     assert(ppam_get(&b, 0)->light_on);
@@ -166,7 +189,53 @@ int main(void) {
     ppam_reset(&b);
     assert(ppam_read(&b, 0x5000, PPA_PS2_COUNT) == 0);
 
+    /* Discovery chooses active cards and respects duplicate types. */
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 0) == 1);
+    assert(ppam_find_type(&b, PPAM_TYPE_VGA, 0) == 2);
+    assert(ppam_find_type(&b, PPAM_TYPE_PS2, 0) == 3);
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 1) == -1);
+    assert(ppam_read(&b, 0x3000, 0x80) == 'P');
+    assert(ppam_read(&b, 0x4000, 0x80) == 'P');
+    assert(ppam_read(&b, 0x5000, 0x80) == 'P');
+    assert(ppam_read(&b, 0x4000, 0x0B) == 0x40);
+    assert(ppam_read(&b, 0x5000, 0x0A) == 4);
+
+    assert(ppam_load(&b, 4, "out/modules/ppa-sound-1.ppamod"));
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 1) == -1);
+    assert(ppam_set_active(&b, 4, true));
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 0) == 1);
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 1) == 4);
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 2) == -1);
+    assert(ppam_count_type(&b, PPAM_TYPE_SOUND) == 2);
+    assert(ppam_read(&b, 0x6000, 0x0B) == 0x60);
+    assert(ppam_read(&b, 0x6000, 0x0A) == 5);
+    ppam_set_active(&b, 1, false);
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 0) == 4);
+    assert(ppam_count_type(&b, PPAM_TYPE_SOUND) == 1);
+    ppam_eject(&b, 4);
+    assert(ppam_find_type(&b, PPAM_TYPE_SOUND, 0) == -1);
+
+    /* Legacy v1 cards still expose synthesized identity, without requiring
+     * a new image conversion or changing the original 24-byte header. */
+    const char *legacy_path = "out/modules/legacy-v1-test.ppamod";
+    const uint8_t legacy_image[24] = {
+        'P','P','A','M', 1,0, 1,0, 0,0,0,0, 0,0,0,0,
+        0,0,0,0, 0,0,0,0
+    };
+    FILE *legacy = fopen(legacy_path, "wb");
+    assert(legacy != NULL);
+    assert(fwrite(legacy_image, 1, sizeof(legacy_image), legacy) ==
+           sizeof(legacy_image));
+    assert(fclose(legacy) == 0);
+    assert(ppam_load(&b, 0, legacy_path));
+    assert(ppam_set_active(&b, 0, true));
+    assert(ppam_read(&b, 0x2000, 0x03) == 1);
+    assert(ppam_read(&b, 0x2000, 0x04) == 1);
+    assert(ppam_read(&b, 0x2000, 0x80) == 'L');
+    ppam_eject(&b, 0);
+    assert(remove(legacy_path) == 0);
+
     ppam_bus_destroy(&b);
-    puts("PPAMOD LIGHT/SOUND/VGA/PS2 bus and scan-code tests OK");
+    puts("PPAMOD v1/v2 identity/discovery LIGHT/SOUND/VGA/PS2 tests OK");
     return 0;
 }

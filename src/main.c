@@ -46,6 +46,43 @@
 
 static PpaModuleBus g_ppa_modules;
 static PpaIrqController g_irq;
+/* PPAMOD discovery controller: bank F000, offsets FF30..FF36.
+ * Three 8-bit latches drive a sequential scan of eight active slots.
+ * Read-only result ports report slot and base bank, or 0xFF when absent.
+ */
+static uint16_t g_ppam_query_type;
+static uint8_t g_ppam_query_occurrence;
+static void ppam_discovery_reset(void) {
+    g_ppam_query_type = 0;
+    g_ppam_query_occurrence = 0;
+}
+static uint8_t ppam_discovery_read(uint16_t addr) {
+    int slot = ppam_find_type(&g_ppa_modules, g_ppam_query_type,
+                              g_ppam_query_occurrence);
+    if (addr == 0xFF30u) return (uint8_t)g_ppam_query_type;
+    if (addr == 0xFF31u) return (uint8_t)(g_ppam_query_type >> 8);
+    if (addr == 0xFF32u) return g_ppam_query_occurrence;
+    if (addr == 0xFF36u) return (uint8_t)ppam_count_type(
+        &g_ppa_modules, g_ppam_query_type);
+    if (slot < 0) return 0xFF;
+    uint16_t bank = PPAM_SLOT_BASE(slot);
+    switch (addr) {
+        case 0xFF33u: return (uint8_t)(bank >> 8);
+        case 0xFF34u: return (uint8_t)bank;
+        case 0xFF35u: return (uint8_t)(slot + 1);
+        default: return 0xFF;
+    }
+}
+static void ppam_discovery_write(uint16_t addr, uint8_t v) {
+    switch (addr) {
+        case 0xFF30u: g_ppam_query_type =
+            (uint16_t)((g_ppam_query_type & 0xFF00u) | v); break;
+        case 0xFF31u: g_ppam_query_type =
+            (uint16_t)((g_ppam_query_type & 0x00FFu) | ((uint16_t)v << 8)); break;
+        case 0xFF32u: g_ppam_query_occurrence = v; break;
+        default: break;
+    }
+}
 #define SYSTEM_IO_START  0xFF00u
 #define SYSTEM_IO_END    0xFF7Fu
 #define SYSTEM_RSVD_START 0xFF80u
@@ -550,6 +587,8 @@ static uint8_t system_read8(Memory *memory, Serial *serial, uint16_t addr) {
             return ppa_irq_read(&g_irq, addr);
         if (addr >= PPA_TIMER_LO && addr <= PPA_TIMER_COUNT_HI)
             return ppa_irq_read(&g_irq, addr);
+        if (addr >= 0xFF30u && addr <= 0xFF36u)
+            return ppam_discovery_read(addr);
         if (serial && serial->enabled) serial_poll_rx(serial);
         switch (addr) {
             case SERIAL_TX: return 0;
@@ -577,6 +616,10 @@ static void system_write8(Memory *memory, Serial *serial, uint16_t addr, uint8_t
 
 
     if (addr >= SYSTEM_IO_START && addr <= SYSTEM_IO_END) {
+        if (addr >= 0xFF30u && addr <= 0xFF36u) {
+            ppam_discovery_write(addr, v);
+            return;
+        }
         if ((addr >= PPA_IRQ_PENDING && addr <= PPA_IRQ_ACTIVE) ||
             (addr >= PPA_TIMER_LO && addr <= PPA_TIMER_COUNT_HI)) {
             ppa_irq_write(&g_irq, addr, v);
@@ -1776,6 +1819,7 @@ static void gui_cpu_reset_state(GuiBackendContext *g) {
     g->instruction_count = 0;
     ppam_reset(&g_ppa_modules);
     ppa_irq_reset(&g_irq);
+    ppam_discovery_reset();
 }
 
 static void gui_dump_cpu_state(const GuiBackendContext *g,
@@ -2623,6 +2667,7 @@ int main(int argc, char **argv) {
 
     ppam_bus_init(&g_ppa_modules);
     ppa_irq_reset(&g_irq);
+    ppam_discovery_reset();
     memory_init_blank(&memory);
     memory.rom_size = config.rom_size;
     memory.ram_size = config.ram_size;

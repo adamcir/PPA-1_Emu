@@ -5,7 +5,15 @@
 #include <stddef.h>
 
 #define PPAM_SLOTS 8
-#define PPAM_VERSION 1u
+/* PPAMOD v2 adds a 64-byte immutable identity block to the card file.
+ * V1 cards remain readable and receive a legacy identity on the bus. */
+#define PPAM_VERSION 2u
+#define PPAM_LEGACY_VERSION 1u
+#define PPAM_ID_NAME_SIZE 48u
+#define PPAM_ID_BLOCK_SIZE 64u
+#define PPAM_ID_NAME_OFFSET 0x0080u
+#define PPAM_ID_NAME_WINDOW 64u
+#define PPAM_SLOT_BASE(slot) ((uint16_t)(0x2000u + (uint16_t)(slot) * 0x1000u))
 #define PPAM_TYPE_LIGHT 1u
 #define PPAM_TYPE_SOUND 2u
 #define PPAM_TYPE_VGA 3u
@@ -35,6 +43,8 @@ typedef struct {
     bool active;
     bool light_on;
     uint16_t type;
+    uint8_t format_version;
+    uint8_t module_version_major, module_version_minor, module_version_patch;
     bool sound_master;
     uint8_t sound_volume;
     PpaSoundChannel sound[PPAM_AUDIO_CHANNELS];
@@ -82,6 +92,10 @@ void ppam_bus_init(PpaModuleBus *bus);
 void ppam_bus_destroy(PpaModuleBus *bus);
 bool ppam_load(PpaModuleBus *bus, int slot, const char *path);
 void ppam_eject(PpaModuleBus *bus, int slot);
+/* Slot index 0..7 for the Nth installed AND active card of given type.
+ * Return -1 if absent; supports multiple identical peripherals. */
+int ppam_find_type(const PpaModuleBus *bus, uint16_t type, unsigned occurrence);
+unsigned ppam_count_type(const PpaModuleBus *bus, uint16_t type);
 bool ppam_set_active(PpaModuleBus *bus, int slot, bool active);
 void ppam_reset(PpaModuleBus *bus);
 void ppam_tick(PpaModuleBus *bus, uint32_t cycles);

@@ -1,3 +1,73 @@
+# PPAMOD identity and dynamic discovery (v2)
+
+Every card type (LIGHT/1, PPA-SOUND/1, PPA-VGA/1 and PPA-PS/2/1)
+exposes a **common read-only identity ROM** in its first slot bank.
+All addresses below are relative to each module slot, not absolute BR
+values. A module in slot 3 uses bank `4000`, for example.
+
+| Relative address | Read-only field | Encoding |
+|---|---|---|
+| `0000–0001` | Signature | ASCII `PP` |
+| `0002` | Type ID low | 1 LIGHT, 2 SOUND, 3 VGA, 4 PS/2 |
+| `0003` | Binary file format | 1 legacy, 2 identity-aware |
+| `0004–0006` | Module version | Major, minor, patch (u8 each) |
+| `0007` | Name length | ASCII byte count, 0–47 |
+| `0008–0009` | Name offset | Little-endian `0x0080` |
+| `000A` | Slot number | 1–8 |
+| `000B–000C` | Base bank | High then low byte of the BR slot base |
+| `000D` | Card flags | Bit 0 = active |
+| `000E` | Type ID high | Supports future 16-bit device IDs |
+| `000F` | Reserved | Zero |
+| `0080–00AF` | Module name | NUL-terminated, max 47 ASCII characters |
+| `00B0–00BF` | Reserved name window | Reads zero |
+
+No writes to the identity windows reach device hardware. Device
+registers stay **unchanged**, starting at `0010`; SOUND's upper
+registers through `0054`, VGA register addresses, PS/2 FIFO, and VGA
+bank+1 VRAM are unaffected.
+
+The module file format v2 retains the existing 24-byte file header,
+followed by a 64-byte identification record (before bytecode and data):
+
+- `+00–+2F`: 48 bytes ASCII name (NUL-padded);
+- `+30–+32`: module version major, minor, patch;
+- `+33–+3F`: reserved zero bytes.
+
+`version` in a module's JSON is the **PPAMOD file format version**.
+`module_version: [major,minor,patch]` is the card's own software/hardware
+revision. Every built-in JSON definition now uses file format 2 and
+contains a distinct `name` and `module_version`.
+Old v1 PPAMOD binaries are still loadable; the emulator supplies
+the original legacy name and version 1.0.0 in their read-only ID window.
+
+## Automatic discovery by type
+
+The memory-mapped system controller at **BR=F000** provides:
+
+| Address | R/W | Purpose |
+|---|---|---|
+| `FF30` | R/W | Desired type ID low |
+| `FF31` | R/W | Desired type ID high |
+| `FF32` | R/W | Match occurrence (0 = first, 1 = second…) |
+| `FF33` | R | Matched slot base bank HI (`FF` if absent) |
+| `FF34` | R | Matched slot base bank LO (`FF` if absent) |
+| `FF35` | R | Matched slot number 1–8 (`FF` if absent) |
+| `FF36` | R | Count of installed and activated cards of this type |
+
+Lookup inspects all eight slots in ascending slot order. Only
+**installed AND active** cards are visible to the CPU. There may be
+multiple cards of the same type: set `FF32` to 0, 1, 2, etc.
+The discovery controller has two 8-bit type latches and an occurrence
+latch, and can be built as an eight-slot sequential scan without
+needing a general-purpose processor. It remains separate from the
+IRQ controller and preserves the system I/O bank mapping.
+
+A runnable demo is `examples/ppamod_discover.asm`: it finds any active
+SOUND/1 module, reads its ID ROM and enables the sound master without
+ever assuming a fixed bank. See `make test-modules` for tests.
+
+---
+
 # Layout of module sources and compiled cards
 
 ## Independent module user interfaces
@@ -40,7 +110,7 @@ The emulator sources are in `src/`; the assembler is in `tools/asm/`.
 # PPA-1 PPAMOD modules
 
 `out/modules/light.ppamod` is the first binary PPA-BUS/1 card.
-The first four bytes are ASCII `PPAM` (50 50 41 4D).
+The first four **file** bytes are ASCII `PPAM` (50 50 41 4D); the **bus ID** begins with `PP` and includes the device type, name, and revision.
 
 ## Loading
 
@@ -69,7 +139,7 @@ MOV A,#01
 ST $0010,A
 ```
 
-## PPAMOD file format version 1
+## PPAMOD legacy file format version 1
 
 All integers little-endian. Fixed 24-byte header:
 

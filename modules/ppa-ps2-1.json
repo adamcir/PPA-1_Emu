@@ -1,6 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "type": 4,
   "pulse_cycles": 0,
-  "rules": []
+  "rules": [],
+  "name": "PPA-PS/2/1",
+  "module_version": [
+    1,
+    0,
+    0
+  ]
 }

@@ -1,6 +1,12 @@
 {
-  "version": 1,
+  "version": 2,
   "type": 2,
   "pulse_cycles": 0,
-  "rules": []
+  "rules": [],
+  "name": "PPA-SOUND/1",
+  "module_version": [
+    1,
+    0,
+    0
+  ]
 }

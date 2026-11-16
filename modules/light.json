@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "type": 1,
   "pulse_cycles": 1000,
   "rules": [
@@ -9,5 +9,11 @@
       "offset": 16,
       "duration": 0
     }
+  ],
+  "name": "LIGHT/1",
+  "module_version": [
+    1,
+    0,
+    0
   ]
 }
