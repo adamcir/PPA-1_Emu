@@ -53,11 +53,12 @@ static char *state_path(char *dest,size_t cap,bool create) {
 static const char *suffix(const char *file) {
     return strrchr(file,'.');
 }
-static bool accepted(PpaBrowserMode mode,const char *name) {
+bool ppa_browser_accepts(PpaBrowserMode mode,const char *name) {
     const char *ext=suffix(name);
     if(!ext)return false;
-    if(mode==PPA_BROWSER_MIDI)
-        return !strcasecmp(ext,".mid")||!strcasecmp(ext,".midi");
+    if(mode==PPA_BROWSER_MIDI || mode==PPA_BROWSER_OPEN)
+        return !strcasecmp(ext,".mid")||!strcasecmp(ext,".midi")||
+               (mode==PPA_BROWSER_OPEN&&!strcasecmp(ext,".ppasp"));
     if(mode==PPA_BROWSER_PROJECT)return !strcasecmp(ext,".ppasp");
     return !strcasecmp(ext,".asm");
 }
@@ -78,7 +79,7 @@ static size_t list_entries(const char *dir,PpaBrowserMode mode,BrowserEntry *lis
         struct stat st;
         if(stat(full,&st))continue;
         bool folder=S_ISDIR(st.st_mode);
-        if(!folder&&(!S_ISREG(st.st_mode)||!accepted(mode,de->d_name)))continue;
+        if(!folder&&(!S_ISREG(st.st_mode)||!ppa_browser_accepts(mode,de->d_name)))continue;
         safe_copy(list[count].name,sizeof(list[count].name),de->d_name);
         list[count].dir=folder;
         ++count;
@@ -103,7 +104,7 @@ static bool canonical_dir(const char *candidate,char *out,size_t cap) {
     return true;
 }
 static void remember(PpaBrowserState *st,PpaBrowserMode mode,const char *dir) {
-    char *target=(mode==PPA_BROWSER_MIDI?st->last_midi:
+    char *target=((mode==PPA_BROWSER_MIDI||mode==PPA_BROWSER_OPEN)?st->last_midi:
                   mode==PPA_BROWSER_PROJECT?st->last_project:st->last_export);
     safe_copy(target,PATH_MAX,dir);
 }
@@ -183,7 +184,7 @@ void ppa_browser_init(PpaBrowserState *st) {
     fclose(in);
 }
 const char *ppa_browser_last(const PpaBrowserState *st,PpaBrowserMode mode) {
-    return mode==PPA_BROWSER_MIDI?st->last_midi:
+    return (mode==PPA_BROWSER_MIDI||mode==PPA_BROWSER_OPEN)?st->last_midi:
            mode==PPA_BROWSER_PROJECT?st->last_project:st->last_export;
 }
 static void edit_name(WINDOW *win,int width,int row,char *name,size_t cap) {
@@ -224,13 +225,16 @@ bool ppa_browser_show(PpaBrowserState *st,PpaBrowserMode mode,
         werase(w);wbkgd(w,COLOR_PAIR(6));box(w,0,0);
         wattron(w,COLOR_PAIR(3)|A_BOLD);
         mvwprintw(w,0,3," %s ",
+                  mode==PPA_BROWSER_OPEN?"OPEN MIDI / PPASP":
                   mode==PPA_BROWSER_MIDI?"OPEN MIDI":
                   mode==PPA_BROWSER_PROJECT?"OPEN PPA SOUND PROJECT":"SAVE ASM AS");
         wattroff(w,COLOR_PAIR(3)|A_BOLD);
         mvwprintw(w,2,2,"Path: %.*s",width-10,dir);
         if(mode==PPA_BROWSER_ASM_SAVE)
             mvwprintw(w,3,2,"File: %.*s",width-10,name);
-        else mvwprintw(w,3,2,"Choose a %s file",mode==PPA_BROWSER_MIDI?"MIDI":"PPASP");
+        else mvwprintw(w,3,2,"Choose a %s file",
+                       mode==PPA_BROWSER_OPEN?"MIDI or PPASP":
+                       mode==PPA_BROWSER_MIDI?"MIDI":"PPASP");
         int sidebar=24;
         wattron(w,COLOR_PAIR(2)|A_BOLD);
         mvwaddstr(w,5,2,"FAVORITES");
@@ -247,7 +251,9 @@ bool ppa_browser_show(PpaBrowserState *st,PpaBrowserMode mode,
             int index=top+i;
             if(index==cursor)wattron(w,A_REVERSE);
             mvwprintw(w,6+i,sidebar+3,"%-3s %-*.*s",
-                      entries[index].dir?"DIR":"FILE",
+                      entries[index].dir?"DIR":
+                      (ppa_browser_accepts(PPA_BROWSER_PROJECT,entries[index].name)?"PPASP":
+                       ppa_browser_accepts(PPA_BROWSER_MIDI,entries[index].name)?"MIDI":"ASM"),
                       width-sidebar-12,width-sidebar-12,entries[index].name);
             if(index==cursor)wattroff(w,A_REVERSE);
         }

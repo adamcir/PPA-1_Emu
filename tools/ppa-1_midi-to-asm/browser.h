@@ -9,6 +9,7 @@
 
 typedef enum {
     PPA_BROWSER_MIDI,
+    PPA_BROWSER_OPEN,
     PPA_BROWSER_PROJECT,
     PPA_BROWSER_ASM_SAVE
 } PpaBrowserMode;
@@ -27,4 +28,5 @@ void ppa_browser_init(PpaBrowserState *state);
 bool ppa_browser_show(PpaBrowserState *state, PpaBrowserMode mode,
                       const char *suggested_filename, char *result, size_t result_len);
 const char *ppa_browser_last(const PpaBrowserState *state, PpaBrowserMode mode);
+bool ppa_browser_accepts(PpaBrowserMode mode, const char *filename);
 #endif

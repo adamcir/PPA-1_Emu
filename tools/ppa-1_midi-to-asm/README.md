@@ -26,8 +26,11 @@ Or run using:
 
     make midi-run
 
-File selection uses a shared ncurses **popup** for MIDI (F3), PPASP (F8)
-and ASM export (F6). The default ASM export directory is now
+**F3 / O (Open)** now shows `.mid`, `.midi` and `.ppasp` files together in
+one ncurses popup. Select a MIDI to start an imported song, or a PPASP
+to restore its embedded MIDI, edited tracks and voice parts. **F8 / L**
+is an alias for the same Open dialog. **F6** remains the ASM Save As dialog.
+ The default ASM export directory is now
 `~/PPA-Songs/`, next to the saved `.ppasp` projects (not `examples/`).
 The ASM can still be saved into `examples/` when desired. When run
 from the repository root, the PPA-1 assembler also resolves the standard
@@ -40,8 +43,8 @@ The popup follows a two-pane file-manager layout:
 
 - **Left:** up to eight favorite filesystem directories;
   press **1–8** to jump directly to one of them.
-- **Right:** folders plus the corresponding `.mid/.midi`,
-  `.ppasp`, or `.asm` files.
+- **Right:** Open displays MIDI and PPASP files together; ASM Save As
+  displays `.asm` files. Folder entries are always shown.
 - **B:** add/remove current directory from favorites.
 - **H:** jump to `$HOME`; **P:** jump to `~/PPA-Songs`.
 - **R:** return to the last folder remembered for this dialog type.
@@ -72,7 +75,7 @@ but can be pointed anywhere through the popup.
 
 | Key | Action |
 |---|---|
-| O | Browse MIDI files |
+| O / F3 | Open MIDI or PPASP in the same popup |
 | Up / Down | Select track |
 | Delete / D | Remove source track (nondestructive) |
 | R | Restore removed source track |
@@ -83,13 +86,37 @@ but can be pointed anywhere through the popup.
 | F / F5 or click OPTIMIZE | Allocate polyphonic notes to four channels and expand logical lanes |
 | Tab | Expand / collapse the logical source-note lanes |
 | E / F4 or double-click a track | Open the track configuration dialog |
-| F3 | Browse for a MIDI file |
+| F8 / L | Open the same MIDI/PPASP browser |
 | F6 | Save optimized ASM with the file dialog |
 | C | CPU microsteps per second |
 | T | Time-unit resolution in ms |
 | A | Open the graphical ncurses SAVE ASM AS dialog |
 | Enter | Open SAVE ASM AS and export single multi-bank ASM |
-| Q | Quit |
+| Esc / Q | Exit the editor (asks about unsaved PPASP changes) |
+
+## Unsaved changes and Escape
+
+**Esc** in the main mixer exits the application. **Esc inside a modal
+dialog** cancels that dialog and returns to the editor.
+
+The editor marks a newly imported MIDI as unsaved. Changes to track
+settings, logical PART settings, inclusion/removal, waveform, volume,
+polyphony, transpose, optimizer, clock/tick and project name also mark
+the PPASP as modified. The project header displays a `*` when dirty.
+Saving with **F7 / S** clears that marker only if the PPASP write succeeds.
+
+When exiting with Esc (or Q), or opening another MIDI/PPASP while the
+current project is modified, a green/orange ncurses dialog offers:
+
+- **S — Save:** write the current project to `~/PPA-Songs/name.ppasp`,
+  then continue exiting/opening only after successful saving.
+- **D — Discard:** continue without saving the current modifications.
+- **C / Esc — Cancel:** stay in the current project unchanged.
+
+Cancelling the Open browser does not discard edits. Selecting an invalid
+MIDI file is rejected before replacing the current project. **Exporting
+ASM is not the same as saving the PPASP project**, so it does not clear
+the unsaved-changes indicator.
 
 The export dialog browses directories, shows existing ASM files, edits the
 filename with F2, chooses the directory with Enter, and confirms the

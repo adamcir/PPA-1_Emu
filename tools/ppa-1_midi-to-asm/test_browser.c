@@ -37,6 +37,14 @@ int main(void) {
     assert(!strcmp(ppa_browser_last(&state,PPA_BROWSER_MIDI),home));
     assert(!strcmp(ppa_browser_last(&state,PPA_BROWSER_PROJECT),home));
     assert(!strcmp(ppa_browser_last(&state,PPA_BROWSER_ASM_SAVE),home));
+    assert(!strcmp(ppa_browser_last(&state,PPA_BROWSER_OPEN),home));
+    assert(ppa_browser_accepts(PPA_BROWSER_OPEN,"music.mid"));
+    assert(ppa_browser_accepts(PPA_BROWSER_OPEN,"music.MIDI"));
+    assert(ppa_browser_accepts(PPA_BROWSER_OPEN,"session.ppasp"));
+    assert(ppa_browser_accepts(PPA_BROWSER_OPEN,"session.PPASP"));
+    assert(!ppa_browser_accepts(PPA_BROWSER_OPEN,"session.asm"));
+    assert(!ppa_browser_accepts(PPA_BROWSER_MIDI,"session.ppasp"));
+    assert(ppa_browser_accepts(PPA_BROWSER_PROJECT,"session.ppasp"));
     assert(state.favorite_count==1);
     assert(!strcmp(state.favorites[0],home));
     if(old){setenv("HOME",old,1);free(old);}else unsetenv("HOME");

@@ -82,6 +82,7 @@ static void initialize_paths(void) {
 static char output_path[PATH_MAX] = "examples/music.asm";
 static char message[256] = "O=open MIDI  Space=remove/restore  W=wave  P=polyphony  +/-=volume  F=optimize";
 static bool optimize = false;
+static bool project_dirty = false;
 static int clock_hz = 100000;
 static int tick_ms = 10;
 
@@ -96,7 +97,7 @@ static void ask_string(const char *prompt, char *out, size_t cap) {
 }
 /* All filesystem operations use the same persistent ncurses popup. */
 static bool browse_file(char *selected, size_t size) {
-    return ppa_browser_show(&browser, PPA_BROWSER_MIDI, NULL, selected, size);
+    return ppa_browser_show(&browser, PPA_BROWSER_OPEN, NULL, selected, size);
 }
 static bool export_dialog(char *destination, size_t capacity) {
     const char *name = strrchr(destination, '/');
@@ -141,6 +142,7 @@ static void load_tracks(void) {
     snprintf(message, sizeof(message), "Loaded %d MIDI track/channel streams",
              ntracks);
     update_preview();
+    project_dirty = true; /* newly imported MIDI has no saved PPASP yet */
 }
 static void update_preview(void) {
     preview_valid = false;
@@ -242,6 +244,7 @@ static void track_settings_dialog(int idx) {
                     if (part->wave==previous_wave)part->wave=edited.wave;
                 }
             update_preview();
+            project_dirty = true;
             snprintf(message, sizeof(message), "Updated track %d: %.190s",
                      idx + 1, edited.name);
             return;
@@ -311,6 +314,7 @@ static void part_settings_dialog(int track, int lane) {
         if(key=='\n'||key==KEY_ENTER){
             parts[track*4+lane]=edited;
             update_preview();
+            project_dirty = true;
             snprintf(message,sizeof(message),"Updated track %d / part %d",
                      track+1,lane+1);
             return;
@@ -346,38 +350,38 @@ static void edit_selected_dialog(int track) {
 
 /* The PPASP project keeps a full copy of the MIDI data and all settings.
  * Saving a project must NEVER write or replace an ASM file. */
-static void save_project(void) {
+static bool save_project(void) {
     if (!ntracks||!midi_path[0]) {
         snprintf(message,sizeof(message),"Open MIDI before saving a PPASP project");
-        return;
+        return false;
     }
     char saved[PATH_MAX],error[256]="";
     if (ppa_project_save(project_name,midi_path,tracks,parts,ntracks,
                          optimize,clock_hz,tick_ms,saved,sizeof(saved),
                          error,sizeof(error))) {
         snprintf(message,sizeof(message),"SAVED: %.210s",saved);
-    } else snprintf(message,sizeof(message),"PPASP save failed: %.180s",error);
+        project_dirty = false;
+        return true;
+    }
+    snprintf(message,sizeof(message),"PPASP save failed: %.180s",error);
+    return false;
 }
 
-/* PPASP picker shares the same favorite and recent folders as MIDI/ASM. */
-static bool pick_project(char *chosen, size_t cap) {
-    return ppa_browser_show(&browser, PPA_BROWSER_PROJECT, NULL, chosen, cap);
-}
-static void load_project(void) {
-    char path[PATH_MAX],temp[PATH_MAX],error[256]="";
-    if(!pick_project(path,sizeof(path)))return;
+/* Open a PPASP path chosen in the common MIDI/PPASP dialog. */
+static bool load_project(const char *path) {
+    char temp[PATH_MAX],error[256]="";
     PpaMidiTrack *newtracks=calloc(TRACK_MAX,sizeof(*newtracks));
     PpaMidiPart *newparts=calloc(TRACK_MAX*4,sizeof(*newparts));
     if(!newtracks||!newparts) {
         free(newtracks);free(newparts);
         snprintf(message,sizeof(message),"Not enough memory to open project");
-        return;
+        return false;
     }
     int count=0,clock=clock_hz,tick=tick_ms;bool optim=false;
     if(!ppa_project_load(path,temp,sizeof(temp),newtracks,newparts,
                          TRACK_MAX,&count,&optim,&clock,&tick,error,sizeof(error))) {
         snprintf(message,sizeof(message),"PPASP load failed: %.180s",error);
-        free(newtracks);free(newparts);return;
+        free(newtracks);free(newparts);return false;
     }
     if(owned_midi[0])unlink(owned_midi);
     snprintf(owned_midi,sizeof(owned_midi),"%s",temp);
@@ -397,6 +401,82 @@ static void load_project(void) {
              ppa_browser_last(&browser,PPA_BROWSER_ASM_SAVE),project_name);
     update_preview();
     snprintf(message,sizeof(message),"Loaded PPASP project: %s",project_name);
+    project_dirty = false;
+    return true;
+}
+
+/* A modal guard for exiting or replacing an edited project.
+ * Save failures keep the current project open; Escape cancels the action.
+ * The source MIDI and PPASP are never silently discarded. */
+static bool confirm_unsaved(const char *action) {
+    if (!project_dirty || ntracks == 0) return true;
+    const int width = COLS > 76 ? 72 : COLS - 2;
+    const int height = 11;
+    if (width < 48 || LINES < height + 2) {
+        snprintf(message, sizeof(message),
+                 "Terminal too small to confirm unsaved changes");
+        return false;
+    }
+    WINDOW *window = newwin(height, width, (LINES-height)/2, (COLS-width)/2);
+    if (!window) return false;
+    keypad(window, TRUE);
+    wbkgd(window, COLOR_PAIR(UI_PANEL));
+    box(window, 0, 0);
+    wattron(window, COLOR_PAIR(UI_ORANGE) | A_BOLD);
+    mvwaddstr(window, 0, 3, " UNSAVED PPA SOUND PROJECT ");
+    wattroff(window, COLOR_PAIR(UI_ORANGE) | A_BOLD);
+    mvwaddnstr(window, 2, 3, project_name, width - 6);
+    mvwprintw(window, 4, 3, "Save changes before %s?", action);
+    wattron(window, COLOR_PAIR(UI_GREEN) | A_BOLD);
+    mvwaddnstr(window, 6, 3,
+               "[S] Save PPASP   [D] Discard   [C] Cancel", width - 6);
+    wattroff(window, COLOR_PAIR(UI_GREEN) | A_BOLD);
+    mvwaddnstr(window, 8, 3, "Esc also cancels this operation.", width - 6);
+    wrefresh(window);
+    int key;
+    do { key = wgetch(window); }
+    while (key != 's' && key != 'S' && key != 'd' && key != 'D' &&
+           key != 'c' && key != 'C' && key != 27);
+    delwin(window);
+    touchwin(stdscr);
+    refresh();
+    if (key == 's' || key == 'S') return save_project();
+    return key == 'd' || key == 'D';
+}
+
+static bool is_ppasp_path(const char *path) {
+    const char *extension = strrchr(path, '.');
+    return extension && strcasecmp(extension, ".ppasp") == 0;
+}
+
+/* Both F3 and F8 go through the same Open dialog. Validate a prospective
+ * MIDI before prompting or replacing any state; PPASP loading itself
+ * validates and only commits extracted data after a successful parse. */
+static bool open_any_file(const char *path) {
+    if (is_ppasp_path(path)) {
+        if (!confirm_unsaved("opening another file")) return false;
+        return load_project(path);
+    }
+    PpaMidiTrack *check = calloc(TRACK_MAX, sizeof(*check));
+    if (!check) {
+        snprintf(message, sizeof(message), "Not enough memory to open MIDI");
+        return false;
+    }
+    char error[256] = "";
+    int count = 0;
+    bool valid = ppa_midi_open(path, check, TRACK_MAX, &count,
+                               error, sizeof(error));
+    free(check);
+    if (!valid) {
+        snprintf(message, sizeof(message), "MIDI open failed: %.180s", error);
+        return false;
+    }
+    if (!confirm_unsaved("opening another file")) return false;
+    snprintf(midi_path, sizeof(midi_path), "%s", path);
+    optimize = false;
+    source_expanded = false;
+    load_tracks();
+    return ntracks > 0;
 }
 
 static void do_export(void) {
@@ -532,7 +612,8 @@ static void render_editor(int selected, int top) {
     bkgd(COLOR_PAIR(UI_PANEL));
     attron(COLOR_PAIR(UI_HEADER) | A_BOLD);
     mvhline(0, 0, ' ', COLS);
-    mvaddstr(0, 2, " PPA-1 / MIDI-to-ASM ");
+    mvprintw(0, 2, " PPA-1 / MIDI-to-ASM %s",
+             project_dirty ? "[* UNSAVED]" : "[SAVED]");
     mvprintw(0, COLS-30, "[ C11 / NCURSESW ]    %s",
              optimize ? "OPT ON " : "OPT OFF");
     attroff(COLOR_PAIR(UI_HEADER) | A_BOLD);
@@ -548,8 +629,8 @@ static void render_editor(int selected, int top) {
     mvaddnstr(3, 9, output_path, COLS-11);
     if (COLS > 110) {
         attron(COLOR_PAIR(UI_ORANGE));
-        mvprintw(4, 2, "PROJECT: %-40.40s    SAVE: ~/PPA-Songs/%s.ppasp",
-                 project_name, project_name);
+        mvprintw(4, 2, "PROJECT: %s%-40.40s    SAVE: ~/PPA-Songs/%s.ppasp",
+                 project_dirty ? "*" : " ", project_name, project_name);
         attroff(COLOR_PAIR(UI_ORANGE));
     }
 
@@ -731,7 +812,7 @@ static void render_editor(int selected, int top) {
     attron(COLOR_PAIR(UI_HEADER));
     mvhline(LINES-5, 0, ' ', COLS);
     mvaddstr(LINES-5, 2,
-       " F3 MIDI  F4 EDIT  F5 OPTIMIZE  F6 EXPORT ASM  F7 SAVE PPASP  F8 LOAD ");
+       " F3 OPEN  F4 EDIT  F5 OPTIMIZE  F6 EXPORT ASM  F7 SAVE PPASP  F8 OPEN ");
     attroff(COLOR_PAIR(UI_HEADER));
     attron(COLOR_PAIR(UI_GREEN));
     mvaddnstr(LINES-4, 2,
@@ -740,7 +821,7 @@ static void render_editor(int selected, int top) {
     attroff(COLOR_PAIR(UI_GREEN));
     attron(COLOR_PAIR(UI_ORANGE));
     mvaddnstr(LINES-3, 2,
-       "Orange = sounding voice    Green = controls    DIM = silence   Q = quit",
+       "Orange = sounding voice   Green = controls   Esc = exit (save prompt)",
        COLS-3);
     attroff(COLOR_PAIR(UI_ORANGE));
     attron(COLOR_PAIR(UI_DIM));
@@ -811,6 +892,7 @@ int main(int argc, char **argv) {
                                       BUTTON1_DOUBLE_CLICKED))) continue;
                 if (mouse.y == 5 && mouse.x >= 2 && mouse.x < 21) {
                     optimize = !optimize;
+                    if (ntracks) project_dirty = true;
                     source_expanded = optimize;
                     if (!optimize) selected_part=-1;
                     update_preview();
@@ -836,9 +918,9 @@ int main(int argc, char **argv) {
         if (key == KEY_F(7) || key == 's' || key == 'S') {
             save_project(); continue;
         }
-        if (key == KEY_F(8) || key == 'l' || key == 'L') {
-            load_project(); selected=top=0; continue;
-        }
+        /* F8 / L is an alias for the unified Open dialog. */
+        if (key == KEY_F(8) || key == 'l' || key == 'L')
+            key = KEY_F(3);
         if (key == 'n' || key == 'N') {
             char name[160]="";
             ask_string("Project name (saved as ~/PPA-Songs/<name>.ppasp): ",
@@ -846,17 +928,22 @@ int main(int argc, char **argv) {
             if(*name) {
                 for(char *p=name;*p;p++)
                     if(!isalnum((unsigned char)*p)&&*p!='_'&&*p!='-')*p='_';
-                snprintf(project_name,sizeof(project_name),"%s",name);
+                if (strcmp(project_name, name) != 0) {
+                    snprintf(project_name,sizeof(project_name),"%s",name);
+                    if (ntracks) project_dirty = true;
+                }
             }
             continue;
         }
-        if (key == 'q' || key == 'Q') break;
+        if (key == 27 || key == 'q' || key == 'Q') {
+            if (confirm_unsaved("exiting")) break;
+            continue;
+        }
         if (key == 'o' || key == 'O' || key == KEY_F(3)) {
             char path[PATH_MAX];
-            if (browse_file(path, sizeof(path))) {
-                snprintf(midi_path, sizeof(midi_path), "%s", path);
-                optimize = false; source_expanded = false;
-                load_tracks(); selected = top = 0;
+            if (browse_file(path, sizeof(path)) && open_any_file(path)) {
+                selected = 0;
+                top = 0;
             }
             continue;
         }
@@ -888,8 +975,13 @@ int main(int argc, char **argv) {
                 long value = strtol(input, &end, 10);
                 if (!*end && value >= (change_clock ? 100 : 1) &&
                     value <= (change_clock ? 10000000 : 250)) {
-                    if (change_clock) clock_hz = (int)value;
-                    else tick_ms = (int)value;
+                    if (change_clock) {
+                        if (clock_hz != (int)value && ntracks) project_dirty = true;
+                        clock_hz = (int)value;
+                    } else {
+                        if (tick_ms != (int)value && ntracks) project_dirty = true;
+                        tick_ms = (int)value;
+                    }
                 } else {
                     snprintf(message, sizeof(message), "Invalid clock/tick value");
                 }
@@ -898,6 +990,7 @@ int main(int argc, char **argv) {
         }
         if (key == 'f' || key == 'F' || key == KEY_F(5)) {
             optimize = !optimize;
+            if (ntracks) project_dirty = true;
             source_expanded = optimize;
             if (!optimize) selected_part=-1;
             update_preview();
@@ -960,7 +1053,10 @@ int main(int argc, char **argv) {
             if(*volume>255)*volume=255;
             changed=true;
         }
-        if (changed) update_preview();
+        if (changed) {
+            project_dirty = true;
+            update_preview();
+        }
     }
     endwin();
     if(owned_midi[0])unlink(owned_midi);
