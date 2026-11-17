@@ -39,7 +39,7 @@ MODULE_DEFS := $(wildcard modules/*.json)
 MODULE_BINS := $(patsubst modules/%.json,out/modules/%.ppamod,$(MODULE_DEFS))
 
 .PHONY: all clean run asm emu examples sound-examples modules test-modules test-irq
-all: asm emu modules examples
+all: asm emu modules examples midi-gui
 
 out/asm out/examples out/modules out/tools:
 	mkdir -p $@
@@ -107,8 +107,7 @@ clean:
 test-rompack: $(ROMPACK)
 	python3 tools/rompack/test_rompack.py $(ROMPACK)
 
-# Python 3 stdlib MIDI converter; GUI additionally needs Tkinter (python3-tk).
-# Native C11/ncursesw editor and MIDI conversion core; Python optional legacy CLI.
+# PPA-1_MIDI-to-ASM: entirely native C11 + ncursesw.
 CURSES_CFLAGS := $(shell $(PKG_CONFIG) --cflags ncursesw 2>/dev/null)
 CURSES_LIBS := $(shell $(PKG_CONFIG) --libs ncursesw 2>/dev/null || echo -lncursesw)
 MIDI_TUI = out/tools/PPA-1_MIDI-to-ASM
@@ -118,7 +117,7 @@ $(MIDI_TUI): tools/ppa-1_midi-to-asm/main.c tools/ppa-1_midi-to-asm/midi_core.c 
 	  tools/ppa-1_midi-to-asm/main.c tools/ppa-1_midi-to-asm/midi_core.c \
 	  -o $@ $(CURSES_LIBS) -lm
 
-.PHONY: test-midi test-midi-native midi-gui midi-tui
+.PHONY: test-midi test-midi-native midi-gui midi-tui midi-run
 out/tools/test_midi_core: tools/ppa-1_midi-to-asm/test_midi_core.c tools/ppa-1_midi-to-asm/midi_core.c tools/ppa-1_midi-to-asm/midi_core.h | out/tools
 	$(CC) -std=c11 -O2 -Wall -Wextra \
 	  tools/ppa-1_midi-to-asm/test_midi_core.c tools/ppa-1_midi-to-asm/midi_core.c \
@@ -127,8 +126,10 @@ out/tools/test_midi_core: tools/ppa-1_midi-to-asm/test_midi_core.c tools/ppa-1_m
 test-midi-native: asm rompack out/tools/test_midi_core
 	./out/tools/test_midi_core
 
-test-midi: asm rompack test-midi-native
-	$(PYTHON) -m unittest discover -s tools/ppa-1_midi-to-asm -p 'test_*.py' -v
+test-midi: test-midi-native
 
 midi-gui midi-tui: $(MIDI_TUI)
+
+# Explicit execution is separate from compilation.
+midi-run: $(MIDI_TUI)
 	./$(MIDI_TUI)

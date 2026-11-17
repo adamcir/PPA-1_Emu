@@ -167,6 +167,180 @@ static bool browse_file(char *selected, size_t size) {
         free(entries);
     }
 }
+
+/* Modal "Save ASM as" dialog. Arrow keys navigate directories, F2 edits
+ * filename, S/Enter writes path, Esc cancels. No file is created here. */
+static bool export_dialog(char *destination, size_t capacity) {
+    char dir[PATH_MAX];
+    char filename[256] = "";
+    snprintf(dir, sizeof(dir), "%s", destination);
+    char *slash = strrchr(dir, '/');
+    if (slash) {
+        snprintf(filename, sizeof(filename), "%s", slash + 1);
+        if (slash == dir) dir[1] = '\0';
+        else *slash = '\0';
+    } else {
+        snprintf(filename, sizeof(filename), "%s", destination);
+        if (!getcwd(dir, sizeof(dir))) return false;
+    }
+    if (!*filename) snprintf(filename, sizeof(filename), "music.asm");
+    int cursor = 0, top = 0;
+    for (;;) {
+        Entry *entries = calloc(FILE_MAX, sizeof(*entries));
+        if (!entries) return false;
+        size_t count = 0;
+        DIR *dp = opendir(dir);
+        if (!dp) {
+            snprintf(message, sizeof(message), "Cannot browse export directory");
+            free(entries); return false;
+        }
+        struct dirent *de;
+        while ((de = readdir(dp)) && count < FILE_MAX - 1) {
+            if (!strcmp(de->d_name, ".")) continue;
+            char full[PATH_MAX];
+            int n = snprintf(full, sizeof(full), "%s/%s", dir, de->d_name);
+            if (n < 0 || (size_t)n >= sizeof(full)) continue;
+            struct stat st;
+            if (stat(full, &st)) continue;
+            if (!S_ISDIR(st.st_mode) &&
+                (!S_ISREG(st.st_mode) || !strrchr(de->d_name, '.') ||
+                 strcasecmp(strrchr(de->d_name, '.'), ".asm")))
+                continue;
+            snprintf(entries[count].name, sizeof(entries[count].name),
+                     "%s", de->d_name);
+            entries[count].directory = S_ISDIR(st.st_mode);
+            count++;
+        }
+        closedir(dp);
+        qsort(entries, count, sizeof(*entries), file_cmp);
+        if (cursor >= (int)count) cursor = count ? (int)count - 1 : 0;
+        bool navigate = false;
+        for (;;) {
+            int height = LINES > 17 ? LINES - 4 : LINES;
+            int width = COLS > 78 ? COLS - 8 : COLS;
+            if (height < 9 || width < 32) {
+                free(entries);
+                snprintf(message, sizeof(message),
+                         "Terminal too small for Save ASM dialog");
+                return false;
+            }
+            int y = (LINES - height) / 2;
+            int x = (COLS - width) / 2;
+            WINDOW *win = newwin(height, width, y, x);
+            if (!win) { free(entries); return false; }
+            keypad(win, TRUE);
+            box(win, 0, 0);
+            wattron(win, A_BOLD);
+            mvwaddnstr(win, 0, 3, " SAVE ASM AS ", width - 6);
+            wattroff(win, A_BOLD);
+            mvwprintw(win, 2, 2, "Directory: %.*s",
+                      width - 15, dir);
+            mvwprintw(win, 3, 2, "Filename:  %.*s",
+                      width - 15, filename);
+            mvwaddnstr(win, 4, 2,
+                "UP/DOWN directory | ENTER open/save | F2 name | S save | ESC cancel",
+                width - 4);
+            int visible = height - 8;
+            if (cursor < top) top = cursor;
+            if (cursor >= top + visible) top = cursor - visible + 1;
+            for (int i = 0; i < visible && top + i < (int)count; ++i) {
+                int idx = top + i;
+                if (idx == cursor) wattron(win, A_REVERSE);
+                mvwprintw(win, 6 + i, 2, "%-3s %.*s",
+                          entries[idx].directory ? "[D]" : "ASM",
+                          width - 9, entries[idx].name);
+                if (idx == cursor) wattroff(win, A_REVERSE);
+            }
+            mvwaddnstr(win, height - 2, 2,
+                       "Backspace: parent | F2: edit filename | S: confirm",
+                       width - 4);
+            wrefresh(win);
+            int key = wgetch(win);
+            if (key == 27) {
+                delwin(win); free(entries); touchwin(stdscr); refresh();
+                return false;
+            }
+            if (key == KEY_UP && cursor > 0) cursor--;
+            if (key == KEY_DOWN && cursor + 1 < (int)count) cursor++;
+            if (key == KEY_BACKSPACE || key == 127 || key == 8) {
+                char *parent = strrchr(dir, '/');
+                if (parent && parent != dir) *parent = '\0';
+                else snprintf(dir, sizeof(dir), "/");
+                cursor = top = 0; navigate = true;
+            }
+            if (key == KEY_F(2)) {
+                char typed[256] = "";
+                echo(); curs_set(1);
+                mvwprintw(win, 3, 2, "Filename:  %-*s", width - 16, "");
+                wmove(win, 3, 13); wrefresh(win);
+                wgetnstr(win, typed, (int)sizeof(typed) - 1);
+                noecho(); curs_set(0);
+                if (*typed && !strchr(typed, '/')) {
+                    snprintf(filename, sizeof(filename), "%s", typed);
+                }
+            }
+            if ((key == '\n' || key == KEY_ENTER) && count) {
+                if (entries[cursor].directory) {
+                    char next[PATH_MAX];
+                    int n = snprintf(next, sizeof(next), "%s/%s",
+                                     dir, entries[cursor].name);
+                    if (n > 0 && (size_t)n < sizeof(next)) {
+                        snprintf(dir, sizeof(dir), "%s", next);
+                        cursor = top = 0; navigate = true;
+                    }
+                } else {
+                    snprintf(filename, sizeof(filename), "%s",
+                             entries[cursor].name);
+                    key = 's';
+                }
+            } else if (key == '\n' || key == KEY_ENTER) {
+                key = 's';
+            }
+            if (key == 's' || key == 'S') {
+                size_t len = strlen(filename);
+                if (len && !strchr(filename, '/') && strcmp(filename, ".") &&
+                    strcmp(filename, "..")) {
+                    if (len < 4 || strcasecmp(filename + len - 4, ".asm")) {
+                        if (len + 4 < sizeof(filename)) strcat(filename, ".asm");
+                        else { delwin(win); continue; }
+                    }
+                    char full[PATH_MAX];
+                    int n = snprintf(full, sizeof(full), "%s/%s", dir, filename);
+                    if (n > 0 && (size_t)n < capacity && (size_t)n < sizeof(full)) {
+                        struct stat st;
+                        if (!stat(full, &st) && !S_ISREG(st.st_mode)) {
+                            snprintf(message, sizeof(message),
+                                     "Export target is not a regular file");
+                        } else {
+                            /* Do not overwrite without explicit confirmation. */
+                            bool exists = !stat(full, &st);
+                            if (exists) {
+                                mvwaddnstr(win, height - 2, 2,
+                                    "FILE EXISTS. Overwrite? (y/N) ", width - 4);
+                                wclrtoeol(win); wrefresh(win);
+                                int answer = wgetch(win);
+                                if (answer != 'y' && answer != 'Y') {
+                                    delwin(win); continue;
+                                }
+                            }
+                            snprintf(destination, capacity, "%s", full);
+                            delwin(win); free(entries);
+                            touchwin(stdscr); refresh();
+                            return true;
+                        }
+                    } else {
+                        snprintf(message, sizeof(message),
+                                 "ASM path exceeds maximum length");
+                    }
+                }
+            }
+            delwin(win);
+            if (navigate) break;
+        }
+        free(entries);
+    }
+}
+
 static void load_tracks(void) {
     ntracks = 0;
     char error[256] = "";
@@ -206,6 +380,10 @@ static void do_export(void) {
         for (int i = 0; i < ntracks; i++)
             tracks[i].voice = tracks[i].enabled ? voice++ : 0;
     }
+    char chosen[PATH_MAX];
+    snprintf(chosen, sizeof(chosen), "%s", output_path);
+    if (!export_dialog(chosen, sizeof(chosen))) return;
+    snprintf(output_path, sizeof(output_path), "%s", chosen);
     int count = 0, banks = 0;
     char error[256] = "";
     if (ppa_midi_export(midi_path, tracks, ntracks, optimize, output_path,
@@ -299,9 +477,10 @@ int main(int argc, char **argv) {
             continue;
         }
         if (key == 'a' || key == 'A') {
-            char path[PATH_MAX] = "";
-            ask_string("Output ASM path: ", path, sizeof(path));
-            if (*path) snprintf(output_path, sizeof(output_path), "%s", path);
+            char path[PATH_MAX];
+            snprintf(path, sizeof(path), "%s", output_path);
+            if (export_dialog(path, sizeof(path)))
+                snprintf(output_path, sizeof(output_path), "%s", path);
             continue;
         }
         if (key == 'c' || key == 'C' || key == 't' || key == 'T') {

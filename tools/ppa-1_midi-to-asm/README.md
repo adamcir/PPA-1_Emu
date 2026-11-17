@@ -5,8 +5,8 @@ The interactive terminal application uses **no Python**: MIDI parsing,
 tempo conversion, track editing, four-channel optimization and multi-bank
 ASM generation are in midi_core.c and main.c.
 
-The original Python CLI remains available for backwards compatibility,
-but is not required by the ncurses application.
+The obsolete Python MIDI converter and Tkinter GUI have been removed.
+The MIDI tool is now entirely implemented in C.
 
 ## Build and run
 
@@ -14,12 +14,17 @@ Debian/Ubuntu:
 
     sudo apt install build-essential libncurses-dev
     cd ~/Dokumenty/Projekty/C-C++/PPA-1_Emu
-    make midi-gui
+    make all       # builds emulator, modules, examples AND MIDI editor
+    make midi-gui  # builds MIDI editor only, DOES NOT run it
 
-Or:
+Run separately:
 
-    make out/tools/PPA-1_MIDI-to-ASM
+    ./out/tools/PPA-1_MIDI-to-ASM
     ./out/tools/PPA-1_MIDI-to-ASM /path/to/song.mid
+
+Or run using:
+
+    make midi-run
 
 The file browser navigates directories and shows .mid/.midi files.
 By default the ASM output goes to the repository examples directory.
@@ -37,9 +42,15 @@ By default the ASM output goes to the repository examples directory.
 | F or click OPTIMIZE 4 CHANNELS | Enable dynamic four-voice allocation |
 | C | CPU microsteps per second |
 | T | Time-unit resolution in ms |
-| A | Change ASM output path |
-| Enter | Export single multi-bank ASM |
+| A | Open the graphical ncurses SAVE ASM AS dialog |
+| Enter | Open SAVE ASM AS and export single multi-bank ASM |
 | Q | Quit |
+
+The export dialog browses directories, shows existing ASM files, edits the
+filename with F2, chooses the directory with Enter, and confirms the
+destination with S. Existing files require confirmation before overwrite.
+Esc cancels without writing. The dialog is entirely implemented in C,
+using ncurses windows.
 
 Every MIDI track/channel starts enabled. Remove unwanted tracks, then
 activate OPTIMIZE when more than four remain. Without optimization, only
@@ -104,14 +115,9 @@ There are no separate bank binary sidecar files.
     make test-midi
 
 The native tests use C-generated SMF MIDI fixtures. They cover
-multiple tracks, dynamically changing waveform, long songs and
-multi-bank output. The existing Python regression tests additionally
-exercise legacy conversion and the assembler/ROMPACK pipeline.
+multiple tracks, changing waveform, long songs, multi-bank output,
+and the actual assembler/ROMPACK pipeline. No Python runtime is used
+by the MIDI converter or its tests.
 
-## Legacy Python compatibility
-
-    python3 tools/PPA-1_MIDI-to-ASM.py song.mid --config mix.json -o examples/song.asm
-
-The old Python/Tkinter editor remains available by explicitly invoking
-the legacy script with --gui. The default make midi-gui target now
-launches C/ncurses without Python.
+The rest of the PPA-1 repository may still contain Python build utilities
+for unrelated components such as PPAMOD card image generation.

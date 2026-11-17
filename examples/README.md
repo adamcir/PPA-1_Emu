@@ -68,12 +68,13 @@ it maps BMP color values to one shared 256-color VGA palette.
 
 ## PPA-1_MIDI-to-ASM: embedded multi-bank music
 
-The MIDI converter can now generate music longer than 180 seconds
+The native C/ncurses MIDI converter can generate music longer than 180 seconds
 without producing separate `.bankXXXX.bin` files.
 
 ```sh
-python3 tools/PPA-1_MIDI-to-ASM.py /path/to/song.mid \
-  --config /path/to/song.json -o examples/song.asm
+make midi-gui                            # compile only
+./out/tools/PPA-1_MIDI-to-ASM /path/to/song.mid
+# Select tracks and waveforms, then choose SAVE ASM AS.
 make out/examples/song.bin
 ```
 
