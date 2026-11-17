@@ -25,12 +25,26 @@ A falling GATE preserves the last pitch/volume inside SOUND/1, so its
 release stage is audible even if the new note-frame is silent. Voice
 allocation respects the same four-oscillator limit as before.
 
-Data frames use **34 bytes** without optimizing (the original
-14-byte section followed by 20 ADSR/GATE bytes) and **38 bytes** with
-optimization (original 18-byte section followed by 20 ADSR/GATE bytes).
-The assembler places these frames across ROM data banks automatically.
-This is a new generated-ASM format; re-export older songs to benefit
-from ADSR. No additional data sidecar files are created.
+Data frames now use **compressed changed-voice records**: two bytes
+for duration (big endian), one byte of voice-enable change mask (bits
+0..3), and the payloads for selected voices only. Each selected voice
+contains frequency (low/high), volume, an optional waveform byte
+(optimized mode), plus A/D/S/R/GATE registers. Records range from 3
+bytes (no voice change) to 39 bytes (all four optimized voices).
+Frames never cross ROM banks; re-export older songs to use the format.
+
+**Real PPA-1 timing:** The generated ASM programs TIMER/1 (F000:FF20..FF27)
+at the selected CPU microcycle clock and arms its WAIT counter before
+transferring each frame to PPA-SOUND/1. The countdown runs in parallel
+with CPU bus writes, unlike the former instruction-delay loop. This is
+implementable using physical counters, latches and bus decode logic;
+there is no hidden MIDI playback or host-timed instruction shortcut.
+MIDI still needs a sufficiently fast real CPU: overloaded frames are
+late rather than pretending the CPU can execute impossible instructions.
+Use the same fixed emulated clock as the editor's C setting, not TURBO.
+
+Normal emulator RUN no longer logs each CPU instruction to latest.log;
+set PPA_TRACE_CPU=1 to restore full instruction tracing for debugging.
 
 # PPA-1_MIDI-to-ASM
 

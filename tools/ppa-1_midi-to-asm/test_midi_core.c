@@ -88,6 +88,11 @@ static void two_tracks(void) {
     assert(strstr(asmcode, "ST $0025,A"));
     assert(strstr(asmcode, ".bank 0001"));
     assert(strstr(asmcode, "ST $0022,A")); /* dynamic waveform */
+    assert(strstr(asmcode, "ST $FF25,A"));
+    assert(strstr(asmcode, "ST $FF26,A"));
+    assert(strstr(asmcode, "ST $FF22,A"));
+    assert(strstr(asmcode, "midi_wait_poll:"));
+    assert(strstr(asmcode, "MOV BR-LO,D")); /* cached ROM bank */
     assert(strstr(asmcode, "midi_bank_next:"));
     assert(strstr(asmcode, ".byte $00,$00 ; song finished"));
     free(asmcode);
@@ -247,16 +252,16 @@ static void one_track_polyphony(void) {
     assert(data != NULL);
     data = strstr(data, ".byte $");
     assert(data != NULL);
-    unsigned char frame[18] = {0};
+    unsigned char frame[39] = {0};
     unsigned k = 0;
-    /* The 18-byte optimized frame is split into 16+2 .byte rows. */
+    /* First compressed frame: duration, mask 0x0F, 4x9-byte voices. */
     char *cursor = data;
-    while (k < 18) {
+    while (k < sizeof(frame)) {
         char *line = strstr(cursor, ".byte ");
         assert(line != NULL);
         char *end = strchr(line, '\n');
         assert(end != NULL);
-        for (char *p = line; p < end && k < 18; ++p) {
+        for (char *p = line; p < end && k < sizeof(frame); ++p) {
             if (*p == '$') {
                 unsigned value;
                 assert(sscanf(p + 1, "%2x", &value) == 1);
@@ -265,15 +270,16 @@ static void one_track_polyphony(void) {
         }
         cursor = end + 1;
     }
+    assert(frame[2] == 0x0F);
     const unsigned frequencies[] = {659, 523, 784, 330};
     for (unsigned i = 0; i < 4; ++i) {
-        unsigned offset = 2 + i * 4;
+        unsigned offset = 3 + i * 9;
         unsigned hz = frame[offset] | ((unsigned)frame[offset + 1] << 8);
         assert(hz == frequencies[i]);
         assert(frame[offset + 2] > 0);
         assert(frame[offset + 3] == (unsigned)parts[i].wave);
     }
-    assert(frame[2+1*4+2] < frame[2+0*4+2]);
+    assert(frame[3+1*9+2] < frame[3+0*9+2]);
 
     /* Save and reload: MIDI payload, source tracks and per-lane waveforms. */
     char home[]="/tmp/ppa-ppasp-home-XXXXXX";

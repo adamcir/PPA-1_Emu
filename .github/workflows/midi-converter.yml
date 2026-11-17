@@ -15,7 +15,7 @@ jobs:
       - name: Build the C/ncurses MIDI editor
         run: make out/tools/PPA-1_MIDI-to-ASM
       - name: Test MIDI conversion, track optimization and multi-bank PRG
-        run: make test-midi
+        run: make test-midi test-irq
       - name: Install SDL3 dependencies for sound-module GUI build
         run: sudo apt-get install -y libsdl3-dev libsdl3-ttf-dev libsdl3-image-dev
       - name: Build SDL3 emulator with PPA-SOUND ADSR display
