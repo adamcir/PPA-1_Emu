@@ -65,8 +65,8 @@ class ConverterTests(unittest.TestCase):
             self.assertIn("ST $0023,A", code)
             self.assertIn(".bank 0001", code)
             self.assertIn("; song finished", code)
-            self.assertIn("ST $0064,B", code)
-            self.assertIn("JZ midi_frame", code)
+            self.assertIn("ST $0064,A", code)
+            self.assertIn("JZ midi_advance_bank", code)
 
     def test_config_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -113,6 +113,44 @@ class ConverterTests(unittest.TestCase):
             self.assertGreater(sum(length for length, _ in frames) * 10, 180000)
             asm = mod.render(parsed, mod.defaults(parsed[0]), "long.mid")
             self.assertIn(".bank 0001", asm)
+
+    def test_optimized_voice_reuse_and_waveform_changes(self):
+        import json
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td)
+            first = chunk(b"lead", [
+                (0, bytes((0x90, 60, 110))),
+                (480, bytes((0x80, 60, 0)))])
+            second = chunk(b"bass", [
+                (480, bytes((0x91, 48, 127))),
+                (480, bytes((0x81, 48, 0)))])
+            source = p / "reassign.mid"
+            source.write_bytes(mid([first, second]))
+            parsed = mod.parse_midi(source)
+            config = mod.defaults(parsed[0])
+            config["0:0"].waveform = "triangle"
+            config["1:1"].waveform = "saw"
+            config["0:0"].enabled = True
+            config["1:1"].enabled = True
+            for setting in config.values():
+                setting.optimize = True
+                setting.voice = 0
+            frames = mod.optimize_frames(parsed, config, 10)
+            self.assertTrue(any(v[2] == 2 and v[1] > 0
+                                for _, voices in frames for v in voices))
+            self.assertTrue(any(v[2] == 1 and v[1] > 0
+                                for _, voices in frames for v in voices))
+            asm = mod.render(parsed, config, "reassign.mid", 10)
+            self.assertIn("ST $0022,A", asm)
+            self.assertIn(".bank 0001", asm)
+            self.assertIn("midi_advance_bank:", asm)
+            # 18-byte frames are emitted in two <=16-value .byte rows.
+            self.assertIn(".byte $00,$00 ; song finished", asm)
+            cfg = p / "mix.json"
+            mod.save_config(cfg, parsed[0], config)
+            loaded = mod.load_config(cfg, parsed[0])
+            self.assertTrue(loaded["1:1"].optimize)
+            self.assertTrue(loaded["1:1"].enabled)
 
     def test_invalid_midi_and_duplicate_voices(self):
         with tempfile.TemporaryDirectory() as tmp:

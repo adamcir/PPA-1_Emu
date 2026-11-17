@@ -70,6 +70,22 @@ ever assuming a fixed bank. See `make test-modules` for tests.
 
 # Layout of module sources and compiled cards
 
+## Module windows and background audio
+
+Module VIEW windows now reopen at native size (540×510 for LIGHT,
+SOUND and PS/2; 1280×800 for VGA monitor), preserving their position.
+The SDL logical coordinate system still scales smoothly, so all windows
+can be resized smaller; minimums are 280×260 (module detail) and
+480×300 (VGA). Reopening resets an oversized window to its native size.
+
+PPA-SOUND/1 **does not depend on the panel or module window being visible**.
+Host audio is queued from the continuously serviced emulator loop, which
+is independent of panel presentation; rendering is capped at approximately
+30 fps and minimized/hidden windows are not redrawn. The audio stream
+is still cleared when processor power goes OFF. This preserves hardware
+CPU/software-clock semantics while preventing blocked vsync or a hidden
+SDL window from starving the audio stream.
+
 ## Independent module user interfaces
 
 The emulator owns only SDL windows and dispatches each module's render

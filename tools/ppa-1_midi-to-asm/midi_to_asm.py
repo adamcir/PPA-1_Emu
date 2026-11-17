@@ -12,6 +12,7 @@ import sys
 WAVES = ("square", "saw", "triangle", "sine", "noise")
 POLY = ("low", "high", "latest")
 DATA_START = 0x1000
+MIDI_FRAMES_PER_BANK = (65536 - 2) // 14
 
 class MidiError(ValueError):
     pass
@@ -29,6 +30,8 @@ class Settings:
     polyphony: str = "high"
     volume: int = 200
     transpose: int = 0
+    enabled: bool = False
+    optimize: bool = False
 
 def vlq(data, p, end):
     v = 0
@@ -140,7 +143,7 @@ def parse_midi(path):
 def defaults(tracks):
     out = {t.id: Settings() for t in tracks}
     for i, t in enumerate(sorted(tracks, key=lambda t: -t.notes)[:4]):
-        out[t.id] = Settings(i + 1, WAVES[i % 4])
+        out[t.id] = Settings(i + 1, WAVES[i % 4], enabled=True)
     return out
 
 def validate(tracks, config):
@@ -149,9 +152,12 @@ def validate(tracks, config):
         s = config[t.id]
         if type(s.voice) is not int or s.voice not in range(5):
             raise MidiError("Invalid oscillator number for " + t.name)
-        if s.voice in used and s.voice:
-            raise MidiError("Two tracks share oscillator %d" % s.voice)
-        used.add(s.voice)
+        if not s.optimize:
+            if s.voice in used and s.voice:
+                raise MidiError("Two tracks share oscillator %d" % s.voice)
+            used.add(s.voice)
+        if type(s.enabled) is not bool or type(s.optimize) is not bool:
+            raise MidiError("Invalid enabled/optimize flags for " + t.name)
         if s.waveform not in WAVES or s.polyphony not in POLY:
             raise MidiError("Invalid waveform/polyphony for " + t.name)
         if type(s.volume) is not int or not 0 <= s.volume <= 255:
@@ -162,6 +168,7 @@ def validate(tracks, config):
 def save_config(path, tracks, config):
     Path(path).write_text(json.dumps({
         "format": "PPA-1_MIDI-to-ASM/1",
+        "optimize": any(s.optimize for s in config.values()),
         "tracks": {t.id: {"name": t.name, **asdict(config[t.id])} for t in tracks}
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
@@ -170,10 +177,16 @@ def load_config(path, tracks):
     if raw.get("format") != "PPA-1_MIDI-to-ASM/1":
         raise MidiError("Invalid track configuration")
     result = defaults(tracks)
+    optimize = raw.get("optimize", False)
+    if type(optimize) is not bool:
+        raise MidiError("optimize must be a boolean")
     for t in tracks:
         obj = raw.get("tracks", {}).get(t.id)
         if obj is not None:
             result[t.id] = Settings(**{k: obj[k] for k in Settings.__dataclass_fields__ if k in obj})
+        result[t.id].optimize = optimize
+        if "enabled" not in (obj or {}):
+            result[t.id].enabled = result[t.id].voice > 0
     validate(tracks, result)
     return result
 
@@ -272,9 +285,87 @@ def frames_from_midi(parsed, config, unit_ms=10):
             duration -= take
     return split
 
-def render(parsed, config, name, unit_ms=10, clock_hz=100000):
+def optimize_frames(parsed, config, unit_ms=10):
+    """Four voice time-multiplexing: preserve ongoing assignments, then
+    fill free oscillators with other selected track segments. Every frame
+    carries frequency, volume AND waveform for each physical oscillator.
+    Track polyphony reduction, note velocities and sustain are inherited
+    from the standard per-track timeline.
+    """
     tracks = parsed[0]
-    frames = frames_from_midi(parsed, config, unit_ms)
+    selected = [t for t in tracks if config[t.id].enabled]
+    if not selected:
+        raise MidiError("No enabled MIDI tracks")
+    endpoints = defaultdict(list)
+    end_time = 0
+    for order, track in enumerate(selected):
+        # Convert each selected track separately into a monophonic event
+        # stream; use voice 1 only in this temporary logical track.
+        mapping = {t.id: Settings() for t in tracks}
+        original = config[track.id]
+        mapping[track.id] = Settings(
+            1, original.waveform, original.polyphony, original.volume,
+            original.transpose, True, False)
+        frames = frames_from_midi(parsed, mapping, unit_ms)
+        cursor = 0
+        for duration, state in frames:
+            endpoints[cursor].append((track.id, state[0], order))
+            cursor += duration
+        endpoints[cursor].append((track.id, (0, 0), order))
+        end_time = max(end_time, cursor)
+    active = {}
+    assigned = [None] * 4
+    timeline = []
+    previous = tuple((0, 0, 0) for _ in range(4))
+    last = 0
+    for instant in sorted(set(endpoints) | {end_time}):
+        if instant > last:
+            duration = instant - last
+            if timeline and timeline[-1][1] == previous:
+                timeline[-1] = (timeline[-1][0] + duration, previous)
+            else:
+                timeline.append((duration, previous))
+        for name, note, order in endpoints.get(instant, []):
+            active[name] = note
+        # Preserve tracks that continue sounding (no unnecessary stealing).
+        for i, name in enumerate(assigned):
+            if name is not None and active.get(name, (0, 0))[1] <= 0:
+                assigned[i] = None
+        occupied = set(a for a in assigned if a is not None)
+        waiting = [(name, note, next(j for j, t in enumerate(selected)
+                                     if t.id == name))
+                   for name, note in active.items()
+                   if note[1] > 0 and name not in occupied]
+        waiting.sort(key=lambda entry: (-entry[1][1], entry[2]))
+        for i in range(4):
+            if assigned[i] is None and waiting:
+                name, _, _ = waiting.pop(0)
+                assigned[i] = name
+        state = []
+        for name in assigned:
+            if name is None:
+                state.append((0, 0, 0))
+            else:
+                hz, volume = active[name]
+                state.append((hz, volume, WAVES.index(config[name].waveform)))
+        previous = tuple(state)
+        last = instant
+    split = []
+    for duration, state in timeline:
+        while duration:
+            take = min(duration, 65534)
+            split.append((take, state))
+            duration -= take
+    return split
+
+
+def render(parsed, config, name, unit_ms=10, clock_hz=100000, prepared_frames=None):
+    tracks = parsed[0]
+    optimized = any(setting.optimize for setting in config.values())
+    frames = prepared_frames
+    if frames is None:
+        frames = (optimize_frames(parsed, config, unit_ms)
+                  if optimized else frames_from_midi(parsed, config, unit_ms))
     if not 100 <= clock_hz <= 10000000:
         raise MidiError("Clock must be 100..10000000 microsteps/s")
     # DEC D + JNZ are ~8 CPU microsteps per decrement/branch pair.
@@ -284,7 +375,7 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
     waves = [0] * 4
     for t in tracks:
         cfg = config[t.id]
-        if cfg.voice:
+        if cfg.voice and not optimized:
             waves[cfg.voice - 1] = WAVES.index(cfg.waveform)
     lines = [
         "; Generated by PPA-1_MIDI-to-ASM",
@@ -327,7 +418,7 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
         "    JNZ midi_duration",
         "    MOV A,X-LO",
         "    CMP A,#FF",
-        "    JZ midi_frame      ; crossed to next data bank",
+        "    JZ midi_advance_bank",
         "midi_duration:",
         "    MOV A,X-HI",
         "    OR A,X-LO",
@@ -341,6 +432,12 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
             "    CALL midi_next", "    CALL slots_use_sound",
             "    ST $%04X,A" % (0x23 + i * 16)
         ]
+        if optimized:
+            lines += [
+                "    CALL midi_next",
+                "    CALL slots_use_sound",
+                "    ST $%04X,A" % (0x22 + i * 16)
+            ]
     lines += [
         "midi_wait:",
         "    MOV D,#%02X" % inner,
@@ -356,6 +453,15 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
         "    OR A,X-LO",
         "    JNZ midi_wait",
         "    JMP midi_frame",
+        "midi_advance_bank:",
+        "    MOV Y-HI,#00",
+        "    MOV Y-LO,#00",
+        "    MOV BR-HI,#10",
+        "    MOV BR-LO,#00",
+        "    LD A,$0064",
+        "    INC A",
+        "    ST $0064,A",
+        "    JMP midi_frame",
         "midi_next:",
         "    PUSH B",
         "    MOV BR-HI,#10",
@@ -367,11 +473,6 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
         "    INC Y-LO",
         "    JNZ midi_next_no_carry",
         "    INC Y-HI",
-        "    JNZ midi_next_no_carry",
-        "    INC B",
-        "    MOV BR-HI,#10",
-        "    MOV BR-LO,#00",
-        "    ST $0064,B",
         "midi_next_no_carry:",
         "    POP B",
         "    RET",
@@ -383,10 +484,12 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
         "; Music frame banks start at ROM 0001.",
     ]
 
-    # Each data bank contains at most 4681 complete 14-byte frames,
-    # ending with a 2-byte continuation (FFFF) or EOF (0000).
-    # The byte reader increments BR automatically after Y wraps.
-    frames_per_bank = (65536 - 2) // 14
+    # Monophonic static mode: 14 bytes/frame; optimized time-sharing:
+    # 18 bytes/frame, including four dynamic waveform registers.
+    # The FFFF marker explicitly resets Y and advances the ROM bank,
+    # so it need not be physically located at address FFFE.
+    frame_bytes = 18 if optimized else 14
+    frames_per_bank = (65536 - 2) // frame_bytes
     bank_count = max(1, (len(frames) + frames_per_bank - 1) // frames_per_bank)
     if bank_count > 31:
         raise MidiError(
@@ -398,9 +501,14 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
         segment = frames[(bank - 1) * frames_per_bank:bank * frames_per_bank]
         for duration, voices in segment:
             values = [duration >> 8, duration & 255]
-            for hz, volume in voices:
+            for voice in voices:
+                hz, volume = voice[:2]
                 values.extend((hz & 255, hz >> 8, volume))
-            lines.append("    .byte " + ",".join("$%02X" % n for n in values))
+                if optimized:
+                    values.append(voice[2])
+            for index in range(0, len(values), 16):
+                piece = values[index:index + 16]
+                lines.append("    .byte " + ",".join("$%02X" % n for n in piece))
         if bank < bank_count:
             lines.append("    .byte $FF,$FF ; switch to next ROM bank")
         else:
@@ -410,13 +518,16 @@ def render(parsed, config, name, unit_ms=10, clock_hz=100000):
 
 def export_song(parsed, config, name, output_path, unit_ms=10, clock_hz=100000):
     """Write one multi-bank ASM file; assembler/ROMPACK do bank placement."""
-    frames = frames_from_midi(parsed, config, unit_ms)
-    asm = render(parsed, config, name, unit_ms, clock_hz)
+    optimized = any(setting.optimize for setting in config.values())
+    frames = optimize_frames(parsed, config, unit_ms) if optimized else frames_from_midi(parsed, config, unit_ms)
+    asm = render(parsed, config, name, unit_ms, clock_hz,
+                 prepared_frames=frames)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(asm, encoding="utf-8")
-    bank_count = max(1, (len(frames) + (65536 - 2) // 14 - 1) //
-                     ((65536 - 2) // 14))
+    frame_size = 18 if optimized else 14
+    per_bank = (65536 - 2) // frame_size
+    bank_count = max(1, (len(frames) + per_bank - 1) // per_bank)
     return len(frames), bank_count
 
 

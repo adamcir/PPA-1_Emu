@@ -1714,11 +1714,12 @@ static void store_module_window(const AuxWindow *aux, PpaModuleLayout *layout) {
     SDL_GetWindowPosition(aux->window, &layout->x, &layout->y);
     SDL_GetWindowSize(aux->window, &layout->width, &layout->height);
 }
-static void restore_module_window(AuxWindow *aux, const PpaModuleLayout *layout) {
-    if (!aux || !layout || !aux->window) return;
-    if (layout->width >= 540 && layout->height >= 510)
-        SDL_SetWindowSize(aux->window, layout->width, layout->height);
-    if (layout->x != -1 && layout->y != -1)
+/* Reopening any module restores its native logical dimensions. */
+static void restore_module_window(AuxWindow *aux, const PpaModuleLayout *layout,
+                                  bool vga) {
+    if (!aux || !aux->window) return;
+    SDL_SetWindowSize(aux->window, vga ? 1280 : 540, vga ? 800 : 510);
+    if (layout && layout->x != -1 && layout->y != -1)
         SDL_SetWindowPosition(aux->window, layout->x, layout->y);
 }
 static void save_module_config(PpaConfig *config,
@@ -1738,6 +1739,9 @@ static void save_module_config(PpaConfig *config,
 
 static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int h) {
     if (aux->window) {
+        if (SDL_GetWindowFlags(aux->window) & SDL_WINDOW_MINIMIZED)
+            SDL_RestoreWindow(aux->window);
+        SDL_ShowWindow(aux->window);
         SDL_RaiseWindow(aux->window);
         return;
     }
@@ -1754,7 +1758,7 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
     if (!aux->window) return;
 
     if (kind == AUX_MODULE_DETAIL) {
-        SDL_SetWindowMinimumSize(aux->window, 540, 510);
+        SDL_SetWindowMinimumSize(aux->window, 280, 260);
     } else if (kind == AUX_LOG) {
         SDL_SetWindowMinimumSize(aux->window, 560, 300);
     } else if (kind == AUX_VIEW) {
@@ -1771,7 +1775,7 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
         return;
     }
 
-    SDL_SetRenderVSync(aux->renderer, 1);
+    SDL_SetRenderVSync(aux->renderer, 0); /* independent of window visibility */
     if (kind == AUX_MODULE_DETAIL) {
         /* Scale each module's own 540x510 virtual front panel gracefully. */
         SDL_SetRenderLogicalPresentation(aux->renderer, 540, 510,
@@ -1787,7 +1791,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                             Preferences *prefs,
                             const PPA1GuiBackend *backend)
 {
-    if (!aux || !aux->renderer) return;
+    if (!aux || !aux->renderer || !aux->window) return;
+    Uint64 window_flags = SDL_GetWindowFlags(aux->window);
+    if (window_flags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) return;
 
     SDL_Renderer *r = aux->renderer;
     SDL_SetRenderDrawColor(r, 28, 30, 30, 255);
@@ -2367,7 +2373,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         return 1;
     }
 
-    SDL_SetRenderVSync(renderer, 1);
+    SDL_SetRenderVSync(renderer, 0); /* don't block CPU/audio on compositor */
     SDL_SetWindowMinimumSize(window, 480, 320);
 
     ToggleTextures toggle_textures = {0};
@@ -2551,6 +2557,7 @@ int ppa_gui_run_panel(const char *initial_rom,
     }
 
     Uint64 last_ticks = SDL_GetTicks();
+    Uint64 last_visual_frame = 0;
     double clock_phase = 0.0;
 
     /*
@@ -3475,7 +3482,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 module_detail_windows[slot].slot_index = slot;
                                 if (info.type == 3 && module_detail_windows[slot].renderer) {
                                     SDL_SetWindowMinimumSize(
-                                        module_detail_windows[slot].window, 960, 640);
+                                        module_detail_windows[slot].window, 480, 300);
                                     SDL_SetRenderLogicalPresentation(
                                         module_detail_windows[slot].renderer,
                                         1280, 800,
@@ -3486,7 +3493,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 if (config && module_detail_windows[slot].window) {
                                     if (!config->modules[slot].visible)
                                         restore_module_window(&module_detail_windows[slot],
-                                                              &config->modules[slot]);
+                                                               &config->modules[slot],
+                                                               info.type == 3);
                                     config->modules[slot].visible = true;
                                     store_module_window(&module_detail_windows[slot],
                                                         &config->modules[slot]);
@@ -3684,6 +3692,25 @@ int ppa_gui_run_panel(const char *initial_rom,
             data = backend->register_value(backend->ctx, register_index);
         }
 
+        /* Audio and emulation are serviced on every iteration. Rendering
+         * is rate-limited and completely skipped for minimized/hidden panels.
+         * This prevents the window manager from throttling SOUND/1 playback. */
+        if (ppa_audio && backend->module_audio) {
+            if (!powered) {
+                if (SDL_GetAudioStreamQueued(ppa_audio) > 0)
+                    SDL_ClearAudioStream(ppa_audio);
+            } else if (SDL_GetAudioStreamQueued(ppa_audio) < 4096) {
+                int16_t pcm[1024];
+                backend->module_audio(backend->ctx, pcm, 1024, 44100);
+                SDL_PutAudioStreamData(ppa_audio, pcm, (int)sizeof(pcm));
+            }
+        }
+
+        bool redraw = now - last_visual_frame >= 33;
+        if (redraw) last_visual_frame = now;
+        bool panel_visible = (SDL_GetWindowFlags(window) &
+                             (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) == 0;
+        if (redraw && panel_visible) {
         /* Render the complete hardware panel at its immutable design size. */
         SDL_SetRenderTarget(renderer, panel_texture);
         SDL_SetRenderViewport(renderer, NULL);
@@ -4014,7 +4041,6 @@ int ppa_gui_run_panel(const char *initial_rom,
                          COL_WHITE,
                          powered ? "I" : "O");
 
-        /* Composite the fixed panel into the actual resizable window. */
         SDL_SetRenderTarget(renderer, NULL);
         SDL_SetRenderViewport(renderer, NULL);
         SDL_SetRenderScale(renderer, 1.0f, 1.0f);
@@ -4042,17 +4068,7 @@ int ppa_gui_run_panel(const char *initial_rom,
         };
         SDL_RenderTexture(renderer, panel_texture, NULL, &panel_dst);
         SDL_RenderPresent(renderer);
-
-        if (ppa_audio && backend->module_audio) {
-            if (!powered) {
-                if (SDL_GetAudioStreamQueued(ppa_audio) > 0)
-                    SDL_ClearAudioStream(ppa_audio);
-            } else if (SDL_GetAudioStreamQueued(ppa_audio) < 4096) {
-                int16_t pcm[1024];
-                backend->module_audio(backend->ctx, pcm, 1024, 44100);
-                SDL_PutAudioStreamData(ppa_audio, pcm, (int)sizeof(pcm));
-            }
-        }
+        } /* end visible, 30 FPS panel redraw */
 
         if (config && layout_dirty &&
             SDL_GetTicks() - last_layout_save >= 750) {
@@ -4061,16 +4077,19 @@ int ppa_gui_run_panel(const char *initial_rom,
             last_layout_save = SDL_GetTicks();
             layout_dirty = false;
         }
-        draw_aux_window(&prefs_window, &fonts, &prefs, backend);
-        draw_aux_window(&view_window, &fonts, &prefs, backend);
-        draw_aux_window(&hex_window, &fonts, &prefs, backend);
-        draw_aux_window(&log_window, &fonts, &prefs, backend);
-        draw_aux_window(&credits_window, &fonts, &prefs, backend);
-        draw_aux_window(&modules_window, &fonts, &prefs, backend);
-        for (int slot = 0; slot < 8; ++slot)
-            draw_aux_window(&module_detail_windows[slot],
-                            &fonts, &prefs, backend);
-        draw_terminal(&uart_terminal, &fonts, backend);
+        if (redraw) {
+            draw_aux_window(&prefs_window, &fonts, &prefs, backend);
+            draw_aux_window(&view_window, &fonts, &prefs, backend);
+            draw_aux_window(&hex_window, &fonts, &prefs, backend);
+            draw_aux_window(&log_window, &fonts, &prefs, backend);
+            draw_aux_window(&credits_window, &fonts, &prefs, backend);
+            draw_aux_window(&modules_window, &fonts, &prefs, backend);
+            for (int slot = 0; slot < 8; ++slot)
+                draw_aux_window(&module_detail_windows[slot],
+                                &fonts, &prefs, backend);
+            draw_terminal(&uart_terminal, &fonts, backend);
+        }
+        SDL_Delay(1);
     }
 
     backend->set_running(backend->ctx, false);

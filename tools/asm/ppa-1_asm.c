@@ -14,7 +14,7 @@
 #include <limits.h>
 #include <setjmp.h>
 
-#define MAX_SOURCE_LINES 160000 /* multi-bank MIDI rows: up to 31 ROM data banks */
+#define MAX_SOURCE_LINES 320000 /* multi-bank MIDI rows: up to 31 ROM data banks */
 #define MAX_LINE_LEN     1024
 #define MAX_SYMBOLS      1024
 #define MAX_NAME_LEN     64
