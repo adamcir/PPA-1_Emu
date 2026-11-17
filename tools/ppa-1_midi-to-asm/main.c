@@ -440,6 +440,92 @@ static void do_export(void) {
     else
         snprintf(message, sizeof(message), "Export error: %.180s", error);
 }
+/* Track-list scroll is based on actual rendered rows, not the number of
+ * MIDI tracks. Expanded PART 1-4 rows and the overflow notice consume
+ * screen space, too. Keeping the selected line inside the viewport
+ * prevents keyboard navigation from disappearing below the lower panel. */
+static int track_view_rows(void) {
+    int rows=LINES-19; /* source list occupies [8, LINES-11) */
+    return rows>0?rows:1;
+}
+static int track_display_rows(int idx) {
+    if(idx<0||idx>=ntracks)return 0;
+    int rows=1;
+    if(source_expanded&&optimize&&preview_valid&&tracks[idx].enabled) {
+        int peak=preview.peak_polyphony[idx];
+        int lanes=peak;
+        if(lanes<1)lanes=1;
+        if(lanes>4)lanes=4;
+        rows+=lanes;
+        if(peak>4)rows++;
+    }
+    return rows;
+}
+static int selected_display_offset(int idx,int part) {
+    if(part<0||idx<0||idx>=ntracks)return 0;
+    if(!(source_expanded&&optimize&&preview_valid&&tracks[idx].enabled))
+        return 0;
+    int lanes=preview.peak_polyphony[idx];
+    if(lanes<1)lanes=1;
+    if(lanes>4)lanes=4;
+    if(part>=lanes)part=lanes-1;
+    return 1+part; /* 0=parent row; 1..4=PART lanes */
+}
+static int scroll_selected_row(int first_track,int selected,int selected_part) {
+    int offset=selected_display_offset(selected,selected_part);
+    for(int i=first_track;i<selected;i++)offset+=track_display_rows(i);
+    return offset;
+}
+static void ensure_track_visible(int *first_track,int selected,int selected_part) {
+    if(ntracks<=0){*first_track=0;return;}
+    if(selected<0)selected=0;
+    if(selected>=ntracks)selected=ntracks-1;
+    if(*first_track<0)*first_track=0;
+    if(*first_track>selected)*first_track=selected;
+    int visible=track_view_rows();
+    /* Advance the first visible track until the selected parent or
+     * expanded part is actually on-screen. */
+    while(*first_track<selected &&
+          scroll_selected_row(*first_track,selected,selected_part)>=visible)
+        ++*first_track;
+    /* A selected PART of the first visible track may also be beyond
+     * viewport on unusually short terminals; scroll cannot move
+     * within that track, but the UI requires >=25 lines (6 rows). */
+}
+static void move_track_selection(int direction,int *selected,int *part) {
+    if(ntracks<=0)return;
+    if(direction>0) {
+        if(*part>=0) {
+            int lanes=preview_valid?preview.peak_polyphony[*selected]:0;
+            if(lanes>4)lanes=4;
+            if(*part+1<lanes){++*part;return;}
+        } else if(source_expanded&&optimize&&preview_valid&&
+                  tracks[*selected].enabled) {
+            int lanes=preview.peak_polyphony[*selected];
+            if(lanes<1)lanes=1;
+            *part=0;return;
+        }
+        if(*selected+1<ntracks){++*selected;*part=-1;}
+    } else {
+        if(*part>=0) {
+            if(*part>0)--*part;
+            else *part=-1;
+            return;
+        }
+        if(*selected>0) {
+            --*selected;
+            *part=-1;
+            if(source_expanded&&optimize&&preview_valid&&
+               tracks[*selected].enabled) {
+                int lanes=preview.peak_polyphony[*selected];
+                if(lanes<1)lanes=1;
+                if(lanes>4)lanes=4;
+                *part=lanes-1;
+            }
+        }
+    }
+}
+
 static void render_editor(int selected, int top) {
     erase();
     visible_count = 0;
@@ -497,6 +583,9 @@ static void render_editor(int selected, int top) {
     mvaddstr(7, 2, source_expanded && optimize
                       ? " SOURCE TRACKS / EXPANDED NOTE LANES "
                       : " SOURCE TRACKS / COMPACT ");
+    if (ntracks && split > 78)
+        mvprintw(7, split-24, " TRACK %d/%d  TOP %d ",
+                 selected+1,ntracks,top+1);
     if (split < COLS) mvaddstr(7, split+2, " TRACK INSPECTOR ");
     attroff(COLOR_PAIR(UI_HEADER) | A_BOLD);
     if (split < COLS)
@@ -701,20 +790,35 @@ int main(int argc, char **argv) {
     int selected = 0, top = 0;
     for (;;) {
         if (selected >= ntracks) selected = ntracks ? ntracks - 1 : 0;
-        int rows = LINES - 20;
-        if (rows < 1) rows = 1;
-        if (selected < top) top = selected;
-        /* Expanded logical lanes need more space than the parent rows.
-         * Scroll by track index and keep the highlighted parent visible. */
-        if (selected >= top + (source_expanded && optimize ? rows / 3 + 1 : rows))
-            top = selected - (source_expanded && optimize ? rows / 3 : rows - 1);
+        if (ntracks && (selected_part>=0) &&
+            !(source_expanded && optimize && preview_valid &&
+              tracks[selected].enabled))
+            selected_part=-1;
+        ensure_track_visible(&top,selected,selected_part);
         render_editor(selected, top);
         int key = getch();
         if (key == KEY_MOUSE) {
             MEVENT mouse;
-            if (getmouse(&mouse) == OK &&
-                (mouse.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED |
-                                 BUTTON1_DOUBLE_CLICKED))) {
+            if (getmouse(&mouse) == OK) {
+                /* Mouse wheel scrolls the track/part selection, not the
+                 * lower mixer panel. Each step keeps the row visible. */
+                bool wheel_up=false, wheel_down=false;
+#ifdef BUTTON4_PRESSED
+                wheel_up=(mouse.bstate & BUTTON4_PRESSED)!=0;
+#endif
+#ifdef BUTTON5_PRESSED
+                wheel_down=(mouse.bstate & BUTTON5_PRESSED)!=0;
+#endif
+                if (wheel_up || wheel_down) {
+                    if (mouse.y >= 7 && mouse.y < LINES-11) {
+                        for(int step=0;step<3;step++)
+                            move_track_selection(wheel_down?1:-1,
+                                                 &selected,&selected_part);
+                    }
+                    continue;
+                }
+                if (!(mouse.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED |
+                                      BUTTON1_DOUBLE_CLICKED))) continue;
                 if (mouse.y == 5 && mouse.x >= 2 && mouse.x < 21) {
                     optimize = !optimize;
                     source_expanded = optimize;
@@ -811,28 +915,18 @@ int main(int argc, char **argv) {
                      optimize ? "EXPANDED -> 4 MIXED OUTPUT VOICES" : "OFF");
             continue;
         }
-        if (key == KEY_DOWN) {
-            if (selected_part >= 0) {
-                int lanes=preview_valid?preview.peak_polyphony[selected]:1;
-                if(lanes>4)lanes=4;
-                if(selected_part+1<lanes)selected_part++;
-                else if(selected+1<ntracks){selected++;selected_part=-1;}
-            } else if (source_expanded && optimize && preview_valid &&
-                       tracks[selected].enabled && preview.peak_polyphony[selected]>0)
-                selected_part=0;
-            else if(selected+1<ntracks){selected++;selected_part=-1;}
+        if (key == KEY_DOWN) move_track_selection(1,&selected,&selected_part);
+        if (key == KEY_UP) move_track_selection(-1,&selected,&selected_part);
+        if (key == KEY_NPAGE) {
+            int step=track_view_rows();
+            while(step-->0)move_track_selection(1,&selected,&selected_part);
         }
-        if (key == KEY_UP) {
-            if(selected_part>=0) {
-                if(selected_part>0)selected_part--;
-                else selected_part=-1;
-            } else if(selected>0){
-                selected--;
-                if(source_expanded&&optimize&&preview_valid&&tracks[selected].enabled)
-                    selected_part=preview.peak_polyphony[selected]>0?
-                      (preview.peak_polyphony[selected]>4?3:preview.peak_polyphony[selected]-1):-1;
-            }
+        if (key == KEY_PPAGE) {
+            int step=track_view_rows();
+            while(step-->0)move_track_selection(-1,&selected,&selected_part);
         }
+        if (key == KEY_HOME && ntracks){selected=0;selected_part=-1;}
+        if (key == KEY_END && ntracks){selected=ntracks-1;selected_part=-1;}
         if (key == '\n' || key == KEY_ENTER || key == KEY_F(6))
             do_export();
         if (!ntracks) continue;

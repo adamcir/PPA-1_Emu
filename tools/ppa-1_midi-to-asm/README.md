@@ -111,6 +111,27 @@ four enabled tracks are permitted.
 
 Waveform register codes are 0 square, 1 saw, 2 triangle, 3 sine, 4 noise.
 
+## Track-list scrolling (compact and expanded)
+
+The source-track viewport is a real scrolling list. Its height accounts
+for the parent MIDI track, up to four expanded PART lanes and the extra
+overflow information line. The selected track or PART stays visible when
+navigating past the bottom of the screen; the footer and four-channel
+output panel remain fixed.
+
+- **Up/Down** navigate across tracks and their expanded PART lanes.
+- **Page Up/Page Down** scroll a full viewport of source rows.
+- **Home/End** jump to the first/last track.
+- **Mouse wheel** scrolls the selected source rows (when over the
+  source-track list).
+- **Tab** expands/collapses PART rows; scrolling recalculates immediately
+  after optimization and expansion changes.
+- The green list header displays the currently selected track and the
+  first visible track, so the scroll position is clear.
+
+This fixes the previous behavior in which the cursor could move into
+an invisible area below the source-track viewport.
+
 ## Green/orange two-panel mixer (Midnight Commander / htop style)
 
 The interface uses green headers and controls, orange selection and
