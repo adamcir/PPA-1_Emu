@@ -38,6 +38,15 @@ int main(void) {
     assert(ppa_irq_read(&irq, PPA_TIMER_WAIT_LO) == 1);
     for (int i = 0; i < 12; ++i) ppa_irq_tick(&irq);
     assert(ppa_irq_read(&irq, PPA_TIMER_WAIT_LO) == 0);
+    /* Re-arming halfway through a period resets its phase and provides
+     * the FULL duration from this hardware register write. */
+    for (int i = 0; i < 7; ++i) ppa_irq_tick(&irq);
+    ppa_irq_write(&irq, PPA_TIMER_WAIT_LO, 1);
+    ppa_irq_write(&irq, PPA_TIMER_WAIT_HI, 0);
+    for (int i = 0; i < 11; ++i) ppa_irq_tick(&irq);
+    assert(ppa_irq_read(&irq, PPA_TIMER_WAIT_LO) == 1);
+    ppa_irq_tick(&irq);
+    assert(ppa_irq_read(&irq, PPA_TIMER_WAIT_LO) == 0);
     for (int i = 0; i < 100; ++i) ppa_irq_tick(&irq);
     assert(ppa_irq_read(&irq, PPA_TIMER_WAIT_LO) == 0);
     /* High-byte write loads both bytes into a single 16-bit counter. */

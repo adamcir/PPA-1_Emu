@@ -52,6 +52,10 @@ TIMER/1 also has a 16-bit WAIT downcounter driven by periodic TIMER
 expirations, **not by software instruction loops or a host callback**.
 Write FF25 (low), then FF26 (high) to arm the complete duration.
 Read FF25/FF26 to poll the remaining units; at zero it saturates.
+The FF26 write strobe also synchronously reloads the base-period counter
+and clears the prescaler phase, so a WAIT of N units lasts N complete
+periods measured from the arm write. This rephases IRQ0 as well, hence
+music playback requires exclusive ownership of TIMER/1.
 Writing TIMER-CTRL restarts or disables the main timer and clears WAIT.
 Use TIMER-CTRL=03 (enabled+periodic). Register FF27 selects a hardware
 prescaler (clock enable, not a separate clock): /1, /4, /16, /64.

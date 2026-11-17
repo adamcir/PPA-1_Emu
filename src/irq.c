@@ -85,6 +85,13 @@ void ppa_irq_write(PpaIrqController *irq, uint16_t address, uint8_t value) {
             irq->timer_wait_load = (uint16_t)((irq->timer_wait_load & 0x00FFu) |
                                               ((uint16_t)value << 8));
             irq->timer_wait_count = irq->timer_wait_load;
+            /* The same decoded strobe reloads the base timer and clears
+             * its clock-enable divider. Each music interval thus starts
+             * on a precise microcycle edge, not at an arbitrary phase. */
+            if ((irq->timer_control & 1u) && irq->timer_reload) {
+                irq->timer_count = irq->timer_reload;
+                irq->timer_prescale_phase = 0;
+            }
             break;
         case PPA_TIMER_PRESCALE:
             irq->timer_prescaler = value & 3u;
