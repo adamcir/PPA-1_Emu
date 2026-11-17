@@ -29,8 +29,10 @@ Or run using:
 File selection uses a shared ncurses **popup** for MIDI (F3), PPASP (F8)
 and ASM export (F6). The default ASM export directory is now
 `~/PPA-Songs/`, next to the saved `.ppasp` projects (not `examples/`).
-The ASM can still be saved into `examples/` when desired; the assembler's
-relative include paths should be kept in mind.
+The ASM can still be saved into `examples/` when desired. When run
+from the repository root, the PPA-1 assembler also resolves the standard
+`examples/includes/` library for generated ASM files located in
+`~/PPA-Songs`, so the new default export is directly assemblable.
 
 ## File browser: favorites and remembered folders
 

@@ -1249,6 +1249,21 @@ static void load_source_recursive(Assembler *a, const char *path, int depth) {
             }
 
             FILE *probe = fopen(resolved, "r");
+            /* Generated PPA-MIDI ASM defaults to ~/PPA-Songs, outside
+             * examples/. Allow the shared hardware include library to
+             * resolve from the repository when assembling from its root.
+             * Explicit local include files always take precedence. */
+            if (!probe && strncmp(include_name, "includes/", 9) == 0 &&
+                strstr(include_name, "..") == NULL) {
+                char fallback[PATH_MAX];
+                int n = snprintf(fallback, sizeof(fallback),
+                                 "examples/%s", include_name);
+                if (n > 0 && n < (int)sizeof(fallback)) {
+                    probe = fopen(fallback, "r");
+                    if (probe)
+                        snprintf(resolved, sizeof(resolved), "%s", fallback);
+                }
+            }
             if (!probe) {
                 SourceLine temp = { line, (char *)path, line_no };
                 g_current_source = &temp;

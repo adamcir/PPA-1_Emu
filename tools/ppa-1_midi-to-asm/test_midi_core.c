@@ -122,6 +122,29 @@ static void run_tool(const char *exec, const char *input,
     assert(waitpid(pid, &status, 0) == pid);
     assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
 }
+/* Default ASM export is ~/PPA-Songs, so includes must resolve even
+ * when the generated source is outside the repository examples folder. */
+static void external_asm_includes(void) {
+    char midi[]="/tmp/ppa-midi-external-XXXXXX";
+    int fd=mkstemp(midi);assert(fd>=0);
+    FILE *f=fdopen(fd,"wb");assert(f);
+    start_song(f,1);
+    simple_track(f,"External ASM",0,0,480);
+    assert(fclose(f)==0);
+    PpaMidiTrack tracks[8];int count=0;char error[256]="";
+    assert(ppa_midi_open(midi,tracks,8,&count,error,sizeof(error)));
+    char asm_file[]="/tmp/ppa-midi-external-asm-XXXXXX";
+    fd=mkstemp(asm_file);assert(fd>=0);close(fd);
+    int frames=0,banks=0;
+    assert(ppa_midi_export(midi,tracks,count,false,asm_file,100000,10,
+                           &frames,&banks,error,sizeof(error)));
+    char prg[]="/tmp/ppa-midi-external-prg-XXXXXX";
+    fd=mkstemp(prg);assert(fd>=0);close(fd);
+    run_tool("./out/asm/ppa-1_asm",asm_file,prg,"--program");
+    struct stat statbuf;
+    assert(stat(prg,&statbuf)==0&&statbuf.st_size>=2*65536);
+    unlink(prg);unlink(asm_file);unlink(midi);
+}
 static void multi_bank_song(void) {
     /* 10,000 alternating note events force >1 music bank. */
     char midi[] = "/tmp/ppa-midi-banked-XXXXXX";
@@ -296,6 +319,7 @@ int main(void) {
     one_track_polyphony();
     long_song();
     multi_bank_song();
+    external_asm_includes();
     puts("PPA-1 MIDI native C parser and optimizer: OK");
     return 0;
 }
