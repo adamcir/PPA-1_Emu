@@ -1,6 +1,7 @@
 /* Native MIDI parser / four-voice optimization regression tests. */
 #define _POSIX_C_SOURCE 200809L
 #include "midi_core.h"
+#include "project.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,11 +201,22 @@ static void one_track_polyphony(void) {
     assert(mapped == 4);
     tracks[0].wave = 2;
     tracks[0].poly = 1; /* high */
+    PpaMidiPart parts[4]={
+        {true,1,255,0},  /* highest note: saw */
+        {true,2,128,0},  /* second note: triangle at half volume */
+        {true,3,255,12}, /* third note: sine shifted up an octave */
+        {true,0,255,0}
+    };
+    PpaMidiPreview edited_preview={0};
+    assert(ppa_midi_preview_parts(midi,tracks,count,parts,true,
+                                   &edited_preview,error,sizeof(error)));
+    assert(edited_preview.peak_polyphony[0] == 5);
     char out[] = "/tmp/ppa-midi-poly-asm-XXXXXX";
     fd = mkstemp(out); assert(fd >= 0); close(fd);
     int frames = 0, banks = 0;
-    assert(ppa_midi_export(midi, tracks, count, true, out, 100000, 10,
-                           &frames, &banks, error, sizeof(error)));
+    assert(ppa_midi_export_parts(midi, tracks, count, parts, true, out,
+                                 100000, 10, &frames, &banks,
+                                 error, sizeof(error)));
     char *asmcode = read_all(out);
     char *data = strstr(asmcode, ".bank 0001");
     assert(data != NULL);
@@ -228,14 +240,53 @@ static void one_track_polyphony(void) {
         }
         cursor = end + 1;
     }
-    const unsigned frequencies[] = {659, 523, 392, 330};
+    const unsigned frequencies[] = {659, 523, 784, 330};
     for (unsigned i = 0; i < 4; ++i) {
         unsigned offset = 2 + i * 4;
         unsigned hz = frame[offset] | ((unsigned)frame[offset + 1] << 8);
         assert(hz == frequencies[i]);
         assert(frame[offset + 2] > 0);
-        assert(frame[offset + 3] == 2); /* triangle travels with note */
+        assert(frame[offset + 3] == (unsigned)parts[i].wave);
     }
+    assert(frame[2+1*4+2] < frame[2+0*4+2]);
+
+    /* Save and reload: MIDI payload, source tracks and per-lane waveforms. */
+    char home[]="/tmp/ppa-ppasp-home-XXXXXX";
+    assert(mkdtemp(home));
+    const char *previous_home=getenv("HOME");
+    char *copy_home=previous_home?strdup(previous_home):NULL;
+    assert(setenv("HOME",home,1)==0);
+    char saved[4096]={0};
+    assert(ppa_project_save("polyphonic_test",midi,tracks,parts,count,true,
+                            100000,10,saved,sizeof(saved),
+                            error,sizeof(error)));
+    assert(strstr(saved,"/PPA-Songs/polyphonic_test.ppasp"));
+    char restored_midi[4096]={0};
+    PpaMidiTrack restored[8]={0};
+    PpaMidiPart restored_parts[8*4]={0};
+    int restored_count=0,clock=0,tick=0;bool optim=false;
+    assert(ppa_project_load(saved,restored_midi,sizeof(restored_midi),
+                            restored,restored_parts,8,&restored_count,
+                            &optim,&clock,&tick,error,sizeof(error)));
+    assert(restored_count==1&&optim&&clock==100000&&tick==10);
+    for(int i=0;i<4;i++) {
+        assert(restored_parts[i].wave==parts[i].wave);
+        assert(restored_parts[i].volume==parts[i].volume);
+        assert(restored_parts[i].transpose==parts[i].transpose);
+    }
+    PpaMidiPreview reopened={0};
+    assert(ppa_midi_preview_parts(restored_midi,restored,restored_count,
+                                  restored_parts,true,&reopened,
+                                  error,sizeof(error)));
+    assert(reopened.peak_polyphony[0]==5);
+    unlink(restored_midi);
+    unlink(saved);
+    char folder[4096];
+    snprintf(folder,sizeof(folder),"%s/PPA-Songs",home);
+    assert(rmdir(folder)==0);
+    assert(rmdir(home)==0);
+    if(copy_home){assert(setenv("HOME",copy_home,1)==0);free(copy_home);}
+    else unsetenv("HOME");
     free(asmcode);
     unlink(out); unlink(midi);
 }

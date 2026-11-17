@@ -6,6 +6,18 @@
 #include <stdint.h>
 
 #define PPA_MIDI_MAX_TRACKS 1024
+#define PPA_MIDI_PARTS_PER_TRACK 4
+
+/* Logical voice lane within a source track after optimization.
+ * Lane priority 0..3 is determined by LOW/HIGH/LATEST note ordering,
+ * then mapped onto whichever physical PPA-SOUND oscillator is free. */
+typedef struct {
+    bool enabled;
+    int wave;        /* 0..4 */
+    int volume;      /* 0..255, scaled with the source track volume */
+    int transpose;   /* -48..48 semitones */
+} PpaMidiPart;
+
 
 typedef struct {
     char id[32];
@@ -42,11 +54,20 @@ typedef struct {
     unsigned cells;
     int owner[4][PPA_MIDI_PREVIEW_COLUMNS];
     int pitch[4][PPA_MIDI_PREVIEW_COLUMNS];
+    int part[4][PPA_MIDI_PREVIEW_COLUMNS]; /* 0..3 logical part index */
 } PpaMidiPreview;
 
 bool ppa_midi_preview(const char *path, const PpaMidiTrack *tracks, int count,
                       bool optimize, PpaMidiPreview *result,
                       char *error, size_t error_size);
+
+/* Extended preview/export share the exact editable part settings.
+ * parts is a flat count x 4 array; NULL uses each track's defaults.
+ * Legacy public calls above remain as wrappers for compatibility. */
+bool ppa_midi_preview_parts(const char *path, const PpaMidiTrack *tracks, int count,
+                            const PpaMidiPart *parts, bool optimize,
+                            PpaMidiPreview *result,
+                            char *error, size_t error_size);
 
 /* Convert selected tracks directly to multi-bank ASM:
  * 0000: player, 0001..001F: frame data, FF/FF = next bank.
@@ -57,5 +78,11 @@ bool ppa_midi_export(const char *path, const PpaMidiTrack *tracks, int count,
                      bool optimize, const char *output_path,
                      int clock_hz, int tick_ms,
                      int *frames, int *banks, char *error, size_t error_size);
+
+bool ppa_midi_export_parts(const char *path, const PpaMidiTrack *tracks, int count,
+                            const PpaMidiPart *parts, bool optimize,
+                            const char *output_path, int clock_hz, int tick_ms,
+                            int *frames, int *banks, char *error,
+                            size_t error_size);
 
 #endif

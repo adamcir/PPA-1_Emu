@@ -112,16 +112,16 @@ CURSES_CFLAGS := $(shell $(PKG_CONFIG) --cflags ncursesw 2>/dev/null)
 CURSES_LIBS := $(shell $(PKG_CONFIG) --libs ncursesw 2>/dev/null || echo -lncursesw)
 MIDI_TUI = out/tools/PPA-1_MIDI-to-ASM
 
-$(MIDI_TUI): tools/ppa-1_midi-to-asm/main.c tools/ppa-1_midi-to-asm/midi_core.c tools/ppa-1_midi-to-asm/midi_core.h | out/tools
+$(MIDI_TUI): tools/ppa-1_midi-to-asm/main.c tools/ppa-1_midi-to-asm/midi_core.c tools/ppa-1_midi-to-asm/midi_core.h tools/ppa-1_midi-to-asm/project.c tools/ppa-1_midi-to-asm/project.h | out/tools
 	$(CC) -std=c11 -O2 -Wall -Wextra $(CURSES_CFLAGS) \
 	  tools/ppa-1_midi-to-asm/main.c tools/ppa-1_midi-to-asm/midi_core.c \
-	  -o $@ $(CURSES_LIBS) -lm
+	  tools/ppa-1_midi-to-asm/project.c -o $@ $(CURSES_LIBS) -lm
 
 .PHONY: test-midi test-midi-native midi-gui midi-tui midi-run
-out/tools/test_midi_core: tools/ppa-1_midi-to-asm/test_midi_core.c tools/ppa-1_midi-to-asm/midi_core.c tools/ppa-1_midi-to-asm/midi_core.h | out/tools
+out/tools/test_midi_core: tools/ppa-1_midi-to-asm/test_midi_core.c tools/ppa-1_midi-to-asm/midi_core.c tools/ppa-1_midi-to-asm/midi_core.h tools/ppa-1_midi-to-asm/project.c tools/ppa-1_midi-to-asm/project.h | out/tools
 	$(CC) -std=c11 -O2 -Wall -Wextra \
 	  tools/ppa-1_midi-to-asm/test_midi_core.c tools/ppa-1_midi-to-asm/midi_core.c \
-	  -o $@ -lm
+	  tools/ppa-1_midi-to-asm/project.c -o $@ -lm
 
 test-midi-native: asm rompack out/tools/test_midi_core
 	./out/tools/test_midi_core

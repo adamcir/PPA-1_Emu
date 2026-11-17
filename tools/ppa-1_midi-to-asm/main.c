@@ -7,6 +7,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include <ncurses.h>
 #include "midi_core.h"
+#include "project.h"
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -41,9 +42,14 @@ static PpaMidiPreview preview;
 static bool preview_valid = false;
 static bool source_expanded = false;
 static int visible_track[2048];
+static int visible_part[2048];
 static int visible_y[2048];
 static int visible_count = 0;
 static PpaMidiTrack tracks[TRACK_MAX];
+static PpaMidiPart parts[TRACK_MAX * PPA_MIDI_PARTS_PER_TRACK];
+static int selected_part = -1;
+static char project_name[160] = "Untitled";
+static char owned_midi[PATH_MAX] = "";
 static int ntracks = 0;
 static char midi_path[PATH_MAX] = "";
 static char repository_root[PATH_MAX] = ".";
@@ -353,6 +359,7 @@ static bool export_dialog(char *destination, size_t capacity) {
 static void update_preview(void);
 
 static void load_tracks(void) {
+    if (owned_midi[0]) { unlink(owned_midi); owned_midi[0] = 0; }
     ntracks = 0;
     char error[256] = "";
     if (!ppa_midi_open(midi_path, tracks, TRACK_MAX, &ntracks,
@@ -371,6 +378,11 @@ static void load_tracks(void) {
             *p = '_';
     snprintf(output_path, sizeof(output_path), "%s/examples/%s.asm",
              repository_root, stem);
+    snprintf(project_name, sizeof(project_name), "%s", stem);
+    for (int i=0; i<ntracks; ++i)
+        for (int lane=0;lane<4;lane++)
+            parts[i*4+lane]=(PpaMidiPart){true,tracks[i].wave,255,0};
+    selected_part = -1;
     snprintf(message, sizeof(message), "Loaded %d MIDI track/channel streams",
              ntracks);
     update_preview();
@@ -379,8 +391,9 @@ static void update_preview(void) {
     preview_valid = false;
     if (!ntracks || !midi_path[0]) return;
     char error[256] = "";
-    preview_valid = ppa_midi_preview(midi_path, tracks, ntracks,
-                                     optimize, &preview, error, sizeof(error));
+    preview_valid = ppa_midi_preview_parts(midi_path, tracks, ntracks,
+                                       parts, optimize, &preview,
+                                       error, sizeof(error));
     if (!preview_valid)
         snprintf(message, sizeof(message), "Preview error: %.180s", error);
 }
@@ -404,10 +417,13 @@ static void draw_track_timeline(int y, int x, int width,
     if (width > (int)preview.cells) width = (int)preview.cells;
     for (int c = 0; c < width; ++c) {
         int sample = c * (int)preview.cells / width;
-        int rank = 0, found = 0;
+        int found = 0;
         for (int voice = 0; voice < 4; ++voice) {
-            if (preview.owner[voice][sample] != track + 1) continue;
-            if (rank++ == lane) { found = 1; break; }
+            if (preview.owner[voice][sample] == track + 1 &&
+                preview.part[voice][sample] == lane) {
+                found = 1;
+                break;
+            }
         }
         attron(COLOR_PAIR(found ? UI_ORANGE : UI_DIM));
         mvaddch(y, x + c, found ? ACS_CKBOARD : ACS_BULLET);
@@ -463,7 +479,13 @@ static void track_settings_dialog(int idx) {
         touchwin(stdscr);
         if (key == 27) return;
         if (key == '\n' || key == KEY_ENTER) {
+            int previous_wave = tracks[idx].wave;
             tracks[idx] = edited;
+            if (edited.wave != previous_wave)
+                for (int lane=0;lane<4;lane++) {
+                    PpaMidiPart *part=&parts[idx*4+lane];
+                    if (part->wave==previous_wave)part->wave=edited.wave;
+                }
             update_preview();
             snprintf(message, sizeof(message), "Updated track %d: %s",
                      idx + 1, edited.name);
@@ -495,6 +517,176 @@ static void track_settings_dialog(int idx) {
     }
 }
 
+/* Part-level editor: these settings follow one logical optimizer lane
+ * independently of the parent track's default settings. */
+static void part_settings_dialog(int track, int lane) {
+    if (track < 0 || track >= ntracks || lane < 0 || lane >= 4) return;
+    PpaMidiPart edited = parts[track*4+lane];
+    int field = 0;
+    for (;;) {
+        int height=17, width=COLS>76?74:COLS-2;
+        if (LINES<height+2||width<52) return;
+        WINDOW *w=newwin(height,width,(LINES-height)/2,(COLS-width)/2);
+        if (!w) return;
+        keypad(w,TRUE);wbkgd(w,COLOR_PAIR(UI_PANEL));box(w,0,0);
+        wattron(w,COLOR_PAIR(UI_ORANGE)|A_BOLD);
+        mvwprintw(w,0,3," EDIT PART %d / TRACK %d ",lane+1,track+1);
+        wattroff(w,COLOR_PAIR(UI_ORANGE)|A_BOLD);
+        mvwaddnstr(w,2,3,tracks[track].name,width-6);
+        const char *labels[]={"Enabled","Waveform","Volume","Transpose"};
+        char values[4][110];
+        snprintf(values[0],sizeof(values[0]),"%s",edited.enabled?"YES":"NO");
+        snprintf(values[1],sizeof(values[1]),"%s   %s",
+                 wave_name[edited.wave],symbols[edited.wave]);
+        snprintf(values[2],sizeof(values[2]),"%d / 255",edited.volume);
+        snprintf(values[3],sizeof(values[3]),"%+d semitones",edited.transpose);
+        for(int i=0;i<4;i++){
+            if(field==i)wattron(w,A_REVERSE|A_BOLD);
+            mvwprintw(w,4+i*2,3," %-14s %-*.*s",
+                      labels[i],width-23,width-23,values[i]);
+            if(field==i)wattroff(w,A_REVERSE|A_BOLD);
+        }
+        draw_meter(w,9,37,width-41,edited.volume,UI_ORANGE);
+        wattron(w,COLOR_PAIR(UI_GREEN));
+        mvwaddnstr(w,13,3,"LEFT/RIGHT: adjust  UP/DOWN: select",width-6);
+        mvwaddnstr(w,14,3,"ENTER: apply  ESC: cancel  W: waveform",width-6);
+        wattroff(w,COLOR_PAIR(UI_GREEN));
+        wrefresh(w);int key=wgetch(w);delwin(w);touchwin(stdscr);
+        if(key==27)return;
+        if(key=='\n'||key==KEY_ENTER){
+            parts[track*4+lane]=edited;
+            update_preview();
+            snprintf(message,sizeof(message),"Updated track %d / part %d",
+                     track+1,lane+1);
+            return;
+        }
+        if(key==KEY_UP&&field>0)field--;
+        if(key==KEY_DOWN&&field<3)field++;
+        int delta=key==KEY_LEFT?-1:key==KEY_RIGHT?1:0;
+        if(key=='w'||key=='W'){field=1;delta=1;}
+        if(key=='+'||key=='='){field=2;delta=8;}
+        if(key=='-'){field=2;delta=-8;}
+        if(key==' '){if(field==0)edited.enabled=!edited.enabled;else delta=1;}
+        if(delta)switch(field){
+            case 0:edited.enabled=!edited.enabled;break;
+            case 1:edited.wave=(edited.wave+5+(delta>0?1:-1))%5;break;
+            case 2:edited.volume+=delta;
+                   if(edited.volume<0)edited.volume=0;
+                   if(edited.volume>255)edited.volume=255;break;
+            case 3:edited.transpose+=delta>0?1:-1;
+                   if(edited.transpose< -48)edited.transpose=-48;
+                   if(edited.transpose>48)edited.transpose=48;break;
+        }
+    }
+}
+static void edit_selected_dialog(int track) {
+    if (track<0||track>=ntracks) return;
+    if (selected_part >= 0 && optimize)
+        part_settings_dialog(track, selected_part);
+    else
+        track_settings_dialog(track);
+}
+
+/* The PPASP project keeps a full copy of the MIDI data and all settings.
+ * Saving a project must NEVER write or replace an ASM file. */
+static void save_project(void) {
+    if (!ntracks||!midi_path[0]) {
+        snprintf(message,sizeof(message),"Open MIDI before saving a PPASP project");
+        return;
+    }
+    char saved[PATH_MAX],error[256]="";
+    if (ppa_project_save(project_name,midi_path,tracks,parts,ntracks,
+                         optimize,clock_hz,tick_ms,saved,sizeof(saved),
+                         error,sizeof(error))) {
+        snprintf(message,sizeof(message),"SAVED: %.210s",saved);
+    } else snprintf(message,sizeof(message),"PPASP save failed: %.180s",error);
+}
+
+/* Project picker is rooted at ~/PPA-Songs; only PPASP files appear. */
+static bool pick_project(char *chosen,size_t cap) {
+    char dir[PATH_MAX],error[256]="";
+    if (!ppa_project_folder(dir,sizeof(dir),error,sizeof(error))) {
+        snprintf(message,sizeof(message),"%s",error);return false;
+    }
+    int cursor=0,top=0;
+    for (;;) {
+        Entry *items=calloc(FILE_MAX,sizeof(*items));
+        if(!items)return false;
+        int count=0;
+        DIR *dp=opendir(dir);
+        if(!dp){free(items);return false;}
+        struct dirent *entry;
+        while((entry=readdir(dp))&&count<FILE_MAX) {
+            size_t n=strlen(entry->d_name);
+            if(n<6||strcasecmp(entry->d_name+n-6,".ppasp"))continue;
+            char full[PATH_MAX];
+            if(snprintf(full,sizeof(full),"%s/%s",dir,entry->d_name)>=(int)sizeof(full))
+                continue;
+            struct stat st;
+            if(stat(full,&st)||!S_ISREG(st.st_mode))continue;
+            snprintf(items[count].name,sizeof(items[count].name),"%s",entry->d_name);
+            count++;
+        }
+        closedir(dp);qsort(items,(size_t)count,sizeof(*items),file_cmp);
+        if(cursor>=count)cursor=count?count-1:0;
+        for(;;) {
+            erase();title(" OPEN PPA SOUND PROJECT / ~/PPA-Songs ");
+            mvaddnstr(2,2,dir,COLS-4);
+            mvaddstr(3,2,"UP/DOWN: select   ENTER: open   ESC: cancel");
+            int visible=LINES-7;
+            if(cursor<top)top=cursor;
+            if(cursor>=top+visible)top=cursor-visible+1;
+            for(int i=0;i<visible&&top+i<count;i++) {
+                if(top+i==cursor)attron(A_REVERSE);
+                mvaddnstr(5+i,4,items[top+i].name,COLS-6);
+                if(top+i==cursor)attroff(A_REVERSE);
+            }
+            refresh();
+            int key=getch();
+            if(key==27){free(items);return false;}
+            if(key==KEY_UP&&cursor>0)cursor--;
+            if(key==KEY_DOWN&&cursor+1<count)cursor++;
+            if((key=='\n'||key==KEY_ENTER)&&count) {
+                int n=snprintf(chosen,cap,"%s/%s",dir,items[cursor].name);
+                free(items);return n>0&&(size_t)n<cap;
+            }
+        }
+    }
+}
+static void load_project(void) {
+    char path[PATH_MAX],temp[PATH_MAX],error[256]="";
+    if(!pick_project(path,sizeof(path)))return;
+    PpaMidiTrack *newtracks=calloc(TRACK_MAX,sizeof(*newtracks));
+    PpaMidiPart *newparts=calloc(TRACK_MAX*4,sizeof(*newparts));
+    if(!newtracks||!newparts) {
+        free(newtracks);free(newparts);
+        snprintf(message,sizeof(message),"Not enough memory to open project");
+        return;
+    }
+    int count=0,clock=clock_hz,tick=tick_ms;bool optim=false;
+    if(!ppa_project_load(path,temp,sizeof(temp),newtracks,newparts,
+                         TRACK_MAX,&count,&optim,&clock,&tick,error,sizeof(error))) {
+        snprintf(message,sizeof(message),"PPASP load failed: %.180s",error);
+        free(newtracks);free(newparts);return;
+    }
+    if(owned_midi[0])unlink(owned_midi);
+    snprintf(owned_midi,sizeof(owned_midi),"%s",temp);
+    snprintf(midi_path,sizeof(midi_path),"%s",temp);
+    memcpy(tracks,newtracks,(size_t)count*sizeof(*tracks));
+    memcpy(parts,newparts,(size_t)count*4*sizeof(*parts));
+    free(newtracks);free(newparts);
+    ntracks=count;optimize=optim;clock_hz=clock;tick_ms=tick;
+    selected_part=-1;source_expanded=optimize;
+    const char *base=strrchr(path,'/');
+    base=base?base+1:path;
+    snprintf(project_name,sizeof(project_name),"%s",base);
+    char *dot=strrchr(project_name,'.');if(dot)*dot=0;
+    snprintf(output_path,sizeof(output_path),"%s/examples/%s.asm",
+             repository_root,project_name);
+    update_preview();
+    snprintf(message,sizeof(message),"Loaded PPASP project: %s",project_name);
+}
+
 static void do_export(void) {
     if (!ntracks) {
         snprintf(message, sizeof(message), "Open a MIDI file first (O).");
@@ -518,8 +710,9 @@ static void do_export(void) {
     snprintf(output_path, sizeof(output_path), "%s", chosen);
     int count = 0, banks = 0;
     char error[256] = "";
-    if (ppa_midi_export(midi_path, tracks, ntracks, optimize, output_path,
-                        clock_hz, tick_ms, &count, &banks, error, sizeof(error)))
+    if (ppa_midi_export_parts(midi_path, tracks, ntracks, parts, optimize,
+                              output_path, clock_hz, tick_ms,
+                              &count, &banks, error, sizeof(error)))
         snprintf(message, sizeof(message), "Exported %d frames / %d ROM bank(s)",
                  count, banks);
     else
@@ -555,6 +748,12 @@ static void render_editor(int selected, int top) {
     mvaddstr(3, 2, "OUTPUT ");
     attroff(COLOR_PAIR(UI_GREEN));
     mvaddnstr(3, 9, output_path, COLS-11);
+    if (COLS > 110) {
+        attron(COLOR_PAIR(UI_ORANGE));
+        mvprintw(4, 2, "PROJECT: %-40.40s    SAVE: ~/PPA-Songs/%s.ppasp",
+                 project_name, project_name);
+        attroff(COLOR_PAIR(UI_ORANGE));
+    }
 
     int enabled = 0;
     for (int i = 0; i < ntracks; ++i) if (tracks[i].enabled) enabled++;
@@ -589,9 +788,11 @@ static void render_editor(int selected, int top) {
         PpaMidiTrack *t = &tracks[i];
         if (visible_count < 2048) {
             visible_track[visible_count] = i;
+            visible_part[visible_count] = -1;
             visible_y[visible_count++] = y;
         }
-        if (i == selected) attron(COLOR_PAIR(UI_SELECTED) | A_BOLD);
+        if (i == selected && selected_part == -1)
+            attron(COLOR_PAIR(UI_SELECTED) | A_BOLD);
         else attron(COLOR_PAIR(t->enabled ? UI_GREEN : UI_DIM));
         mvhline(y, 1, ' ', split-2);
         mvprintw(y, 2, "%c%3d %c %-*.*s",
@@ -605,7 +806,8 @@ static void render_editor(int selected, int top) {
             if (preview_valid) mvprintw(y, meta+15, "x%d",
                  preview.peak_polyphony[i] > 0 ? preview.peak_polyphony[i] : 1);
         }
-        if (i == selected) attroff(COLOR_PAIR(UI_SELECTED) | A_BOLD);
+        if (i == selected && selected_part == -1)
+            attroff(COLOR_PAIR(UI_SELECTED) | A_BOLD);
         else attroff(COLOR_PAIR(t->enabled ? UI_GREEN : UI_DIM));
         ++y;
         if (source_expanded && optimize && t->enabled && preview_valid) {
@@ -615,12 +817,20 @@ static void render_editor(int selected, int top) {
             for (int lane = 0; lane < lanes && y < source_end; ++lane) {
                 if (visible_count < 2048) {
                     visible_track[visible_count] = i;
+                    visible_part[visible_count] = lane;
                     visible_y[visible_count++] = y;
                 }
                 attron(COLOR_PAIR(UI_ORANGE));
-                mvprintw(y, 4, " |-- NOTE LANE %d", lane + 1);
+                if (i == selected && selected_part == lane)
+                    attron(A_REVERSE | A_BOLD);
+                PpaMidiPart *part=&parts[i*4+lane];
+                mvprintw(y, 4, " |-- PART %d  %-9.9s %3d %s",
+                          lane + 1, symbols[part->wave], part->volume,
+                          part->enabled ? "ON " : "OFF");
+                if (i == selected && selected_part == lane)
+                    attroff(A_REVERSE | A_BOLD);
                 attroff(COLOR_PAIR(UI_ORANGE));
-                int plot_x = 23;
+                int plot_x = 34;
                 int plot_w = split - plot_x - 3;
                 if (plot_w > 48) plot_w = 48;
                 draw_track_timeline(y, plot_x, plot_w, i, lane);
@@ -640,7 +850,24 @@ static void render_editor(int selected, int top) {
         attron(COLOR_PAIR(UI_GREEN) | A_BOLD);
         if (9 < source_end) mvaddstr(9, split+2, "SELECTED TRACK");
         attroff(COLOR_PAIR(UI_GREEN) | A_BOLD);
-        if (t) {
+        if (t && selected_part >= 0) {
+            PpaMidiPart *part=&parts[selected*4+selected_part];
+            if (10 < source_end) mvprintw(10,split+2,"TRACK %d / PART %d",
+                                             selected+1,selected_part+1);
+            if (12 < source_end) mvprintw(12,split+2,"Wave  %-10s",
+                                             wave_name[part->wave]);
+            if (13 < source_end) mvaddnstr(13,split+2,
+                                             symbols[part->wave],25);
+            if (15 < source_end) mvprintw(15,split+2,"Volume %3d/255",
+                                             part->volume);
+            if (16 < source_end) draw_meter(stdscr,16,split+2,25,
+                                             part->volume,UI_ORANGE);
+            if (18 < source_end) mvprintw(18,split+2,"Pitch  %+d st",
+                                             part->transpose);
+            if (19 < source_end) mvprintw(19,split+2,"Enabled %s",
+                                             part->enabled?"YES":"NO");
+            if (20 < source_end) mvaddstr(20,split+2,"[F4] EDIT PART");
+        } else if (t) {
             if (10 < source_end) mvaddnstr(10, split+2, t->name, 29);
             if (12 < source_end)
                 mvprintw(12, split+2, "Wave %-10s %s",
@@ -702,11 +929,12 @@ static void render_editor(int selected, int top) {
     }
     attron(COLOR_PAIR(UI_HEADER));
     mvhline(LINES-5, 0, ' ', COLS);
-    mvaddstr(LINES-5, 2, " F3 OPEN   F4 TRACK SETTINGS   F5 OPTIMIZE   F6 SAVE ASM   TAB EXPAND ");
+    mvaddstr(LINES-5, 2,
+       " F3 MIDI  F4 EDIT  F5 OPTIMIZE  F6 EXPORT ASM  F7 SAVE PPASP  F8 LOAD ");
     attroff(COLOR_PAIR(UI_HEADER));
     attron(COLOR_PAIR(UI_GREEN));
     mvaddnstr(LINES-4, 2,
-       "SPACE enable  W wave  P priority  +/- volume  E edit  C clock  T tick",
+       "DEL remove track  R restore  SPACE toggle  TAB expand  N project name",
        COLS-3);
     attroff(COLOR_PAIR(UI_GREEN));
     attron(COLOR_PAIR(UI_ORANGE));
@@ -765,23 +993,43 @@ int main(int argc, char **argv) {
                 if (mouse.y == 5 && mouse.x >= 2 && mouse.x < 21) {
                     optimize = !optimize;
                     source_expanded = optimize;
+                    if (!optimize) selected_part=-1;
                     update_preview();
                 } else if (mouse.y >= 8 && mouse.y < LINES - 11) {
                     for (int i = 0; i < visible_count; ++i) {
                         if (mouse.y != visible_y[i]) continue;
                         selected = visible_track[i];
+                        selected_part = visible_part[i];
                         if (mouse.bstate & BUTTON1_DOUBLE_CLICKED)
-                            track_settings_dialog(selected);
+                            edit_selected_dialog(selected);
                         break;
                     }
                 } else if (mouse.y == LINES - 5) {
-                    if (mouse.x < 12) { /* F3 OPEN */ key = KEY_F(3); }
-                    else if (mouse.x < 31) { key = KEY_F(4); }
-                    else if (mouse.x < 45) { key = KEY_F(5); }
-                    else if (mouse.x < 59) { key = KEY_F(6); }
-                    else { key = '\t'; }
+                    if (mouse.x < 11) key = KEY_F(3);
+                    else if (mouse.x < 21) key = KEY_F(4);
+                    else if (mouse.x < 35) key = KEY_F(5);
+                    else if (mouse.x < 51) key = KEY_F(6);
+                    else if (mouse.x < 67) key = KEY_F(7);
+                    else key = KEY_F(8);
                 } else continue;
             } else continue;
+        }
+        if (key == KEY_F(7) || key == 's' || key == 'S') {
+            save_project(); continue;
+        }
+        if (key == KEY_F(8) || key == 'l' || key == 'L') {
+            load_project(); selected=top=0; continue;
+        }
+        if (key == 'n' || key == 'N') {
+            char name[160]="";
+            ask_string("Project name (saved as ~/PPA-Songs/<name>.ppasp): ",
+                       name,sizeof(name));
+            if(*name) {
+                for(char *p=name;*p;p++)
+                    if(!isalnum((unsigned char)*p)&&*p!='_'&&*p!='-')*p='_';
+                snprintf(project_name,sizeof(project_name),"%s",name);
+            }
+            continue;
         }
         if (key == 'q' || key == 'Q') break;
         if (key == 'o' || key == 'O' || key == KEY_F(3)) {
@@ -802,12 +1050,13 @@ int main(int argc, char **argv) {
         }
         if (key == '\t') {
             source_expanded = !source_expanded;
+            if (!source_expanded) selected_part=-1;
             snprintf(message, sizeof(message), "Source logical lanes: %s",
                      source_expanded ? "EXPANDED" : "COMPACT");
             continue;
         }
         if (key == 'e' || key == 'E' || key == KEY_F(4)) {
-            if (ntracks) track_settings_dialog(selected);
+            if (ntracks) edit_selected_dialog(selected);
             continue;
         }
         if (key == 'c' || key == 'C' || key == 't' || key == 'T') {
@@ -831,35 +1080,80 @@ int main(int argc, char **argv) {
         if (key == 'f' || key == 'F' || key == KEY_F(5)) {
             optimize = !optimize;
             source_expanded = optimize;
+            if (!optimize) selected_part=-1;
             update_preview();
             snprintf(message, sizeof(message), "4-voice polyphony optimizer: %s",
                      optimize ? "EXPANDED -> 4 MIXED OUTPUT VOICES" : "OFF");
             continue;
         }
-        if (key == KEY_DOWN && selected + 1 < ntracks) selected++;
-        if (key == KEY_UP && selected > 0) selected--;
+        if (key == KEY_DOWN) {
+            if (selected_part >= 0) {
+                int lanes=preview_valid?preview.peak_polyphony[selected]:1;
+                if(lanes>4)lanes=4;
+                if(selected_part+1<lanes)selected_part++;
+                else if(selected+1<ntracks){selected++;selected_part=-1;}
+            } else if (source_expanded && optimize && preview_valid &&
+                       tracks[selected].enabled && preview.peak_polyphony[selected]>0)
+                selected_part=0;
+            else if(selected+1<ntracks){selected++;selected_part=-1;}
+        }
+        if (key == KEY_UP) {
+            if(selected_part>=0) {
+                if(selected_part>0)selected_part--;
+                else selected_part=-1;
+            } else if(selected>0){
+                selected--;
+                if(source_expanded&&optimize&&preview_valid&&tracks[selected].enabled)
+                    selected_part=preview.peak_polyphony[selected]>0?
+                      (preview.peak_polyphony[selected]>4?3:preview.peak_polyphony[selected]-1):-1;
+            }
+        }
         if (key == '\n' || key == KEY_ENTER || key == KEY_F(6))
             do_export();
         if (!ntracks) continue;
         PpaMidiTrack *t = &tracks[selected];
-        bool changed = false;
-        if (key == ' ') { t->enabled = !t->enabled; changed = true; }
-        if (key == 'w' || key == 'W') {
-            t->wave = (t->wave + 1) % 5; changed = true;
+        PpaMidiPart *part=selected_part>=0?
+            &parts[selected*4+selected_part]:NULL;
+        bool changed=false;
+        if(key==KEY_DC||key=='d'||key=='D'){
+            t->enabled=false;changed=true;
+            snprintf(message,sizeof(message),"TRACK %d REMOVED",selected+1);
         }
-        if (key == 'p' || key == 'P') {
-            t->poly = (t->poly + 1) % 3; changed = true;
+        if(key=='r'||key=='R'){
+            t->enabled=true;changed=true;
+            snprintf(message,sizeof(message),"TRACK %d RESTORED",selected+1);
         }
-        if (key == '+' || key == '=') {
-            t->volume += 8; if (t->volume > 255) t->volume = 255;
-            changed = true;
+        if(key==' '){
+            if(part&&optimize)part->enabled=!part->enabled;
+            else t->enabled=!t->enabled;
+            changed=true;
         }
-        if (key == '-') {
-            t->volume -= 8; if (t->volume < 0) t->volume = 0;
-            changed = true;
+        if(key=='w'||key=='W'){
+            if(part&&optimize)part->wave=(part->wave+1)%5;
+            else{
+                int previous=t->wave;
+                t->wave=(t->wave+1)%5;
+                for(int lane=0;lane<4;lane++){
+                    PpaMidiPart *p=&parts[selected*4+lane];
+                    if(p->wave==previous)p->wave=t->wave;
+                }
+            }
+            changed=true;
+        }
+        if(key=='p'||key=='P'){
+            t->poly=(t->poly+1)%3;changed=true;
+        }
+        if(key=='+'||key=='='||key=='-'){
+            int delta=key=='-'?-8:8;
+            int *volume=part&&optimize?&part->volume:&t->volume;
+            *volume+=delta;
+            if(*volume<0)*volume=0;
+            if(*volume>255)*volume=255;
+            changed=true;
         }
         if (changed) update_preview();
     }
     endwin();
+    if(owned_midi[0])unlink(owned_midi);
     return 0;
 }

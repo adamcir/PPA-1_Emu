@@ -35,7 +35,9 @@ By default the ASM output goes to the repository examples directory.
 |---|---|
 | O | Browse MIDI files |
 | Up / Down | Select track |
-| Space | Remove/restore MIDI track |
+| Delete / D | Remove source track (nondestructive) |
+| R | Restore removed source track |
+| Space | Toggle source track inclusion |
 | W | Cycle waveform |
 | P | Polyphony policy: low / high / latest |
 | + / - | Track volume 0..255 |
@@ -101,6 +103,50 @@ short chords not covered by the 64-column display. The bottom channel
 strips and the sampled dropped-note count summarize the actual allocation.
 The sampled preview is not an audio waveform or a lossless event log;
 the exported ASM still uses the full event timeline.
+
+## Editable optimized parts and PPASP projects
+
+When **F5 OPTIMIZE** is on, a source track can split into up to four
+separate logical **PART 1–4** rows. Use arrow keys or the mouse to select
+one of these rows and press **F4 / E** to configure that part independently:
+
+- Enabled (mute/unmute the logical lane without removing its source track)
+- Waveform (square, sawtooth, triangle, sine, noise)
+- Volume (0–255), scaled together with the source track volume
+- Transpose (-48 to +48 semitones)
+
+The original source-track settings remain separately editable by selecting
+the parent row. A part corresponds to a priority-ranked note in a chord
+(LOW, HIGH, LATEST from the source track), not to a fixed hardware slot:
+it follows the voice allocation when it moves to another physical channel.
+The resulting ASM uses the individual part's waveform, volume and pitch,
+not merely a cosmetic preview.
+
+**Delete / D** removes the selected source track from the mix (nondestructive).
+**R** restores it; **Space** toggles its inclusion. Removing a track does not
+erase its original MIDI notes or its part settings.
+
+**S / F7 = SAVE PROJECT**. This creates or updates:
+
+```text
+~/PPA-Songs/<project-name>.ppasp
+```
+
+The PPASP1 binary project file embeds the original MIDI data and retains
+all source track settings, four part settings per track, optimizer state,
+CPU clock and tick length. It can be copied to another computer and opened
+without access to the original MIDI. The save operation writes to a
+temporary file and renames it on success to avoid partially saved files.
+
+**L / F8 = OPEN PPASP**, using a file selection window rooted at
+`~/PPA-Songs`. **N** renames the project (its filename is sanitized).
+**F6** is separate: export a full multi-bank `.asm` program through the
+existing Save ASM As dialog. Saving a PPASP never overwrites the ASM.
+The project folder is created automatically if missing.
+
+The PPASP format is versioned with a `PPASP1\r\n` magic header, bounded
+MIDI payload, recorded track/channel IDs and little-endian settings.
+It is not an assembler file and should not be passed to ROMPACK.
 
 ## Four-channel optimizer
 

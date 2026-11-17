@@ -464,8 +464,35 @@ static bool preferred_note(const PpaMidiTrack *track, const Playing *state,
         return state->note[candidate].order > state->note[current].order;
     return candidate > current;
 }
+/* Logical part number is the note's rank in this track's chord.
+ * Each rank has its own independently editable WAVE/VOLUME/TRANSPOSE. */
+static int note_part_index(const PpaMidiTrack *track, const Playing *state,
+                           int pitch) {
+    if (!note_amplitude(track, state, pitch)) return -1;
+    int rank = 0;
+    for (int other=0; other<128; ++other) {
+        if (other == pitch || !note_amplitude(track, state, other)) continue;
+        if (preferred_note(track, state, other, pitch)) ++rank;
+    }
+    return rank < PPA_MIDI_PARTS_PER_TRACK ? rank : -1;
+}
+static PpaMidiPart effective_part(const PpaMidiTrack *track,
+                                  const PpaMidiPart *parts, int index, int lane) {
+    if (parts) return parts[index * PPA_MIDI_PARTS_PER_TRACK + lane];
+    return (PpaMidiPart){true, track->wave, 255, 0};
+}
+static uint8_t part_amplitude(const PpaMidiTrack *track, const Playing *state,
+                              const PpaMidiPart *parts, int index, int note) {
+    int lane = note_part_index(track, state, note);
+    if (lane < 0) return 0;
+    PpaMidiPart part = effective_part(track, parts, index, lane);
+    if (!part.enabled) return 0;
+    return (uint8_t)((unsigned)note_amplitude(track, state, note) *
+                     (unsigned)part.volume / 255u);
+}
 static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
-                          int count, bool optimized, int assigned[4]) {
+                          int count, bool optimized, int assigned[4],
+                          const PpaMidiPart *parts) {
     SoundState result = {0};
     if (!optimized) {
         /* Legacy behavior: one monophonic priority-selected note per track. */
@@ -491,7 +518,7 @@ static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
         if (key < 0) continue;
         int track = key / 128, note = key % 128;
         if (track >= count ||
-            !note_amplitude(&tracks[track], &state[track], note))
+            !part_amplitude(&tracks[track], &state[track], parts, track, note))
             assigned[voice] = -1;
     }
 
@@ -513,7 +540,7 @@ static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
             int note = selected_note(&state[t], &tracks[t], &velocity);
             if (note < 0 || key_is_assigned(assigned, t * 128 + note))
                 continue;
-            uint8_t amp = note_amplitude(&tracks[t], &state[t], note);
+            uint8_t amp = part_amplitude(&tracks[t], &state[t], parts, t, note);
             if (amp > best_volume) {
                 best_volume = amp;
                 best_key = t * 128 + note;
@@ -535,13 +562,13 @@ static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
             int chosen = -1;
             for (int note = 0; note < 128; ++note) {
                 if (key_is_assigned(assigned, t * 128 + note) ||
-                    !note_amplitude(&tracks[t], &state[t], note))
+                    !part_amplitude(&tracks[t], &state[t], parts, t, note))
                     continue;
                 if (preferred_note(&tracks[t], &state[t], note, chosen))
                     chosen = note;
             }
             if (chosen < 0) continue;
-            uint8_t amp = note_amplitude(&tracks[t], &state[t], chosen);
+            uint8_t amp = part_amplitude(&tracks[t], &state[t], parts, t, chosen);
             if (amp > best_volume) {
                 best_volume = amp;
                 best_key = t * 128 + chosen;
@@ -554,9 +581,13 @@ static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
         int key = assigned[voice];
         if (key < 0) continue;
         int t = key / 128, note = key % 128;
-        result.frequency[voice] = midi_frequency(note + tracks[t].transpose);
-        result.volume[voice] = note_amplitude(&tracks[t], &state[t], note);
-        result.waveform[voice] = (uint8_t)tracks[t].wave;
+        int lane = note_part_index(&tracks[t], &state[t], note);
+        if (lane < 0) continue;
+        PpaMidiPart part = effective_part(&tracks[t], parts, t, lane);
+        result.frequency[voice] = midi_frequency(note + tracks[t].transpose +
+                                                part.transpose);
+        result.volume[voice] = part_amplitude(&tracks[t], &state[t], parts, t, note);
+        result.waveform[voice] = (uint8_t)part.wave;
     }
     return result;
 }
@@ -564,9 +595,10 @@ static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
  * the exported ASM. Track rows are expanded by their observed peak
  * polyphony, while physical voice bars show actual allocated notes.
  * The 64-cell sampling is a display approximation, never output data. */
-bool ppa_midi_preview(const char *path, const PpaMidiTrack *tracks, int count,
-                      bool optimize, PpaMidiPreview *result,
-                      char *error, size_t error_size) {
+bool ppa_midi_preview_parts(const char *path, const PpaMidiTrack *tracks,
+                            int count, const PpaMidiPart *parts, bool optimize,
+                            PpaMidiPreview *result,
+                            char *error, size_t error_size) {
     if (!path || !tracks || count < 1 || count > PPA_MIDI_MAX_TRACKS || !result) {
         err(error, error_size, "Invalid MIDI preview arguments");
         return false;
@@ -631,7 +663,7 @@ bool ppa_midi_preview(const char *path, const PpaMidiTrack *tracks, int count,
             /* Composition at every MIDI event boundary preserves the voice
              * retention decisions used in generate_frames(). */
             if (optimize)
-                (void)compose(tracks, state, count, true, assigned);
+                (void)compose(tracks, state, count, true, assigned, parts);
             previous_tick = tick;
         }
         (void)previous_tick;
@@ -648,15 +680,17 @@ bool ppa_midi_preview(const char *path, const PpaMidiTrack *tracks, int count,
         if (audible > result->max_simultaneous_notes)
             result->max_simultaneous_notes = audible;
         if (optimize) {
-            (void)compose(tracks, state, count, true, assigned);
+            (void)compose(tracks, state, count, true, assigned, parts);
             unsigned allocated = 0;
             for (int voice = 0; voice < 4; ++voice) {
                 if (assigned[voice] < 0) continue;
                 int index = assigned[voice] / 128, note = assigned[voice] % 128;
-                if (index >= count || !note_amplitude(&tracks[index], &state[index], note))
+                if (index >= count || !part_amplitude(&tracks[index], &state[index], parts, index, note))
                     continue;
                 result->owner[voice][cell] = index + 1;
                 result->pitch[voice][cell] = note;
+                result->part[voice][cell] =
+                    note_part_index(&tracks[index], &state[index], note);
                 allocated++;
             }
             if (audible > allocated) result->dropped_note_events += audible - allocated;
@@ -679,8 +713,15 @@ bool ppa_midi_preview(const char *path, const PpaMidiTrack *tracks, int count,
     return true;
 }
 
+bool ppa_midi_preview(const char *path, const PpaMidiTrack *tracks, int count,
+                      bool optimize, PpaMidiPreview *result,
+                      char *error, size_t error_size) {
+    return ppa_midi_preview_parts(path, tracks, count, NULL, optimize,
+                                   result, error, error_size);
+}
+
 static bool generate_frames(Midi *m, const PpaMidiTrack *config,
-                            int count, bool optimized, int step_ms,
+                            int count, const PpaMidiPart *parts, bool optimized, int step_ms,
                             FrameList *out, char *error, size_t error_size) {
     if (step_ms < 1 || step_ms > 250) {
         err(error, error_size, "Time unit must be 1..250 milliseconds");
@@ -711,7 +752,7 @@ static bool generate_frames(Midi *m, const PpaMidiTrack *config,
             if (index >= 0 && index < count)
                 update_state(&state[index], e);
         } while (i < m->count && m->events[i].unit == instant);
-        prior = compose(config, state, count, optimized, assigned);
+        prior = compose(config, state, count, optimized, assigned, parts);
         previous = instant;
     }
     if (ok && end_time > previous)
@@ -871,10 +912,11 @@ static bool write_data(FILE *f, const FrameList *v, bool optimized,
     *bank_total = (int)banks;
     return true;
 }
-bool ppa_midi_export(const char *path, const PpaMidiTrack *tracks, int count,
-                     bool optimize, const char *output_path,
-                     int clock_hz, int tick_ms,
-                     int *frames, int *banks, char *error, size_t error_size) {
+bool ppa_midi_export_parts(const char *path, const PpaMidiTrack *tracks,
+                            int count, const PpaMidiPart *parts,
+                            bool optimize, const char *output_path,
+                            int clock_hz, int tick_ms,
+                            int *frames, int *banks, char *error, size_t error_size) {
     if (!path || !tracks || count <= 0 || !output_path) {
         err(error, error_size, "Invalid arguments");
         return false;
@@ -921,7 +963,7 @@ bool ppa_midi_export(const char *path, const PpaMidiTrack *tracks, int count,
             mapping[i].voice = mapping[i].enabled ? ++voice : 0;
     }
     FrameList list = {0};
-    bool ok = generate_frames(m, mapping, count, optimize, tick_ms,
+    bool ok = generate_frames(m, mapping, count, parts, optimize, tick_ms,
                               &list, error, error_size);
     if (ok) {
         FILE *f = fopen(output_path, "wb");
@@ -949,4 +991,13 @@ bool ppa_midi_export(const char *path, const PpaMidiTrack *tracks, int count,
     free(mapping);
     free_midi(m);
     return ok;
+}
+
+bool ppa_midi_export(const char *path, const PpaMidiTrack *tracks, int count,
+                     bool optimize, const char *output_path,
+                     int clock_hz, int tick_ms,
+                     int *frames, int *banks, char *error, size_t error_size) {
+    return ppa_midi_export_parts(path, tracks, count, NULL, optimize,
+                                 output_path, clock_hz, tick_ms,
+                                 frames, banks, error, error_size);
 }
