@@ -65,14 +65,21 @@ void ppa_sound_gui_draw(SDL_Renderer *r, TTF_Font *font,
     snprintf(text, sizeof(text), "MASTER VOLUME: %u / 255", info->sound_volume);
     ppa_mod_text(r, font, 34, 345, (SDL_Color){240,241,234,255}, text);
     for (int ch=0; ch<4; ++ch) {
+        const float y = 366.0f + 32.0f * ch;
         snprintf(text, sizeof(text), "CH%d  %5u Hz   W%d   VOL %3u   %s",
             ch+1, (unsigned)info->freq[ch], (unsigned)info->waveform[ch],
             (unsigned)info->voice_volume[ch],
             info->voice_enabled[ch] ? "ON" : "OFF");
-        ppa_mod_text(r, font, 34, 374 + 25.f*ch,
+        ppa_mod_text(r, font, 34, y,
             info->voice_enabled[ch] ? (SDL_Color){137,244,157,255} :
                                       (SDL_Color){143,150,145,255}, text);
+        snprintf(text, sizeof(text), "    ADSR  %3u/%3u/%3u/%3u   GATE %u   ENV %3u",
+            (unsigned)info->attack[ch], (unsigned)info->decay[ch],
+            (unsigned)info->sustain[ch], (unsigned)info->release[ch],
+            (unsigned)info->gate[ch], (unsigned)info->envelope_level[ch]);
+        ppa_mod_text(r, font, 34, y + 15,
+                     (SDL_Color){240,167,65,255}, text);
     }
-    ppa_mod_text(r, font, 28, 478, (SDL_Color){164,171,166,255},
-                 "CPU BUS: 0010 POWER  /  0011 VOL  /  0020-0054 CHANNELS");
+    ppa_mod_text(r, font, 28, 498, (SDL_Color){164,171,166,255},
+                 "ADSR: +5/+6/+7/+8   GATE: +9   (per channel)");
 }

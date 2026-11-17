@@ -66,6 +66,16 @@ out/ppa_module_test: modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.
 test-modules: modules out/ppa_module_test
 	./out/ppa_module_test
 
+# PPA-SOUND/1 envelope tests (module code only, no SDL dependency).
+.PHONY: test-sound-adsr
+out/ppa_sound_adsr_test: modules/ppa_sound_adsr_test.c modules/ppa_sound.c modules/ppa_sound.h modules/ppa_module.h
+	$(CC) -std=c11 -O2 -Wall -Wextra -Imodules \
+	  modules/ppa_sound_adsr_test.c modules/ppa_sound.c -o $@ -lm
+
+test-sound-adsr: out/ppa_sound_adsr_test
+	./out/ppa_sound_adsr_test
+
+
 out/irq_test: src/irq.c src/irq.h src/irq_test.c
 	mkdir -p out
 	$(CC) -Isrc src/irq.c src/irq_test.c -o $@
@@ -136,7 +146,7 @@ out/tools/test_midi_browser: tools/ppa-1_midi-to-asm/test_browser.c tools/ppa-1_
 test-midi-browser: out/tools/test_midi_browser
 	./out/tools/test_midi_browser
 
-test-midi: test-midi-native test-midi-browser
+test-midi: test-midi-native test-midi-browser test-sound-adsr
 
 midi-gui midi-tui: $(MIDI_TUI)
 

@@ -42,11 +42,15 @@ static bool write_track(FILE *f,const PpaMidiTrack *t,const PpaMidiPart *p) {
     if(len>31||!w32(f,(uint32_t)len)||fwrite(t->id,1,len,f)!=len)return false;
     if(!w32(f,t->enabled?1:0)||!w32(f,(uint32_t)t->voice)||
        !w32(f,(uint32_t)t->wave)||!w32(f,(uint32_t)t->poly)||
-       !w32(f,(uint32_t)t->volume)||!w32(f,(uint32_t)(int32_t)t->transpose))return false;
+       !w32(f,(uint32_t)t->volume)||!w32(f,(uint32_t)(int32_t)t->transpose)||
+       !w32(f,t->attack)||!w32(f,t->decay)||!w32(f,t->sustain)||
+       !w32(f,t->release))return false;
     for(int i=0;i<4;i++)
         if(!w32(f,p[i].enabled?1:0)||!w32(f,(uint32_t)p[i].wave)||
            !w32(f,(uint32_t)p[i].volume)||
-           !w32(f,(uint32_t)(int32_t)p[i].transpose))return false;
+           !w32(f,(uint32_t)(int32_t)p[i].transpose)||
+           !w32(f,p[i].attack)||!w32(f,p[i].decay)||
+           !w32(f,p[i].sustain)||!w32(f,p[i].release))return false;
     return true;
 }
 bool ppa_project_save(const char *name,const char *midi_path,
@@ -81,7 +85,7 @@ bool ppa_project_save(const char *name,const char *midi_path,
     if(fd<0){fclose(midi);problem(err,errcap,"Cannot create PPASP temporary file");return false;}
     FILE *out=fdopen(fd,"wb");if(!out){close(fd);unlink(tmp);fclose(midi);return false;}
     bool ok=fwrite(PROJECT_MAGIC,1,8,out)==8 &&
-        w32(out,1)&&w32(out,(uint32_t)len)&&w32(out,(uint32_t)count)&&
+        w32(out,2)&&w32(out,(uint32_t)len)&&w32(out,(uint32_t)count)&&
         w32(out,optimize?1u:0u)&&w32(out,(uint32_t)clock_hz)&&
         w32(out,(uint32_t)tick_ms);
     unsigned char buffer[8192];long remaining=len;
@@ -110,7 +114,7 @@ bool ppa_project_load(const char *path,char *temp_midi,size_t midi_cap,
     bool ok=fread(magic,1,8,in)==8&&memcmp(magic,PROJECT_MAGIC,8)==0&&
         r32(in,&version)&&r32(in,&size)&&r32(in,&n)&&r32(in,&optim)&&
         r32(in,&clock)&&r32(in,&tick);
-    if(!ok||version!=1||size<14||size>MAX_MIDI||n==0||n>(unsigned)cap||
+    if(!ok||(version!=1&&version!=2)||size<14||size>MAX_MIDI||n==0||n>(unsigned)cap||
        optim>1||clock<100||clock>10000000||tick<1||tick>250)
         {fclose(in);problem(err,errcap,"Unsupported or damaged PPASP header");return false;}
     char filename[]="/tmp/ppa-ppasp-midi-XXXXXX";
@@ -137,6 +141,9 @@ bool ppa_project_load(const char *path,char *temp_midi,size_t midi_cap,
         char id[32]={0};
         if(ok)ok=fread(id,1,length,in)==length;
         for(int j=0;j<6&&ok;j++)ok=r32(in,&values[j]);
+        uint32_t env[4]={0,0,255,0};
+        if(version>=2)for(int j=0;j<4&&ok;j++)ok=r32(in,&env[j]);
+        for(int j=0;j<4;j++)if(env[j]>255)ok=false;
         if(!ok||strcmp(id,original[i].id)) {ok=false;break;}
         tracks[i]=original[i];
         tracks[i].enabled=values[0]==1;
@@ -145,17 +152,26 @@ bool ppa_project_load(const char *path,char *temp_midi,size_t midi_cap,
         tracks[i].poly=(int)values[3];
         tracks[i].volume=(int)values[4];
         tracks[i].transpose=(int)(int32_t)values[5];
-        if(tracks[i].voice<0||tracks[i].voice>4||tracks[i].wave<0||tracks[i].wave>4||
+        tracks[i].attack=(uint8_t)env[0];
+        tracks[i].decay=(uint8_t)env[1];
+        tracks[i].sustain=(uint8_t)env[2];
+        tracks[i].release=(uint8_t)env[3];
+        if(!ok||tracks[i].voice<0||tracks[i].voice>4||tracks[i].wave<0||tracks[i].wave>4||
            tracks[i].poly<0||tracks[i].poly>2||tracks[i].volume<0||
            tracks[i].volume>255||tracks[i].transpose< -48||tracks[i].transpose>48)
            {ok=false;break;}
         for(int lane=0;lane<4&&ok;lane++) {
             uint32_t v[4];
-            for(int j=0;j<4;j++)if(!r32(in,&v[j]))ok=false;
+            for(int j=0;j<4&&ok;j++)if(!r32(in,&v[j]))ok=false;
+            uint32_t adsr[4]={0,0,255,0};
+            if(version>=2)for(int j=0;j<4&&ok;j++)ok=r32(in,&adsr[j]);
+            for(int j=0;j<4;j++)if(adsr[j]>255)ok=false;
             if(!ok||v[0]>1||v[1]>4||v[2]>255||(int32_t)v[3]< -48||
                (int32_t)v[3]>48){ok=false;break;}
             PpaMidiPart *p=&parts[i*4+lane];
-            *p=(PpaMidiPart){v[0]==1,(int)v[1],(int)v[2],(int)(int32_t)v[3]};
+            *p=(PpaMidiPart){v[0]==1,(int)v[1],(int)v[2],(int)(int32_t)v[3],
+                              (uint8_t)adsr[0],(uint8_t)adsr[1],
+                              (uint8_t)adsr[2],(uint8_t)adsr[3]};
         }
     }
     free(original);fclose(in);

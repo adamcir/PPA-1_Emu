@@ -1,3 +1,45 @@
+## PPA-SOUND/1: per-channel ADSR envelopes
+
+Each of the four SOUND/1 oscillators now contains an independent
+sample-rate-based ADSR generator. It continues running in the host audio
+mixer even when the main CPU panel or the module window is hidden.
+
+For a channel base at 0020, 0030, 0040, or 0050, the register map is:
+
+| Offset | Control | Values |
+|---|---|---|
+| +0 / +1 | Frequency | existing 16-bit value (Hz) |
+| +2 | Waveform | 0 square, 1 saw, 2 triangle, 3 sine, 4 noise |
+| +3 | Volume | 0..255 |
+| +4 | Enable | Existing oscillator power control |
+| **+5** | **Attack** | 0..255; time 0..2 seconds |
+| **+6** | **Decay** | 0..255; time 0..2 seconds |
+| **+7** | **Sustain** | 0..255; level 0..100% |
+| **+8** | **Release** | 0..255; time 0..4 seconds |
+| **+9** | **Gate** | 0 release, 1 keep held, 2 retrigger |
+
+Times use a squared 8-bit value mapped over the given range, allowing
+fine control of short attacks and decays. GATE=2 resets the envelope
+without requiring a separate GATE=0 write. For release, the synth
+retains the last note's volume/pitch/waveform even if the program sets
+the normal frequency and volume to zero on note-off.
+
+**Compatibility:** ADSR is bypassed until software first writes a GATE
+register. Old programs using only ENABLE and VOLUME continue producing
+the same steady tone as before. SOUND/1 registers remain discoverable
+through the existing PPAMOD type-2 dynamic slot binding.
+
+ASM includes now define `SOUND_CH1_ATTACK` through
+`SOUND_CH4_GATE`, plus `sound_gate1..4` and
+`sound_adsr_defaults`. The per-channel screen shows ADSR, gate state
+and envelope level next to its waveform and frequency.
+
+Native regression test:
+
+```sh
+make test-sound-adsr
+```
+
 # PPAMOD identity and dynamic discovery (v2)
 
 Every card type (LIGHT/1, PPA-SOUND/1, PPA-VGA/1 and PPA-PS/2/1)

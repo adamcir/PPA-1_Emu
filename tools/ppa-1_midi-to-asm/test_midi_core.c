@@ -84,6 +84,8 @@ static void two_tracks(void) {
                            &frames, &banks, error, sizeof(error)));
     assert(frames >= 2 && banks == 1);
     char *asmcode = read_all(out);
+    assert(strstr(asmcode, "ST $0029,A"));
+    assert(strstr(asmcode, "ST $0025,A"));
     assert(strstr(asmcode, ".bank 0001"));
     assert(strstr(asmcode, "ST $0022,A")); /* dynamic waveform */
     assert(strstr(asmcode, "midi_bank_next:"));
@@ -225,10 +227,10 @@ static void one_track_polyphony(void) {
     tracks[0].wave = 2;
     tracks[0].poly = 1; /* high */
     PpaMidiPart parts[4]={
-        {true,1,255,0},  /* highest note: saw */
-        {true,2,128,0},  /* second note: triangle at half volume */
-        {true,3,255,12}, /* third note: sine shifted up an octave */
-        {true,0,255,0}
+        {true,1,255,0,25,40,180,80},   /* highest: saw ADSR */
+        {true,2,128,0,50,20,120,100},  /* second: triangle ADSR */
+        {true,3,255,12,8,16,220,40},  /* third: sine + octave */
+        {true,0,255,0,0,0,255,0}
     };
     PpaMidiPreview edited_preview={0};
     assert(ppa_midi_preview_parts(midi,tracks,count,parts,true,
@@ -296,6 +298,10 @@ static void one_track_polyphony(void) {
         assert(restored_parts[i].wave==parts[i].wave);
         assert(restored_parts[i].volume==parts[i].volume);
         assert(restored_parts[i].transpose==parts[i].transpose);
+        assert(restored_parts[i].attack==parts[i].attack);
+        assert(restored_parts[i].decay==parts[i].decay);
+        assert(restored_parts[i].sustain==parts[i].sustain);
+        assert(restored_parts[i].release==parts[i].release);
     }
     PpaMidiPreview reopened={0};
     assert(ppa_midi_preview_parts(restored_midi,restored,restored_count,

@@ -16,6 +16,7 @@ typedef struct {
     int wave;        /* 0..4 */
     int volume;      /* 0..255, scaled with the source track volume */
     int transpose;   /* -48..48 semitones */
+    uint8_t attack, decay, sustain, release;
 } PpaMidiPart;
 
 
@@ -31,6 +32,7 @@ typedef struct {
     int poly;
     int volume;
     int transpose;
+    uint8_t attack, decay, sustain, release;
 } PpaMidiTrack;
 
 /* Load MIDI format 0/1 and enumerate every track/channel containing notes.

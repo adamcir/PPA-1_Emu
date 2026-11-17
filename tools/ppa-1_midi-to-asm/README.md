@@ -1,3 +1,37 @@
+## ADSR envelopes in the MIDI editor and PPA-SOUND/1
+
+Press **F4** on a source track or expanded PART to adjust its
+independent **Attack**, **Decay**, **Sustain**, and **Release** (0..255).
+An orange envelope graph previews the shape. A/D span 0..2 seconds,
+R spans 0..4 seconds (curved 8-bit time mapping), and sustain is a
+0..255 level. Default is `A=0 D=0 S=255 R=0`.
+
+Each parent MIDI track has default ADSR values; a PART can override
+them independently. Parent changes propagate to matching (non-custom)
+PART values. PPASP projects now save these four registers per track and
+per PART. Existing **PPASP version 1** projects are loaded with the
+compatible full-sustain/zero-time envelope, and are saved as version 2.
+
+The generated multi-bank ASM writes the ADSR hardware registers
+`xx25..xx28` for each physical oscillator and `xx29` GATE with:
+
+- 0 = note-off / begin release
+- 1 = held note (do not retrigger)
+- 2 = start or explicitly retrigger note
+
+All MIDI notes now carry their actual start/release events to the
+hardware envelope rather than faking decay by CPU changes to VOLUME.
+A falling GATE preserves the last pitch/volume inside SOUND/1, so its
+release stage is audible even if the new note-frame is silent. Voice
+allocation respects the same four-oscillator limit as before.
+
+Data frames use **34 bytes** without optimizing (the original
+14-byte section followed by 20 ADSR/GATE bytes) and **38 bytes** with
+optimization (original 18-byte section followed by 20 ADSR/GATE bytes).
+The assembler places these frames across ROM data banks automatically.
+This is a new generated-ASM format; re-export older songs to benefit
+from ADSR. No additional data sidecar files are created.
+
 # PPA-1_MIDI-to-ASM
 
 Native **C11 + ncursesw** MIDI editor and converter for PPA-SOUND/1.

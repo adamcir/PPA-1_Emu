@@ -1905,6 +1905,12 @@ static bool gui_backend_module_info(void *ctx, int slot, PPA1ModuleInfo *out) {
     for (int i = 0; i < PPAM_AUDIO_CHANNELS; i++) {
         out->freq[i] = m->sound[i].frequency;
         out->voice_volume[i] = m->sound[i].volume;
+        out->attack[i] = m->sound[i].attack;
+        out->decay[i] = m->sound[i].decay;
+        out->sustain[i] = m->sound[i].sustain;
+        out->release[i] = m->sound[i].release;
+        out->gate[i] = m->sound[i].gate ? 1u : 0u;
+        out->envelope_level[i] = (uint8_t)(m->sound[i].envelope_level * 255.0f);
         out->waveform[i] = m->sound[i].waveform;
         out->voice_enabled[i] = m->sound[i].enabled;
     }

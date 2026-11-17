@@ -52,6 +52,8 @@ typedef struct {
 typedef struct {
     uint16_t frequency[4];
     uint8_t volume[4], waveform[4];
+    uint8_t gate[4]; /* 0 release, 1 held, 2 retrigger */
+    uint8_t adsr[4][4]; /* A D S R */
 } SoundState;
 typedef struct {
     uint16_t duration;
@@ -112,6 +114,7 @@ static int index_for(Midi *m, unsigned source, unsigned channel, bool create) {
     t->channel = channel;
     snprintf(t->id, sizeof(t->id), "%u:%u", source, channel);
     t->volume = 200;
+    t->sustain = 255;
     t->wave = m->track_count % 4;
     t->poly = 1;
     t->voice = m->track_count < 4 ? m->track_count + 1 : 0;
@@ -410,7 +413,9 @@ static bool same_state(const SoundState *a, const SoundState *b, bool dynamic) {
     for (int i = 0; i < 4; ++i)
         if (a->frequency[i] != b->frequency[i] ||
             a->volume[i] != b->volume[i] ||
-            (dynamic && a->waveform[i] != b->waveform[i]))
+            (dynamic && a->waveform[i] != b->waveform[i]) ||
+            a->gate[i] != b->gate[i] ||
+            memcmp(a->adsr[i], b->adsr[i], 4))
             return false;
     return true;
 }
@@ -433,6 +438,9 @@ static bool append_frames(FrameList *out, uint64_t duration, SoundState state,
         uint16_t amount = duration > 65534 ? 65534 : (uint16_t)duration;
         out->frames[out->count++] = (SoundFrame){amount, state};
         duration -= amount;
+        /* Continuation of a sustained frame must not retrigger ADSR. */
+        for (int voice=0;voice<4;voice++)
+            if (state.gate[voice] == 2) state.gate[voice] = 1;
     }
     return true;
 }
@@ -479,7 +487,7 @@ static int note_part_index(const PpaMidiTrack *track, const Playing *state,
 static PpaMidiPart effective_part(const PpaMidiTrack *track,
                                   const PpaMidiPart *parts, int index, int lane) {
     if (parts) return parts[index * PPA_MIDI_PARTS_PER_TRACK + lane];
-    return (PpaMidiPart){true, track->wave, 255, 0};
+    return (PpaMidiPart){true, track->wave, 255, 0, 0, 0, 255, 0};
 }
 static uint8_t part_amplitude(const PpaMidiTrack *track, const Playing *state,
                               const PpaMidiPart *parts, int index, int note) {
@@ -507,6 +515,10 @@ static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
             result.frequency[voice] = midi_frequency(note + tracks[t].transpose);
             result.volume[voice] = amplitude;
             result.waveform[voice] = (uint8_t)tracks[t].wave;
+            result.adsr[voice][0] = tracks[t].attack;
+            result.adsr[voice][1] = tracks[t].decay;
+            result.adsr[voice][2] = tracks[t].sustain;
+            result.adsr[voice][3] = tracks[t].release;
         }
         return result;
     }
@@ -588,6 +600,10 @@ static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
                                                 part.transpose);
         result.volume[voice] = part_amplitude(&tracks[t], &state[t], parts, t, note);
         result.waveform[voice] = (uint8_t)part.wave;
+        result.adsr[voice][0] = part.attack;
+        result.adsr[voice][1] = part.decay;
+        result.adsr[voice][2] = part.sustain;
+        result.adsr[voice][3] = part.release;
     }
     return result;
 }
@@ -726,7 +742,7 @@ static bool generate_frames(Midi *m, const PpaMidiTrack *config,
         err(error, error_size, "Time unit must be 1..250 milliseconds");
         return false;
     }
-    const int bytes = optimized ? 18 : 14;
+    const int bytes = optimized ? 38 : 34;
     out->max = ROM_BANK_COUNT * ((ROM_BANK_BYTES - 2u) / (unsigned)bytes);
     Playing *state = calloc((size_t)count, sizeof(*state));
     if (!state) { err(error, error_size, "Out of memory"); return false; }
@@ -736,6 +752,7 @@ static bool generate_frames(Midi *m, const PpaMidiTrack *config,
     uint64_t end_time = convert_tick(m, m->end_tick, step_ms) +
                         (200u + (unsigned)step_ms - 1u) / (unsigned)step_ms;
     int assigned[4] = {-1, -1, -1, -1};
+    int previous_keys[4] = {-1, -1, -1, -1};
     SoundState prior = {0};
     uint64_t previous = 0;
     bool ok = true;
@@ -745,13 +762,39 @@ static bool generate_frames(Midi *m, const PpaMidiTrack *config,
                 out, instant - previous, prior, optimized)) {
             ok = false; break;
         }
+        int note_on_track[32], note_on_pitch[32], started = 0;
         do {
             MidiEvent *e = &m->events[i++];
+            if (e->kind == EV_NOTE_ON && started < 32) {
+                note_on_track[started] = e->track_index;
+                note_on_pitch[started++] = e->a;
+            }
             int index = e->track_index;
             if (index >= 0 && index < count)
                 update_state(&state[index], e);
         } while (i < m->count && m->events[i].unit == instant);
         prior = compose(config, state, count, optimized, assigned, parts);
+        for (int voice=0;voice<4;voice++) {
+            int key=-1;
+            if (optimized) key=assigned[voice];
+            else for(int t=0;t<count;t++) {
+                if (!config[t].enabled || config[t].voice != voice+1) continue;
+                uint8_t velocity=0;
+                int note=selected_note(&state[t],&config[t],&velocity);
+                if (note>=0 && prior.volume[voice]>0) key=t*128+note;
+            }
+            if (key<0 || prior.volume[voice]==0) {
+                prior.gate[voice]=0;
+                previous_keys[voice]=-1;
+            } else {
+                bool retrigger=key!=previous_keys[voice];
+                for(int n=0;n<started;n++)
+                    if (note_on_track[n]==key/128 && note_on_pitch[n]==key%128)
+                        retrigger=true;
+                prior.gate[voice]=retrigger?2:1;
+                previous_keys[voice]=key;
+            }
+        }
         previous = instant;
     }
     if (ok && end_time > previous)
@@ -832,6 +875,16 @@ static void write_player(FILE *f, const PpaMidiTrack *tracks,
             fprintf(f, "    ST $%04X,A\n", 0x22 + v * 16);
         }
     }
+    /* Each frame now carries four per-voice ADSR configurations and a
+     * 0/1/2 GATE transition. The original frequency/volume/wave bytes
+     * remain at the start of the frame for predictable data layout. */
+    for (int v = 0; v < 4; ++v) {
+        for (int reg = 0; reg < 5; ++reg) {
+            asm_line(f, "    CALL midi_next");
+            asm_line(f, "    CALL slots_use_sound");
+            fprintf(f, "    ST $%04X,A\n", 0x25 + v * 16 + reg);
+        }
+    }
     asm_line(f, "midi_wait:");
     fprintf(f, "    MOV D,#%02X\n", iterations);
     asm_line(f, "midi_inner:");
@@ -876,7 +929,7 @@ static void write_player(FILE *f, const PpaMidiTrack *tracks,
 }
 static bool write_data(FILE *f, const FrameList *v, bool optimized,
                        int *bank_total) {
-    unsigned width = optimized ? 18u : 14u;
+    unsigned width = optimized ? 38u : 34u;
     unsigned per_bank = (ROM_BANK_BYTES - 2u) / width;
     size_t banks = v->count ? (v->count + per_bank - 1u) / per_bank : 1u;
     if (banks > ROM_BANK_COUNT) return false;
@@ -886,7 +939,7 @@ static bool write_data(FILE *f, const FrameList *v, bool optimized,
         if (end > v->count) end = v->count;
         for (size_t i = from; i < end; ++i) {
             const SoundFrame *frame = &v->frames[i];
-            unsigned char bytes[18];
+            unsigned char bytes[38] = {0};
             bytes[0] = (uint8_t)(frame->duration >> 8);
             bytes[1] = (uint8_t)frame->duration;
             for (int a = 0; a < 4; ++a) {
@@ -895,6 +948,12 @@ static bool write_data(FILE *f, const FrameList *v, bool optimized,
                 bytes[offset + 1] = (uint8_t)(frame->state.frequency[a] >> 8);
                 bytes[offset + 2] = frame->state.volume[a];
                 if (optimized) bytes[offset + 3] = frame->state.waveform[a];
+            }
+            unsigned offset = optimized ? 18u : 14u;
+            for (int v=0;v<4;v++) {
+                memcpy(bytes + offset, frame->state.adsr[v], 4);
+                bytes[offset+4] = frame->state.gate[v];
+                offset += 5;
             }
             for (unsigned j = 0; j < width; j += 16) {
                 fprintf(f, "    .byte ");

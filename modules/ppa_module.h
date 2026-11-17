@@ -36,6 +36,16 @@ typedef struct {
     uint8_t waveform;
     bool enabled;
     float phase;
+    /* PPA-SOUND/1 ADSR extension: inactive until GATE is first written.
+     * Legacy programs using ENABLE/VOLUME continue unchanged. */
+    uint8_t attack, decay, sustain, release;
+    bool adsr_active, gate;
+    uint8_t envelope_phase; /* 0 off, 1 attack, 2 decay, 3 sustain, 4 release */
+    float envelope_level, release_start_level;
+    uint32_t envelope_samples;
+    uint8_t release_volume; /* Last audible VOLUME, retained for key release */
+    uint16_t release_frequency;
+    uint8_t release_waveform;
 } PpaSoundChannel;
 
 typedef struct {

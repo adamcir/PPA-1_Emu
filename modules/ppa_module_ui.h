@@ -15,6 +15,8 @@ typedef struct {
     uint8_t sound_volume;
     uint16_t freq[4];
     uint8_t voice_volume[4];
+    uint8_t attack[4], decay[4], sustain[4], release[4];
+    uint8_t gate[4], envelope_level[4];
     uint8_t waveform[4];
     bool voice_enabled[4];
     int8_t scope[128];

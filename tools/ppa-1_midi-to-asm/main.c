@@ -137,7 +137,8 @@ static void load_tracks(void) {
     snprintf(project_name, sizeof(project_name), "%s", stem);
     for (int i=0; i<ntracks; ++i)
         for (int lane=0;lane<4;lane++)
-            parts[i*4+lane]=(PpaMidiPart){true,tracks[i].wave,255,0};
+            parts[i*4+lane]=(PpaMidiPart){true,tracks[i].wave,255,0,
+                tracks[i].attack,tracks[i].decay,tracks[i].sustain,tracks[i].release};
     selected_part = -1;
     snprintf(message, sizeof(message), "Loaded %d MIDI track/channel streams",
              ntracks);
@@ -188,157 +189,147 @@ static void draw_track_timeline(int y, int x, int width,
     }
 }
 
-static void track_settings_dialog(int idx) {
-    if (idx < 0 || idx >= ntracks) return;
-    PpaMidiTrack edited = tracks[idx];
+/* Unified track/PART editor. ADSR durations use hardware register values
+ * (0..255); sustain is a level, and every oscillator has its own envelope. */
+static void edit_adsr_dialog(int idx, int lane) {
+    if (idx < 0 || idx >= ntracks || lane >= 4) return;
+    const bool is_part = lane >= 0;
+    PpaMidiTrack edited_track = tracks[idx];
+    PpaMidiPart edited_part = is_part ? parts[idx * 4 + lane] :
+        (PpaMidiPart){true,edited_track.wave,255,0,
+                      edited_track.attack,edited_track.decay,
+                      edited_track.sustain,edited_track.release};
     int field = 0;
+    const int fields = is_part ? 8 : 9;
+    const char *track_fields[] = {"Enabled","Waveform","Volume","Polyphony",
+                                  "Transpose","Attack","Decay","Sustain","Release"};
+    const char *part_fields[] = {"Enabled","Waveform","Volume","Transpose",
+                                 "Attack","Decay","Sustain","Release"};
     for (;;) {
-        int height = 19;
-        int width = COLS < 80 ? COLS - 2 : 76;
-        if (LINES < height + 2 || width < 52) return;
-        WINDOW *w = newwin(height, width, (LINES-height)/2, (COLS-width)/2);
+        const int height = 24;
+        const int width = COLS > 82 ? 80 : COLS - 2;
+        if (LINES < height + 1 || width < 56) return;
+        WINDOW *w = newwin(height,width,(LINES-height)/2,(COLS-width)/2);
         if (!w) return;
-        keypad(w, TRUE);
-        wbkgd(w, COLOR_PAIR(UI_PANEL));
-        box(w, 0, 0);
-        wattron(w, COLOR_PAIR(UI_ORANGE) | A_BOLD);
-        mvwaddstr(w, 0, 3, " EDIT TRACK / CHANNEL ");
-        wattroff(w, COLOR_PAIR(UI_ORANGE) | A_BOLD);
-        wattron(w, A_BOLD);
-        mvwaddnstr(w, 2, 3, edited.name, width - 6);
-        wattroff(w, A_BOLD);
-        const char *labels[] = {"Enabled", "Waveform", "Volume", "Polyphony", "Transpose"};
-        char values[5][100];
-        snprintf(values[0], sizeof(values[0]), "%s", edited.enabled ? "YES" : "NO");
-        snprintf(values[1], sizeof(values[1]), "%s  %s", wave_name[edited.wave],
-                 symbols[edited.wave]);
-        snprintf(values[2], sizeof(values[2]), "%3d / 255", edited.volume);
-        snprintf(values[3], sizeof(values[3]), "%s", poly_id[edited.poly]);
-        snprintf(values[4], sizeof(values[4]), "%+d semitones", edited.transpose);
-        for (int i = 0; i < 5; ++i) {
-            if (field == i) wattron(w, A_REVERSE | A_BOLD);
-            mvwprintw(w, 4+i*2, 3, " %-13s  %-*.*s",
-                      labels[i], width-22, width-22, values[i]);
-            if (field == i) wattroff(w, A_REVERSE | A_BOLD);
+        keypad(w,TRUE);
+        wbkgd(w,COLOR_PAIR(UI_PANEL));
+        box(w,0,0);
+        wattron(w,COLOR_PAIR(UI_ORANGE)|A_BOLD);
+        if (is_part) mvwprintw(w,0,3," EDIT TRACK %d / PART %d / ADSR ",idx+1,lane+1);
+        else mvwprintw(w,0,3," EDIT TRACK %d / ADSR ",idx+1);
+        wattroff(w,COLOR_PAIR(UI_ORANGE)|A_BOLD);
+        mvwaddnstr(w,2,3,edited_track.name,width-6);
+        int *volume = is_part ? &edited_part.volume : &edited_track.volume;
+        int *wave = is_part ? &edited_part.wave : &edited_track.wave;
+        int *transpose = is_part ? &edited_part.transpose : &edited_track.transpose;
+        uint8_t *attack = is_part ? &edited_part.attack : &edited_track.attack;
+        uint8_t *decay = is_part ? &edited_part.decay : &edited_track.decay;
+        uint8_t *sustain = is_part ? &edited_part.sustain : &edited_track.sustain;
+        uint8_t *release = is_part ? &edited_part.release : &edited_track.release;
+        bool enabled = is_part ? edited_part.enabled : edited_track.enabled;
+        for (int i=0;i<fields;i++) {
+            const char *label = is_part ? part_fields[i] : track_fields[i];
+            char value[96] = "";
+            if (!strcmp(label,"Enabled")) snprintf(value,sizeof(value),"%s",enabled?"YES":"NO");
+            else if (!strcmp(label,"Waveform")) snprintf(value,sizeof(value),"%s  %s",wave_name[*wave],symbols[*wave]);
+            else if (!strcmp(label,"Volume")) snprintf(value,sizeof(value),"%d / 255",*volume);
+            else if (!strcmp(label,"Polyphony")) snprintf(value,sizeof(value),"%s",poly_id[edited_track.poly]);
+            else if (!strcmp(label,"Transpose")) snprintf(value,sizeof(value),"%+d semitones",*transpose);
+            else if (!strcmp(label,"Attack")) snprintf(value,sizeof(value),"%3u  (0..2 s)",(unsigned)*attack);
+            else if (!strcmp(label,"Decay")) snprintf(value,sizeof(value),"%3u  (0..2 s)",(unsigned)*decay);
+            else if (!strcmp(label,"Sustain")) snprintf(value,sizeof(value),"%3u  (level)",(unsigned)*sustain);
+            else if (!strcmp(label,"Release")) snprintf(value,sizeof(value),"%3u  (0..4 s)",(unsigned)*release);
+            if (field==i) wattron(w,A_REVERSE|A_BOLD);
+            mvwprintw(w,4+i,3," %-13s  %-*.*s",
+                      label,width-22,width-22,value);
+            if (field==i) wattroff(w,A_REVERSE|A_BOLD);
         }
-        draw_meter(w, 9, 40, width - 44, edited.volume, UI_ORANGE);
-        wattron(w, COLOR_PAIR(UI_GREEN));
-        mvwaddnstr(w, 15, 3,
-            "ARROWS: select/adjust     SPACE: toggle     ENTER: apply",
-            width-6);
-        mvwaddnstr(w, 16, 3,
-            "ESC: cancel     W: waveform     +/-: volume",
-            width-6);
-        wattroff(w, COLOR_PAIR(UI_GREEN));
+        wattron(w,COLOR_PAIR(UI_GREEN)|A_BOLD);
+        mvwaddstr(w,16,3,"ENVELOPE  /  ATTACK - DECAY - SUSTAIN - RELEASE");
+        wattroff(w,COLOR_PAIR(UI_GREEN)|A_BOLD);
+        /* A compact level visualization using the current sustain point. */
+        int sustain_height = (int)*sustain * 5 / 255;
+        for (int x=3;x<width-3;x++) {
+            int height_level=0;
+            int segment=(x-3)*4/(width-6);
+            if(segment==0) height_level=(x-3)*5/((width-6)/4+1);
+            else if(segment==1) height_level=5-((5-sustain_height)*((x-3)%( (width-6)/4+1)) / ((width-6)/4+1));
+            else if(segment==2) height_level=sustain_height;
+            else height_level=sustain_height*(width-3-x)/((width-6)/4+1);
+            if (height_level<0)height_level=0;
+            if (height_level>5)height_level=5;
+            wattron(w,COLOR_PAIR(UI_ORANGE));
+            mvwaddch(w,22-height_level,x,ACS_CKBOARD);
+            wattroff(w,COLOR_PAIR(UI_ORANGE));
+        }
+        wattron(w,COLOR_PAIR(UI_GREEN));
+        mvwaddnstr(w,14,3,"UP/DOWN: parameter   LEFT/RIGHT: adjust   +/-: x8",width-6);
+        mvwaddnstr(w,15,3,"ENTER: apply   ESC: cancel   SPACE: toggle enabled",width-6);
+        wattroff(w,COLOR_PAIR(UI_GREEN));
         wrefresh(w);
-        int key = wgetch(w);
+        int key=wgetch(w);
         delwin(w);
         touchwin(stdscr);
-        if (key == 27) return;
-        if (key == '\n' || key == KEY_ENTER) {
-            int previous_wave = tracks[idx].wave;
-            tracks[idx] = edited;
-            if (edited.wave != previous_wave)
-                for (int lane=0;lane<4;lane++) {
-                    PpaMidiPart *part=&parts[idx*4+lane];
-                    if (part->wave==previous_wave)part->wave=edited.wave;
-                }
-            update_preview();
-            project_dirty = true;
-            snprintf(message, sizeof(message), "Updated track %d: %.190s",
-                     idx + 1, edited.name);
-            return;
-        }
-        if (key == KEY_UP && field > 0) field--;
-        if (key == KEY_DOWN && field < 4) field++;
-        int delta = (key == KEY_LEFT ? -1 : key == KEY_RIGHT ? 1 : 0);
-        if (key == 'w' || key == 'W') { field = 1; delta = 1; }
-        if (key == '+' || key == '=') { field = 2; delta = 8; }
-        if (key == '-') { field = 2; delta = -8; }
-        if (key == ' ') {
-            if (field == 0) edited.enabled = !edited.enabled;
-            else delta = 1;
-        }
-        if (delta) switch (field) {
-            case 0: edited.enabled = !edited.enabled; break;
-            case 1: edited.wave = (edited.wave + 5 + (delta > 0 ? 1 : -1)) % 5; break;
-            case 2: edited.volume += delta;
-                    if (edited.volume < 0) edited.volume = 0;
-                    if (edited.volume > 255) edited.volume = 255;
-                    break;
-            case 3: edited.poly = (edited.poly + 3 + (delta > 0 ? 1 : -1)) % 3; break;
-            case 4: edited.transpose += delta;
-                    if (edited.transpose < -48) edited.transpose = -48;
-                    if (edited.transpose > 48) edited.transpose = 48;
-                    break;
-        }
-    }
-}
-
-/* Part-level editor: these settings follow one logical optimizer lane
- * independently of the parent track's default settings. */
-static void part_settings_dialog(int track, int lane) {
-    if (track < 0 || track >= ntracks || lane < 0 || lane >= 4) return;
-    PpaMidiPart edited = parts[track*4+lane];
-    int field = 0;
-    for (;;) {
-        int height=17, width=COLS>76?74:COLS-2;
-        if (LINES<height+2||width<52) return;
-        WINDOW *w=newwin(height,width,(LINES-height)/2,(COLS-width)/2);
-        if (!w) return;
-        keypad(w,TRUE);wbkgd(w,COLOR_PAIR(UI_PANEL));box(w,0,0);
-        wattron(w,COLOR_PAIR(UI_ORANGE)|A_BOLD);
-        mvwprintw(w,0,3," EDIT PART %d / TRACK %d ",lane+1,track+1);
-        wattroff(w,COLOR_PAIR(UI_ORANGE)|A_BOLD);
-        mvwaddnstr(w,2,3,tracks[track].name,width-6);
-        const char *labels[]={"Enabled","Waveform","Volume","Transpose"};
-        char values[4][110];
-        snprintf(values[0],sizeof(values[0]),"%s",edited.enabled?"YES":"NO");
-        snprintf(values[1],sizeof(values[1]),"%s   %s",
-                 wave_name[edited.wave],symbols[edited.wave]);
-        snprintf(values[2],sizeof(values[2]),"%d / 255",edited.volume);
-        snprintf(values[3],sizeof(values[3]),"%+d semitones",edited.transpose);
-        for(int i=0;i<4;i++){
-            if(field==i)wattron(w,A_REVERSE|A_BOLD);
-            mvwprintw(w,4+i*2,3," %-14s %-*.*s",
-                      labels[i],width-23,width-23,values[i]);
-            if(field==i)wattroff(w,A_REVERSE|A_BOLD);
-        }
-        draw_meter(w,9,37,width-41,edited.volume,UI_ORANGE);
-        wattron(w,COLOR_PAIR(UI_GREEN));
-        mvwaddnstr(w,13,3,"LEFT/RIGHT: adjust  UP/DOWN: select",width-6);
-        mvwaddnstr(w,14,3,"ENTER: apply  ESC: cancel  W: waveform",width-6);
-        wattroff(w,COLOR_PAIR(UI_GREEN));
-        wrefresh(w);int key=wgetch(w);delwin(w);touchwin(stdscr);
         if(key==27)return;
-        if(key=='\n'||key==KEY_ENTER){
-            parts[track*4+lane]=edited;
+        if(key=='\n'||key==KEY_ENTER) {
+            if(is_part) {
+                parts[idx*4+lane]=edited_part;
+            } else {
+                PpaMidiTrack original=tracks[idx];
+                tracks[idx]=edited_track;
+                for(int n=0;n<4;n++) {
+                    PpaMidiPart *p=&parts[idx*4+n];
+                    if(p->wave==original.wave)p->wave=edited_track.wave;
+                    if(p->attack==original.attack)p->attack=edited_track.attack;
+                    if(p->decay==original.decay)p->decay=edited_track.decay;
+                    if(p->sustain==original.sustain)p->sustain=edited_track.sustain;
+                    if(p->release==original.release)p->release=edited_track.release;
+                }
+            }
             update_preview();
-            project_dirty = true;
-            snprintf(message,sizeof(message),"Updated track %d / part %d",
-                     track+1,lane+1);
+            project_dirty=true;
+            snprintf(message,sizeof(message),"Updated ADSR and sound for track %d%s",
+                     idx+1,is_part?" / PART":"");
             return;
         }
         if(key==KEY_UP&&field>0)field--;
-        if(key==KEY_DOWN&&field<3)field++;
-        int delta=key==KEY_LEFT?-1:key==KEY_RIGHT?1:0;
-        if(key=='w'||key=='W'){field=1;delta=1;}
-        if(key=='+'||key=='='){field=2;delta=8;}
-        if(key=='-'){field=2;delta=-8;}
-        if(key==' '){if(field==0)edited.enabled=!edited.enabled;else delta=1;}
-        if(delta)switch(field){
-            case 0:edited.enabled=!edited.enabled;break;
-            case 1:edited.wave=(edited.wave+5+(delta>0?1:-1))%5;break;
-            case 2:edited.volume+=delta;
-                   if(edited.volume<0)edited.volume=0;
-                   if (edited.volume > 255) edited.volume = 255;
-                   break;
-            case 3:edited.transpose+=delta>0?1:-1;
-                   if(edited.transpose< -48)edited.transpose=-48;
-                   if (edited.transpose > 48) edited.transpose = 48;
-                   break;
+        if(key==KEY_DOWN&&field<fields-1)field++;
+        int delta=key==KEY_RIGHT?1:key==KEY_LEFT?-1:key=='+'||key=='='?8:key=='-'?-8:0;
+        const char *setting=is_part?part_fields[field]:track_fields[field];
+        if(key==' '&&!strcmp(setting,"Enabled"))delta=1;
+        if(key=='w'||key=='W') {
+            field=1;setting="Waveform";delta=1;
+        }
+        if(!delta)continue;
+        if(!strcmp(setting,"Enabled")) {
+            if(is_part)edited_part.enabled=!edited_part.enabled;
+            else edited_track.enabled=!edited_track.enabled;
+        } else if(!strcmp(setting,"Waveform")) {
+            *wave=(*wave+5+(delta>0?1:-1))%5;
+        } else if(!strcmp(setting,"Polyphony")) {
+            edited_track.poly=(edited_track.poly+3+(delta>0?1:-1))%3;
+        } else if(!strcmp(setting,"Volume")) {
+            *volume+=delta;
+            if(*volume<0)*volume=0;
+            if(*volume>255)*volume=255;
+        } else if(!strcmp(setting,"Transpose")) {
+            *transpose+=delta>0?1:-1;
+            if(*transpose< -48)*transpose=-48;
+            if(*transpose>48)*transpose=48;
+        } else {
+            uint8_t *target=!strcmp(setting,"Attack")?attack:
+                            !strcmp(setting,"Decay")?decay:
+                            !strcmp(setting,"Sustain")?sustain:release;
+            int value=(int)*target+delta;
+            if(value<0)value=0;
+            if(value>255)value=255;
+            *target=(uint8_t)value;
         }
     }
+}
+static void track_settings_dialog(int idx) { edit_adsr_dialog(idx,-1); }
+static void part_settings_dialog(int track,int lane) {
+    edit_adsr_dialog(track,lane);
 }
 static void edit_selected_dialog(int track) {
     if (track<0||track>=ntracks) return;
