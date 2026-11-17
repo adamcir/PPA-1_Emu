@@ -108,16 +108,26 @@ test-rompack: $(ROMPACK)
 	python3 tools/rompack/test_rompack.py $(ROMPACK)
 
 # Python 3 stdlib MIDI converter; GUI additionally needs Tkinter (python3-tk).
-# Native C/ncursesw track editor; Python stdlib remains the MIDI conversion core.
+# Native C11/ncursesw editor and MIDI conversion core; Python optional legacy CLI.
 CURSES_CFLAGS := $(shell $(PKG_CONFIG) --cflags ncursesw 2>/dev/null)
 CURSES_LIBS := $(shell $(PKG_CONFIG) --libs ncursesw 2>/dev/null || echo -lncursesw)
 MIDI_TUI = out/tools/PPA-1_MIDI-to-ASM
 
-$(MIDI_TUI): tools/ppa-1_midi-to-asm/main.c | out/tools
-	$(CC) -std=c11 -O2 -Wall -Wextra $(CURSES_CFLAGS) $< -o $@ $(CURSES_LIBS)
+$(MIDI_TUI): tools/ppa-1_midi-to-asm/main.c tools/ppa-1_midi-to-asm/midi_core.c tools/ppa-1_midi-to-asm/midi_core.h | out/tools
+	$(CC) -std=c11 -O2 -Wall -Wextra $(CURSES_CFLAGS) \
+	  tools/ppa-1_midi-to-asm/main.c tools/ppa-1_midi-to-asm/midi_core.c \
+	  -o $@ $(CURSES_LIBS) -lm
 
-.PHONY: test-midi midi-gui midi-tui
-test-midi: asm rompack
+.PHONY: test-midi test-midi-native midi-gui midi-tui
+out/tools/test_midi_core: tools/ppa-1_midi-to-asm/test_midi_core.c tools/ppa-1_midi-to-asm/midi_core.c tools/ppa-1_midi-to-asm/midi_core.h | out/tools
+	$(CC) -std=c11 -O2 -Wall -Wextra \
+	  tools/ppa-1_midi-to-asm/test_midi_core.c tools/ppa-1_midi-to-asm/midi_core.c \
+	  -o $@ -lm
+
+test-midi-native: asm rompack out/tools/test_midi_core
+	./out/tools/test_midi_core
+
+test-midi: asm rompack test-midi-native
 	$(PYTHON) -m unittest discover -s tools/ppa-1_midi-to-asm -p 'test_*.py' -v
 
 midi-gui midi-tui: $(MIDI_TUI)

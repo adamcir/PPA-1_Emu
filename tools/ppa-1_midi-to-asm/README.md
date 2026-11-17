@@ -1,208 +1,117 @@
-# PPA-1_MIDI-to-ASM — native ncurses editor
+# PPA-1_MIDI-to-ASM
 
-The interactive track editor is now written in **C11 + ncursesw**.
-The existing, tested **Python 3 standard-library MIDI conversion engine**
-remains the backend: the C UI launches it with argument-vector execution
-(no shell interpolation) and stores track settings in temporary JSON.
-It is intentionally not a pure-C MIDI parser/converter.
+Native **C11 + ncursesw** MIDI editor and converter for PPA-SOUND/1.
+The interactive terminal application uses **no Python**: MIDI parsing,
+tempo conversion, track editing, four-channel optimization and multi-bank
+ASM generation are in midi_core.c and main.c.
 
-Install dependencies on Ubuntu/Debian:
+The original Python CLI remains available for backwards compatibility,
+but is not required by the ncurses application.
 
-```sh
-sudo apt install gcc make libncurses-dev python3
-```
+## Build and run
 
-Build and launch from the PPA-1_Emu repository root:
+Debian/Ubuntu:
 
-```sh
-make midi-gui
-# Or:
-make out/tools/PPA-1_MIDI-to-ASM
-./out/tools/PPA-1_MIDI-to-ASM /path/to/song.mid
-```
+    sudo apt install build-essential libncurses-dev
+    cd ~/Dokumenty/Projekty/C-C++/PPA-1_Emu
+    make midi-gui
 
-The interface offers a file browser (directories + .mid/.midi files),
-per-track enable/disable, waveform, priority and volume controls:
+Or:
 
-| Key | Operation |
+    make out/tools/PPA-1_MIDI-to-ASM
+    ./out/tools/PPA-1_MIDI-to-ASM /path/to/song.mid
+
+The file browser navigates directories and shows .mid/.midi files.
+By default the ASM output goes to the repository examples directory.
+
+## Keyboard and mouse controls
+
+| Key | Action |
 |---|---|
-| O | Open MIDI browser |
-| Up/Down | Select track/channel |
-| Space | Remove/restore a track |
-| W | Cycle waveform: SQUARE `|-|_|-|_`, SAW `/|/|/|/|`, TRIANGLE `/\\/\\/\\/\\`, SINE `~^~^~^~^`, NOISE `.:*?^*.:` |
-| P | Pick LOW / HIGH / LATEST note on polyphonic track |
-| + / - | Adjust volume 0–255 |
-| F | Toggle **4-channel optimizer** |
-| A | Set ASM output path |
-| Enter | Export a single multi-bank ASM |
+| O | Browse MIDI files |
+| Up / Down | Select track |
+| Space | Remove/restore MIDI track |
+| W | Cycle waveform |
+| P | Polyphony policy: low / high / latest |
+| + / - | Track volume 0..255 |
+| F or click OPTIMIZE 4 CHANNELS | Enable dynamic four-voice allocation |
+| C | CPU microsteps per second |
+| T | Time-unit resolution in ms |
+| A | Change ASM output path |
+| Enter | Export single multi-bank ASM |
 | Q | Quit |
+
+Every MIDI track/channel starts enabled. Remove unwanted tracks, then
+activate OPTIMIZE when more than four remain. Without optimization, only
+four enabled tracks are permitted.
+
+## Waveforms and symbols
+
+- Square: |- | _ | - | _ (actual compact display: |-|_|-|_)
+- Sawtooth: /|/|/|/|
+- Triangle: /\/\/\/\
+- Sine: ~^~^~^~^
+- Noise: .:*?^*.:
+
+Waveform register codes are 0 square, 1 saw, 2 triangle, 3 sine, 4 noise.
 
 ## Four-channel optimizer
 
-With optimization **OFF**, up to four selected tracks use dedicated
-oscillators, as before. With optimization **ON**, any number of selected
-MIDI tracks can contribute: each track is reduced to one note according
-to its LOW/HIGH/LATEST policy, but when a physical oscillator is free,
-the scheduler fills it with a waiting track's next sounding segment.
+Each MIDI track uses a monophonic priority policy (lowest, highest or
+newest note). Up to four streams play simultaneously. Ongoing notes keep
+their assigned oscillator; idle oscillators are filled with waiting
+tracks, ordered by effective volume and track position. When an
+oscillator begins to play another track, its **waveform changes too**.
+This is achieved by encoding an extra WAVE byte for every voice update.
 
-Existing voices are kept whenever they continue sounding, to avoid
-unnecessary note stealing. Waiting tracks are chosen by current
-effective volume (then source order). The waveform travels **with the
-track**: optimized frames contain frequency, volume **and waveform ID**
-for each oscillator; the player updates SOUND's WAVE registers during
-playback. The scheduler cannot magically render more than 4
-simultaneous notes: tracks beyond four concurrent voices must wait or
-will be omitted while the hardware is full.
+The native MIDI parser supports SMF format 0/1 with PPQN, running status,
+tempo changes, note-on/off, velocity, CC7/CC11 volume and expression,
+CC64 sustain, and all-sound-off. MIDI tracks beyond four simultaneous
+notes may be omitted while all oscillators are occupied.
 
-Unoptimized frames remain 14 bytes long. Optimized frames are 18
-bytes long (four added waveform bytes). Both variants store all
-data directly in the ASM source using `.bank 0001` onward, including
-inter-bank continuation markers. The assembler and ROMPACK unchanged
-pipeline accepts the resulting multi-bank PRG.
+## Output and bank layout
 
-The converter supports a JSON `optimize: true` key and per-track
-`enabled: true/false`, in addition to waveform, volume and note
-priority. C/ncurses writes these automatically. The original Python
-CLI remains available for automation and JSON-based workflows.
+One input MIDI produces exactly one ASM file, such as:
 
----
+    examples/aria_math.asm
 
-# PPA-1_MIDI-to-ASM
+The code section occupies ROM bank 0000; the music data follow in
+.bank 0001, .bank 0002, etc. A duration marker FF FF switches the
+data reader into the next bank; 00 00 stops playback. The CPU continues
+fetching instructions from ROM bank 0000 and uses BR for music data.
+The SOUND module is discovered by hardware type in any PPAMOD slot.
 
-The conversion core uses **Python 3 (standard library only)** for MIDI decoding and ASM generation.
-The primary interactive editor uses **native C11 + ncursesw**; a legacy Tkinter frontend is retained as an optional Python entry point.
-No pip packages or third-party Python dependencies.
+Without optimization frames take 14 bytes each. With optimization they
+take 18 bytes each including four dynamic WAVE values. A large-duration
+event is split into multiple frames. No artificial 180-second limit
+exists; the real 2 MiB EEPROM capacity is enforced.
 
-## Legacy Python Tkinter GUI (optional)
+Build the result:
 
-From repository root:
+    make out/examples/aria_math.bin
 
-    make midi-gui
+This yields:
 
-Alternatively:
+    ASM (multi-bank) -> PPA-1 assembler -> PRG (multi-bank)
+    -> ROMPACK -> out/examples/aria_math.bin (2 MiB EEPROM)
 
-    python3 tools/PPA-1_MIDI-to-ASM.py --gui
-    python3 tools/PPA-1_MIDI-to-ASM.py --gui path/to/song.mid
-
-If tkinter is missing on Debian/Ubuntu, install the distro package
-`python3-tk`. The CLI works without Tkinter or a graphical display.
-
-In the editor, open the MIDI file. Each MIDI file track/channel is
-shown as a separate row. Set:
-
-- **Voice**: 0 = omit, 1..4 = one of PPA-SOUND/1's four oscillators.
-  Two tracks cannot drive the same oscillator.
-- **Waveform**: square (0), saw (1), triangle (2), sine (3), noise (4).
-- **Polyphony**: `low` = lowest active MIDI pitch, `high` = highest,
-  `latest` = most recently started note. This is one note per track;
-  the original chords cannot play fully on one oscillator.
-- **Volume**: 0..255, scaled by MIDI note velocity, CC7 and CC11.
-- **Transpose**: -48..48 semitones.
-
-By default the four track/channel streams with the most note-on events
-are assigned voices 1..4; all others are disabled. MIDI channel 10
-(drum kit) is treated as pitched notes unless you disable it manually.
-The tool supports overlapping notes of the same pitch and sustain
-pedal CC64. Standard MIDI Format 0/1 and PPQN time division are
-supported; SMPTE division and independent format 2 are rejected.
-
-## Command line
-
-    python3 tools/PPA-1_MIDI-to-ASM.py my-song.mid --list
-    python3 tools/PPA-1_MIDI-to-ASM.py my-song.mid --write-config song-mix.json
-    # Edit track mapping, waveforms, volumes, polyphony in song-mix.json:
-    python3 tools/PPA-1_MIDI-to-ASM.py my-song.mid \
-        --config song-mix.json -o examples/my-song.asm
-    make out/examples/my-song.bin
-
-You can also specify `--clock-hz 100000 --tick-ms 10`.
-Clock is in **emulator microsteps per second** (not notes/s).
-The timing is approximate: an ASM busy-wait generates delays using
-`DEC D` and `JNZ`, while the note-update code introduces extra work.
-Set the actual PPA-1 CPU clock to match `--clock-hz`; adjust the
-setting until the tempo sounds correct. No polyphonic MIDI renderer,
-DAC, MIDI synthesizer, or hardware MIDI interface is required.
-
-## Long MIDI: one ASM, multi-bank PRG, ROMPACK
-
-There is **no 180-second time limit**. The MIDI converter emits **one**
-`.asm` source with `.bank 0001`, `.bank 0002`, etc. and embedded
-`.byte` music frames. It does **not** write companion data files.
-
-Pipeline:
-
-```text
-MIDI + per-track JSON
-       |
-       v
-aria_math.asm          (one source containing code and .bank data)
-       |
-       v  PPA-1 assembler --program
-aria_math.prg          (1 to 32 whole 64 KiB banks, contiguous)
-       |
-       v  ROMPACK
-aria_math.bin          (2 MiB EEPROM; bank placement already correct)
-```
-
-Each music frame occupies 14 bytes: duration HI/LO plus four triples of
-frequency LO/HI and volume. A music data bank contains at most 4681 frames,
-followed by the 2-byte **FFFF** marker if another bank follows or **0000**
-at the end of the song. The ASM code remains entirely in bank `0000`.
-A data-reading routine uses `BR` to select the current ROM data bank,
-increments `Y` after every byte, and advances the bank stored in
-RAM `1000:0064` when `Y` rolls over from `FFFF` to `0000`.
-On the next `FFFF` marker it loops to read the next frame. This is
-not an instruction `JMP` across banks: PPA-1 can only fetch executable
-instructions from ROM bank `0000`, while `BR` selects the data bank.
-This is realizable on the existing PPA-1 hardware.
-
-The present EEPROM has 32 banks total: one code bank and 31 data banks.
-There is therefore a **physical storage capacity**, but no artificial
-song-duration limit. Large files that exceed 31 data banks produce a
-clear error instead of silently truncating music.
-
-### Conversion
-
-Run in the repository root:
-
-```sh
-python3 tools/PPA-1_MIDI-to-ASM.py /path/to/aria_math.mid \
-  --config /path/to/aria_math.json -o examples/aria_math.asm
-make out/examples/aria_math.bin
-```
-
-Expected intermediate files:
-
-```text
-examples/aria_math.asm
-out/examples/aria_math.prg
-out/examples/aria_math.bin
-```
-
-The generated ASM includes `includes/ppa-slots.inc` and
-`includes/ppa-sound.inc`, so keep the ASM within `examples/` or
-provide those includes relative to its location. Place
-`ppa-sound-1.ppamod` in **any active module slot**. The player uses the
-existing PPAMOD discovery library.
-
-No `--put` arguments or bank-splitting scripts are needed for the music.
-Existing single-bank ASM examples still build as a 64 KiB PRG.
-The assembler and ROMPACK accept a multi-bank PRG automatically.
-
-The musical timing remains approximate because it uses CPU busy loops.
-Tune `--clock-hz` and `--tick-ms` for the intended emulation speed.
+There are no separate bank binary sidecar files.
 
 ## Tests
 
+    make out/tools/PPA-1_MIDI-to-ASM
+    make test-midi-native
     make test-midi
 
-This runs MIDI parser/format/track selection, sustain, mono priority,
-config roundtrip, long-song/bank-boundary and ASM generation tests. External MIDI files are
-not required: tests construct self-contained SMF fixtures in memory.
+The native tests use C-generated SMF MIDI fixtures. They cover
+multiple tracks, dynamically changing waveform, long songs and
+multi-bank output. The existing Python regression tests additionally
+exercise legacy conversion and the assembler/ROMPACK pipeline.
 
-## Hardware considerations
+## Legacy Python compatibility
 
-The converter runs **outside the PPA-1** on a normal PC. The PPA-1
-only executes the compiled ASM and uses its existing byte-wide bus,
-four discrete oscillator registers, ROM/stack and bank selector.
-The MIDI file itself is not interpreted by the PPA-1 CPU.
+    python3 tools/PPA-1_MIDI-to-ASM.py song.mid --config mix.json -o examples/song.asm
+
+The old Python/Tkinter editor remains available by explicitly invoking
+the legacy script with --gui. The default make midi-gui target now
+launches C/ncurses without Python.

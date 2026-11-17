@@ -1,11 +1,12 @@
 /*
  * PPA-1_MIDI-to-ASM terminal track editor.
- * Native C11 + ncursesw frontend, Python 3 stdlib MIDI conversion core.
- * No shell command concatenation: all converter invocations use execvp.
+ * Native C11 + ncursesw frontend and native C11 MIDI conversion engine.
+ * No Python runtime, external MIDI library or shell invocation required.
  * (c) 2026 Adava Development
  */
 #define _POSIX_C_SOURCE 200809L
 #include <ncurses.h>
+#include "midi_core.h"
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -23,32 +24,23 @@
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
-#define TRACK_MAX 1024
+#define TRACK_MAX PPA_MIDI_MAX_TRACKS
 #define ROW_MAX 512
 #define FILE_MAX 4096
 
 typedef struct {
-    char id[32], name[ROW_MAX];
-    unsigned notes;
-    bool enabled;
-    int voice, wave, poly, volume, transpose;
-} Track;
-typedef struct {
     char name[NAME_MAX + 8];
     bool directory;
 } Entry;
-static const char *waves[] = {"SQUARE", "SAW", "TRIANGLE", "SINE", "NOISE"};
 static const char *symbols[] = {"|-|_|-|_", "/|/|/|/|", "/\\/\\/\\/\\", "~^~^~^~^", ".:*?^*.: "};
-static const char *wave_id[] = {"square", "saw", "triangle", "sine", "noise"};
 static const char *poly_id[] = {"low", "high", "latest"};
-static Track tracks[TRACK_MAX];
+static PpaMidiTrack tracks[TRACK_MAX];
 static int ntracks = 0;
 static char midi_path[PATH_MAX] = "";
-static char backend_path[PATH_MAX] = "tools/PPA-1_MIDI-to-ASM.py";
 static char repository_root[PATH_MAX] = ".";
 
-/* Resolve companion Python conversion core independently of CWD.
- * The native TUI normally lives under <repository>/out/tools/. */
+/* The native ncurses editor is fully C-based; Python is optional legacy CLI.
+ * Resolve the repository root independently of the working directory. */
 static void initialize_paths(void) {
 #if defined(__linux__)
     char exe[PATH_MAX];
@@ -59,13 +51,9 @@ static void initialize_paths(void) {
         if (slash) {
             *slash = 0;
             char candidate[PATH_MAX];
-            snprintf(candidate, sizeof(candidate), "%s/../../tools/PPA-1_MIDI-to-ASM.py", exe);
-            if (access(candidate, R_OK) == 0) {
-                snprintf(backend_path, sizeof(backend_path), "%s", candidate);
-                snprintf(candidate, sizeof(candidate), "%s/../..", exe);
-                if (realpath(candidate, repository_root) == NULL)
-                    snprintf(repository_root, sizeof(repository_root), ".");
-            }
+            snprintf(candidate, sizeof(candidate), "%s/../..", exe);
+            if (!realpath(candidate, repository_root))
+                snprintf(repository_root, sizeof(repository_root), ".");
         }
     }
 #endif
@@ -73,6 +61,8 @@ static void initialize_paths(void) {
 static char output_path[PATH_MAX] = "examples/music.asm";
 static char message[256] = "O=open MIDI  Space=remove/restore  W=wave  P=polyphony  +/-=volume  F=optimize";
 static bool optimize = false;
+static int clock_hz = 100000;
+static int tick_ms = 10;
 
 static int file_cmp(const void *va, const void *vb) {
     const Entry *a = va, *b = vb;
@@ -104,37 +94,6 @@ static void ask_string(const char *prompt, char *out, size_t cap) {
     move(row, (int)strlen(prompt));
     getnstr(out, (int)(cap - 1));
     noecho(); curs_set(0);
-}
-static int spawn_converter(char *const argv[], char *capture, size_t cap) {
-    int fds[2];
-    if (pipe(fds) != 0) return -1;
-    pid_t pid = fork();
-    if (pid < 0) { close(fds[0]); close(fds[1]); return -1; }
-    if (pid == 0) {
-        close(fds[0]);
-        dup2(fds[1], STDOUT_FILENO);
-        dup2(fds[1], STDERR_FILENO);
-        close(fds[1]);
-        execvp(argv[0], argv);
-        _exit(127);
-    }
-    close(fds[1]);
-    size_t pos = 0;
-    char buf[2048];
-    ssize_t n;
-    while ((n = read(fds[0], buf, sizeof(buf))) > 0) {
-        if (capture && cap > 1 && pos < cap - 1) {
-            size_t add = (size_t)n;
-            if (add > cap - pos - 1) add = cap - pos - 1;
-            memcpy(capture + pos, buf, add);
-            pos += add;
-        }
-    }
-    close(fds[0]);
-    if (capture && cap) capture[pos] = '\0';
-    int status;
-    if (waitpid(pid, &status, 0) < 0) return -1;
-    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 static bool browse_file(char *selected, size_t size) {
     char cwd[PATH_MAX];
@@ -209,85 +168,26 @@ static bool browse_file(char *selected, size_t size) {
     }
 }
 static void load_tracks(void) {
-    char *args[] = {"python3", backend_path,
-                     midi_path, "--list", NULL};
-    /* Avoid losing long track listings. */
-    char *output = malloc(512 * 1024);
-    if (!output) return;
-    int status = spawn_converter(args, output, 512 * 1024);
-    if (status) {
-        snprintf(message, sizeof(message), "MIDI parser: %.180s", output);
-        free(output);
+    ntracks = 0;
+    char error[256] = "";
+    if (!ppa_midi_open(midi_path, tracks, TRACK_MAX, &ntracks,
+                       error, sizeof(error))) {
+        snprintf(message, sizeof(message), "MIDI parser: %.180s", error);
         return;
     }
-    ntracks = 0;
-    for (char *line = strtok(output, "\n"); line;
-         line = strtok(NULL, "\n")) {
-        if (ntracks >= TRACK_MAX) break;
-        char *sep = strstr(line, " | ");
-        if (!sep) continue;
-        *sep = 0;
-        unsigned tr, ch;
-        if (sscanf(line, "%u:%u", &tr, &ch) != 2) continue;
-        Track *t = &tracks[ntracks];
-        memset(t, 0, sizeof(*t));
-        snprintf(t->id, sizeof(t->id), "%u:%u", tr, ch);
-        char *name = sep + 3, *end = strstr(name, " | notes=");
-        if (!end) continue;
-        *end = 0;
-        snprintf(t->name, sizeof(t->name), "%s", name);
-        t->notes = (unsigned)strtoul(end + 9, NULL, 10);
-        /* Start with every track included: the user removes unwanted ones.
-         * More than four tracks require pressing OPTIMIZE before export. */
-        t->enabled = true;
-        t->voice = ntracks < 4 ? ntracks + 1 : 0;
-        t->wave = ntracks % 4;
-        t->volume = 200;
-        t->poly = 1;
-        ntracks++;
-    }
-    free(output);
     const char *base = strrchr(midi_path, '/');
     base = base ? base + 1 : midi_path;
     char stem[160];
     snprintf(stem, sizeof(stem), "%s", base);
-    char *dot = strrchr(stem, '.'); if (dot) *dot = 0;
+    char *dot = strrchr(stem, '.');
+    if (dot) *dot = 0;
+    for (char *p = stem; *p; ++p)
+        if (!isalnum((unsigned char)*p) && *p != '_' && *p != '-')
+            *p = '_';
     snprintf(output_path, sizeof(output_path), "%s/examples/%s.asm",
              repository_root, stem);
-    snprintf(message, sizeof(message), "Loaded %d MIDI track/channel streams", ntracks);
-}
-static void json_string(FILE *f, const char *s) {
-    fputc('"', f);
-    for (; *s; s++) {
-        unsigned char ch = (unsigned char)*s;
-        if (ch == '"' || ch == '\\') { fputc('\\', f); fputc(ch, f); }
-        else if (ch == '\n') fputs("\\n", f);
-        else if (ch >= 32) fputc(ch, f);
-    }
-    fputc('"', f);
-}
-static bool write_config(const char *path) {
-    FILE *f = fopen(path, "w");
-    if (!f) return false;
-    fprintf(f, "{\n  \"format\": \"PPA-1_MIDI-to-ASM/1\",\n"
-               "  \"optimize\": %s,\n  \"tracks\": {\n",
-            optimize ? "true" : "false");
-    int selected = 0;
-    for (int i = 0; i < ntracks; i++) {
-        Track *t = &tracks[i];
-        if (t->enabled) selected++;
-        fprintf(f, "    ");
-        json_string(f, t->id);
-        fprintf(f, ": {\"enabled\": %s, \"voice\": %d, "
-                   "\"waveform\": \"%s\", \"polyphony\": \"%s\", "
-                   "\"volume\": %d, \"transpose\": %d}%s\n",
-                t->enabled ? "true" : "false",
-                !t->enabled ? 0 : (optimize ? 0 : t->voice),
-                wave_id[t->wave], poly_id[t->poly], t->volume,
-                t->transpose, i + 1 == ntracks ? "" : ",");
-    }
-    fprintf(f, "  }\n}\n");
-    return fclose(f) == 0 && selected > 0;
+    snprintf(message, sizeof(message), "Loaded %d MIDI track/channel streams",
+             ntracks);
 }
 static void do_export(void) {
     if (!ntracks) {
@@ -306,25 +206,14 @@ static void do_export(void) {
         for (int i = 0; i < ntracks; i++)
             tracks[i].voice = tracks[i].enabled ? voice++ : 0;
     }
-    char path[PATH_MAX];
-    snprintf(path, sizeof(path), "/tmp/ppa-midi-XXXXXX");
-    int fd = mkstemp(path);
-    if (fd < 0) { snprintf(message, sizeof(message), "Cannot create temp config."); return; }
-    close(fd);
-    if (!write_config(path)) {
-        unlink(path);
-        snprintf(message, sizeof(message), "No enabled MIDI tracks.");
-        return;
-    }
-    char *args[] = {"python3", backend_path,
-                    midi_path, "--config", path, "-o", output_path, NULL};
-    char response[512];
-    int result = spawn_converter(args, response, sizeof(response));
-    unlink(path);
-    if (result == 0)
-        snprintf(message, sizeof(message), "Exported: %.185s", output_path);
+    int count = 0, banks = 0;
+    char error[256] = "";
+    if (ppa_midi_export(midi_path, tracks, ntracks, optimize, output_path,
+                        clock_hz, tick_ms, &count, &banks, error, sizeof(error)))
+        snprintf(message, sizeof(message), "Exported %d frames / %d ROM bank(s)",
+                 count, banks);
     else
-        snprintf(message, sizeof(message), "Export error: %.180s", response);
+        snprintf(message, sizeof(message), "Export error: %.180s", error);
 }
 static void render_editor(int selected, int top) {
     erase();
@@ -335,7 +224,8 @@ static void render_editor(int selected, int top) {
              optimize ? "ON" : "OFF");
     int count = 0;
     for (int i = 0; i < ntracks; ++i) if (tracks[i].enabled) ++count;
-    printw("%d / %d", count, ntracks);
+    printw("%d / %d  |  Clock: %d  |  Tick: %d ms",
+           count, ntracks, clock_hz, tick_ms);
     if (COLS >= 40) {
         if (optimize) attron(A_BOLD | COLOR_PAIR(3));
         mvaddstr(5, 2, "[ OPTIMIZE 4 CHANNELS ]  (F or click)");
@@ -345,7 +235,7 @@ static void render_editor(int selected, int top) {
     int rows = LINES - 11;
     for (int y = 0; y < rows && y + top < ntracks; y++) {
         int i = top + y;
-        Track *t = &tracks[i];
+        PpaMidiTrack *t = &tracks[i];
         if (i == selected) attron(A_REVERSE);
         mvprintw(7 + y, 1,
                  "%3d  %-3s  %-35.35s  %6u   %-10s %-7s  %3d",
@@ -355,7 +245,7 @@ static void render_editor(int selected, int top) {
         if (i == selected) attroff(A_REVERSE);
     }
     line_at(LINES - 4, 2, " UP/DOWN: select  SPACE: remove/restore  W: waveform  P: low/high/latest  +/-: volume");
-    line_at(LINES - 3, 2, " O: open MIDI  F: optimize  A: output path  ENTER: export ASM  Q: quit");
+    line_at(LINES - 3, 2, " O: open MIDI  F: optimize  A: output  C: clock  T: tick  ENTER: export  Q: quit");
     line_at(LINES - 1, 3, message);
     refresh();
 }
@@ -414,6 +304,24 @@ int main(int argc, char **argv) {
             if (*path) snprintf(output_path, sizeof(output_path), "%s", path);
             continue;
         }
+        if (key == 'c' || key == 'C' || key == 't' || key == 'T') {
+            bool change_clock = key == 'c' || key == 'C';
+            char input[32] = "";
+            ask_string(change_clock ? "CPU microsteps/second: " : "Time unit (ms): ",
+                       input, sizeof(input));
+            if (*input) {
+                char *end = NULL;
+                long value = strtol(input, &end, 10);
+                if (!*end && value >= (change_clock ? 100 : 1) &&
+                    value <= (change_clock ? 10000000 : 250)) {
+                    if (change_clock) clock_hz = (int)value;
+                    else tick_ms = (int)value;
+                } else {
+                    snprintf(message, sizeof(message), "Invalid clock/tick value");
+                }
+            }
+            continue;
+        }
         if (key == 'f' || key == 'F') {
             optimize = !optimize;
             snprintf(message, sizeof(message), "4-voice fill-optimization: %s",
@@ -424,7 +332,7 @@ int main(int argc, char **argv) {
         if (key == KEY_UP && selected > 0) selected--;
         if (key == '\n' || key == KEY_ENTER) do_export();
         if (!ntracks) continue;
-        Track *t = &tracks[selected];
+        PpaMidiTrack *t = &tracks[selected];
         if (key == ' ') t->enabled = !t->enabled;
         if (key == 'w' || key == 'W') t->wave = (t->wave + 1) % 5;
         if (key == 'p' || key == 'P') t->poly = (t->poly + 1) % 3;
