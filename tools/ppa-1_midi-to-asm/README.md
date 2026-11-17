@@ -39,7 +39,11 @@ By default the ASM output goes to the repository examples directory.
 | W | Cycle waveform |
 | P | Polyphony policy: low / high / latest |
 | + / - | Track volume 0..255 |
-| F or click OPTIMIZE 4 CHANNELS | Enable dynamic four-voice allocation |
+| F / F5 or click OPTIMIZE | Allocate polyphonic notes to four channels and expand logical lanes |
+| Tab | Expand / collapse the logical source-note lanes |
+| E / F4 or double-click a track | Open the track configuration dialog |
+| F3 | Browse for a MIDI file |
+| F6 | Save optimized ASM with the file dialog |
 | C | CPU microsteps per second |
 | T | Time-unit resolution in ms |
 | A | Open the graphical ncurses SAVE ASM AS dialog |
@@ -65,6 +69,38 @@ four enabled tracks are permitted.
 - Noise: .:*?^*.:
 
 Waveform register codes are 0 square, 1 saw, 2 triangle, 3 sine, 4 noise.
+
+## Green/orange two-panel mixer (Midnight Commander / htop style)
+
+The interface uses green headers and controls, orange selection and
+active sound, and subdued silence markers. On a wide terminal the left
+side contains source MIDI tracks and the right side shows a live inspector
+for the selected track. On a narrower terminal the source panel uses
+the full width.
+
+**F5** enables optimizer mode and expands each enabled source track into
+logical `NOTE LANE 1` through `NOTE LANE 4`, according to its observed
+maximum chord polyphony. A track with a five-note chord indicates
+additional logical pitches but still uses at most four physical voices.
+The lower panel displays exactly **four physical PPA-SOUND/1 channels**
+over the same 64-step time preview. This makes the *expansion from source
+notes* and *reduction onto the four hardware channels* visible at once.
+The timeline is based on actual voice assignments from the native C
+allocator, not arbitrary decorative bars.
+
+Use **Tab** to collapse or re-expand the detailed note lanes.
+Use **F4** or **E** to configure the selected MIDI source track in a
+modal panel: enabled, waveform (with ASCII wave preview), volume 0-255
+(with meter), note priority LOW/HIGH/LATEST and transpose -48..+48.
+Change a field with arrow keys, press Enter to apply, Esc to cancel.
+The output preview recomputes when a setting changes, a track is
+enabled/disabled or optimizer mode is switched.
+
+Peak chord size is measured on *all MIDI event boundaries*, including
+short chords not covered by the 64-column display. The bottom channel
+strips and the sampled dropped-note count summarize the actual allocation.
+The sampled preview is not an audio waveform or a lossless event log;
+the exported ASM still uses the full event timeline.
 
 ## Four-channel optimizer
 
@@ -135,7 +171,7 @@ There are no separate bank binary sidecar files.
     make test-midi
 
 The native tests use C-generated SMF MIDI fixtures. They cover
-multiple tracks, single-track chord splitting, changing waveform, long songs, multi-bank output,
+multiple tracks, single-track chord splitting, preview channel mapping, changing waveform, long songs, multi-bank output,
 and the actual assembler/ROMPACK pipeline. No Python runtime is used
 by the MIDI converter or its tests.
 

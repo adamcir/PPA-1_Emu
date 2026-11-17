@@ -26,6 +26,28 @@ typedef struct {
 bool ppa_midi_open(const char *path, PpaMidiTrack *tracks, int capacity,
                    int *count, char *error, size_t error_size);
 
+/* Visible optimized arrangement, sampled from the SAME allocator used by ASM.
+ * One row for each of the 4 physical oscillators and up to 64 time cells.
+ * owner[cell] = 0 (silent) or input track index + 1.
+ * pitch[cell] = sounding MIDI pitch, for showing split chord voices.
+ * peak_polyphony = highest simultaneously held note count in each track.
+ * dropped_cells indicates how many audible logical notes could not fit
+ * in the four physical oscillators over the sampled event timeline. */
+#define PPA_MIDI_PREVIEW_COLUMNS 64
+typedef struct {
+    int peak_polyphony[PPA_MIDI_MAX_TRACKS];
+    unsigned selected_tracks;
+    unsigned max_simultaneous_notes;
+    unsigned dropped_note_events;
+    unsigned cells;
+    int owner[4][PPA_MIDI_PREVIEW_COLUMNS];
+    int pitch[4][PPA_MIDI_PREVIEW_COLUMNS];
+} PpaMidiPreview;
+
+bool ppa_midi_preview(const char *path, const PpaMidiTrack *tracks, int count,
+                      bool optimize, PpaMidiPreview *result,
+                      char *error, size_t error_size);
+
 /* Convert selected tracks directly to multi-bank ASM:
  * 0000: player, 0001..001F: frame data, FF/FF = next bank.
  * optimize=true means reuse idle oscillator slots and switch waveform.

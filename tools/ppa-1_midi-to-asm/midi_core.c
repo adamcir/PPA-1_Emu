@@ -560,6 +560,125 @@ static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
     }
     return result;
 }
+/* Preview is produced by executing the exact same note->voice allocator as
+ * the exported ASM. Track rows are expanded by their observed peak
+ * polyphony, while physical voice bars show actual allocated notes.
+ * The 64-cell sampling is a display approximation, never output data. */
+bool ppa_midi_preview(const char *path, const PpaMidiTrack *tracks, int count,
+                      bool optimize, PpaMidiPreview *result,
+                      char *error, size_t error_size) {
+    if (!path || !tracks || count < 1 || count > PPA_MIDI_MAX_TRACKS || !result) {
+        err(error, error_size, "Invalid MIDI preview arguments");
+        return false;
+    }
+    memset(result, 0, sizeof(*result));
+    result->cells = PPA_MIDI_PREVIEW_COLUMNS;
+    Midi *m = parse(path, error, error_size);
+    if (!m) return false;
+    if (m->track_count != count) {
+        err(error, error_size, "MIDI tracks changed; reopen MIDI");
+        free_midi(m); return false;
+    }
+    for (int i = 0; i < count; ++i) {
+        if (strcmp(tracks[i].id, m->tracks[i].id)) {
+            err(error, error_size, "Track order changed; reopen MIDI");
+            free_midi(m); return false;
+        }
+        if (tracks[i].enabled) result->selected_tracks++;
+    }
+    Playing *state = calloc((size_t)count, sizeof(*state));
+    if (!state) {
+        err(error, error_size, "Out of memory");
+        free_midi(m);
+        return false;
+    }
+    for (int i = 0; i < count; ++i) {
+        state[i].cc7 = 127;
+        state[i].cc11 = 127;
+    }
+    int assigned[4] = {-1, -1, -1, -1};
+    uint64_t total_ticks = m->end_tick ? m->end_tick : 1;
+    uint64_t previous_tick = 0;
+    int owner[4] = {0}, pitch[4] = {0};
+    size_t event = 0;
+    /* Fill time slices with assignments made after the MIDI event group
+     * at the interval's starting point, including intervals of silence. */
+    for (unsigned cell = 0; cell < PPA_MIDI_PREVIEW_COLUMNS; ++cell) {
+        uint64_t instant = (uint64_t)((long double)total_ticks * cell /
+                                    PPA_MIDI_PREVIEW_COLUMNS);
+        while (event < m->count && m->events[event].tick <= instant) {
+            uint64_t tick = m->events[event].tick;
+            while (event < m->count && m->events[event].tick == tick) {
+                MidiEvent *e = &m->events[event++];
+                if (e->track_index >= 0 && e->track_index < count)
+                    update_state(&state[e->track_index], e);
+            }
+            /* Peak chord size is measured at every exact event boundary,
+             * not just the 64 display samples: short staccato chords
+             * must still expand into the correct number of logical lanes. */
+            unsigned sounding = 0;
+            for (int t = 0; t < count; ++t) {
+                if (!tracks[t].enabled) continue;
+                unsigned notes = 0;
+                for (int note = 0; note < 128; ++note)
+                    if (note_amplitude(&tracks[t], &state[t], note)) ++notes;
+                if (notes > (unsigned)result->peak_polyphony[t])
+                    result->peak_polyphony[t] = (int)notes;
+                sounding += notes;
+            }
+            if (sounding > result->max_simultaneous_notes)
+                result->max_simultaneous_notes = sounding;
+            /* Composition at every MIDI event boundary preserves the voice
+             * retention decisions used in generate_frames(). */
+            if (optimize)
+                (void)compose(tracks, state, count, true, assigned);
+            previous_tick = tick;
+        }
+        (void)previous_tick;
+        unsigned audible = 0;
+        for (int t = 0; t < count; ++t) {
+            if (!tracks[t].enabled) continue;
+            unsigned notes = 0;
+            for (int n = 0; n < 128; ++n)
+                if (note_amplitude(&tracks[t], &state[t], n)) notes++;
+            if (notes > (unsigned)result->peak_polyphony[t])
+                result->peak_polyphony[t] = (int)notes;
+            audible += notes;
+        }
+        if (audible > result->max_simultaneous_notes)
+            result->max_simultaneous_notes = audible;
+        if (optimize) {
+            (void)compose(tracks, state, count, true, assigned);
+            unsigned allocated = 0;
+            for (int voice = 0; voice < 4; ++voice) {
+                if (assigned[voice] < 0) continue;
+                int index = assigned[voice] / 128, note = assigned[voice] % 128;
+                if (index >= count || !note_amplitude(&tracks[index], &state[index], note))
+                    continue;
+                result->owner[voice][cell] = index + 1;
+                result->pitch[voice][cell] = note;
+                allocated++;
+            }
+            if (audible > allocated) result->dropped_note_events += audible - allocated;
+        } else {
+            for (int t = 0; t < count; ++t) {
+                if (!tracks[t].enabled || tracks[t].voice < 1 ||
+                    tracks[t].voice > 4) continue;
+                uint8_t velocity = 0;
+                int note = selected_note(&state[t], &tracks[t], &velocity);
+                if (note < 0 || !note_amplitude(&tracks[t], &state[t], note))
+                    continue;
+                int voice = tracks[t].voice - 1;
+                result->owner[voice][cell] = t + 1;
+                result->pitch[voice][cell] = note;
+            }
+        }
+    }
+    free(state);
+    free_midi(m);
+    return true;
+}
+
 static bool generate_frames(Midi *m, const PpaMidiTrack *config,
                             int count, bool optimized, int step_ms,
                             FrameList *out, char *error, size_t error_size) {

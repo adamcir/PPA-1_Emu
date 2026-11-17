@@ -189,6 +189,15 @@ static void one_track_polyphony(void) {
     char error[256] = "";
     assert(ppa_midi_open(midi, tracks, 8, &count, error, sizeof(error)));
     assert(count == 1 && tracks[0].notes == 5);
+    PpaMidiPreview preview = {0};
+    assert(ppa_midi_preview(midi, tracks, count, true, &preview,
+                            error, sizeof(error)));
+    assert(preview.peak_polyphony[0] == 5);
+    assert(preview.max_simultaneous_notes == 5);
+    int mapped = 0;
+    for (int voice = 0; voice < 4; ++voice)
+        if (preview.owner[voice][0] == 1) mapped++;
+    assert(mapped == 4);
     tracks[0].wave = 2;
     tracks[0].poly = 1; /* high */
     char out[] = "/tmp/ppa-midi-poly-asm-XXXXXX";

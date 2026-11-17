@@ -33,7 +33,16 @@ typedef struct {
     bool directory;
 } Entry;
 static const char *symbols[] = {"|-|_|-|_", "/|/|/|/|", "/\\/\\/\\/\\", "~^~^~^~^", ".:*?^*.: "};
-static const char *poly_id[] = {"low", "high", "latest"};
+static const char *poly_id[] = {"LOW", "HIGH", "LATEST"};
+static const char *wave_name[] = {"SQUARE", "SAWTOOTH", "TRIANGLE", "SINE", "NOISE"};
+enum { UI_HEADER=1, UI_GREEN=2, UI_ORANGE=3, UI_SELECTED=4,
+       UI_DIM=5, UI_PANEL=6, UI_BAR=7, UI_WARNING=8 };
+static PpaMidiPreview preview;
+static bool preview_valid = false;
+static bool source_expanded = false;
+static int visible_track[2048];
+static int visible_y[2048];
+static int visible_count = 0;
 static PpaMidiTrack tracks[TRACK_MAX];
 static int ntracks = 0;
 static char midi_path[PATH_MAX] = "";
@@ -341,6 +350,8 @@ static bool export_dialog(char *destination, size_t capacity) {
     }
 }
 
+static void update_preview(void);
+
 static void load_tracks(void) {
     ntracks = 0;
     char error[256] = "";
@@ -362,7 +373,128 @@ static void load_tracks(void) {
              repository_root, stem);
     snprintf(message, sizeof(message), "Loaded %d MIDI track/channel streams",
              ntracks);
+    update_preview();
 }
+static void update_preview(void) {
+    preview_valid = false;
+    if (!ntracks || !midi_path[0]) return;
+    char error[256] = "";
+    preview_valid = ppa_midi_preview(midi_path, tracks, ntracks,
+                                     optimize, &preview, error, sizeof(error));
+    if (!preview_valid)
+        snprintf(message, sizeof(message), "Preview error: %.180s", error);
+}
+
+static void draw_meter(WINDOW *win, int y, int x, int width,
+                       int volume, int scheme) {
+    if (width < 2) return;
+    int fill = volume * width / 255;
+    wattron(win, COLOR_PAIR(scheme));
+    for (int i = 0; i < width; ++i)
+        mvwaddch(win, y, x + i, i < fill ? ACS_CKBOARD : ACS_HLINE);
+    wattroff(win, COLOR_PAIR(scheme));
+}
+
+/* Compact graph of notes actually allocated to a track. Lane 0 is
+ * its first physical voice, lane 1 its second, etc. Note clusters
+ * are sampled from the very same allocator used for ASM generation. */
+static void draw_track_timeline(int y, int x, int width,
+                                int track, int lane) {
+    if (!preview_valid || width <= 0) return;
+    if (width > (int)preview.cells) width = (int)preview.cells;
+    for (int c = 0; c < width; ++c) {
+        int sample = c * (int)preview.cells / width;
+        int rank = 0, found = 0;
+        for (int voice = 0; voice < 4; ++voice) {
+            if (preview.owner[voice][sample] != track + 1) continue;
+            if (rank++ == lane) { found = 1; break; }
+        }
+        attron(COLOR_PAIR(found ? UI_ORANGE : UI_DIM));
+        mvaddch(y, x + c, found ? ACS_CKBOARD : ACS_BULLET);
+        attroff(COLOR_PAIR(found ? UI_ORANGE : UI_DIM));
+    }
+}
+
+static void track_settings_dialog(int idx) {
+    if (idx < 0 || idx >= ntracks) return;
+    PpaMidiTrack edited = tracks[idx];
+    int field = 0;
+    for (;;) {
+        int height = 19;
+        int width = COLS < 80 ? COLS - 2 : 76;
+        if (LINES < height + 2 || width < 52) return;
+        WINDOW *w = newwin(height, width, (LINES-height)/2, (COLS-width)/2);
+        if (!w) return;
+        keypad(w, TRUE);
+        wbkgd(w, COLOR_PAIR(UI_PANEL));
+        box(w, 0, 0);
+        wattron(w, COLOR_PAIR(UI_ORANGE) | A_BOLD);
+        mvwaddstr(w, 0, 3, " EDIT TRACK / CHANNEL ");
+        wattroff(w, COLOR_PAIR(UI_ORANGE) | A_BOLD);
+        wattron(w, A_BOLD);
+        mvwaddnstr(w, 2, 3, edited.name, width - 6);
+        wattroff(w, A_BOLD);
+        const char *labels[] = {"Enabled", "Waveform", "Volume", "Polyphony", "Transpose"};
+        char values[5][100];
+        snprintf(values[0], sizeof(values[0]), "%s", edited.enabled ? "YES" : "NO");
+        snprintf(values[1], sizeof(values[1]), "%s  %s", wave_name[edited.wave],
+                 symbols[edited.wave]);
+        snprintf(values[2], sizeof(values[2]), "%3d / 255", edited.volume);
+        snprintf(values[3], sizeof(values[3]), "%s", poly_id[edited.poly]);
+        snprintf(values[4], sizeof(values[4]), "%+d semitones", edited.transpose);
+        for (int i = 0; i < 5; ++i) {
+            if (field == i) wattron(w, A_REVERSE | A_BOLD);
+            mvwprintw(w, 4+i*2, 3, " %-13s  %-*.*s",
+                      labels[i], width-22, width-22, values[i]);
+            if (field == i) wattroff(w, A_REVERSE | A_BOLD);
+        }
+        draw_meter(w, 9, 40, width - 44, edited.volume, UI_ORANGE);
+        wattron(w, COLOR_PAIR(UI_GREEN));
+        mvwaddnstr(w, 15, 3,
+            "ARROWS: select/adjust     SPACE: toggle     ENTER: apply",
+            width-6);
+        mvwaddnstr(w, 16, 3,
+            "ESC: cancel     W: waveform     +/-: volume",
+            width-6);
+        wattroff(w, COLOR_PAIR(UI_GREEN));
+        wrefresh(w);
+        int key = wgetch(w);
+        delwin(w);
+        touchwin(stdscr);
+        if (key == 27) return;
+        if (key == '\n' || key == KEY_ENTER) {
+            tracks[idx] = edited;
+            update_preview();
+            snprintf(message, sizeof(message), "Updated track %d: %s",
+                     idx + 1, edited.name);
+            return;
+        }
+        if (key == KEY_UP && field > 0) field--;
+        if (key == KEY_DOWN && field < 4) field++;
+        int delta = (key == KEY_LEFT ? -1 : key == KEY_RIGHT ? 1 : 0);
+        if (key == 'w' || key == 'W') { field = 1; delta = 1; }
+        if (key == '+' || key == '=') { field = 2; delta = 8; }
+        if (key == '-') { field = 2; delta = -8; }
+        if (key == ' ') {
+            if (field == 0) edited.enabled = !edited.enabled;
+            else delta = 1;
+        }
+        if (delta) switch (field) {
+            case 0: edited.enabled = !edited.enabled; break;
+            case 1: edited.wave = (edited.wave + 5 + (delta > 0 ? 1 : -1)) % 5; break;
+            case 2: edited.volume += delta;
+                    if (edited.volume < 0) edited.volume = 0;
+                    if (edited.volume > 255) edited.volume = 255;
+                    break;
+            case 3: edited.poly = (edited.poly + 3 + (delta > 0 ? 1 : -1)) % 3; break;
+            case 4: edited.transpose += delta;
+                    if (edited.transpose < -48) edited.transpose = -48;
+                    if (edited.transpose > 48) edited.transpose = 48;
+                    break;
+        }
+    }
+}
+
 static void do_export(void) {
     if (!ntracks) {
         snprintf(message, sizeof(message), "Open a MIDI file first (O).");
@@ -395,36 +527,201 @@ static void do_export(void) {
 }
 static void render_editor(int selected, int top) {
     erase();
-    title("PPA-1_MIDI-to-ASM  |  C / ncurses  |  4-VOICE TRACK MIXER");
-    mvprintw(2, 2, "MIDI: %.*s", COLS - 10, midi_path[0] ? midi_path : "[none] Press O to browse");
-    mvprintw(3, 2, "ASM:  %.*s", COLS - 10, output_path);
-    mvprintw(4, 2, "Optimizer: %s  |  selected tracks: ",
-             optimize ? "ON" : "OFF");
-    int count = 0;
-    for (int i = 0; i < ntracks; ++i) if (tracks[i].enabled) ++count;
-    printw("%d / %d  |  Clock: %d  |  Tick: %d ms",
-           count, ntracks, clock_hz, tick_ms);
-    if (COLS >= 40) {
-        if (optimize) attron(A_BOLD | COLOR_PAIR(3));
-        mvaddstr(5, 2, "[ OPTIMIZE 4 CHANNELS ]  (F or click)");
-        if (optimize) attroff(A_BOLD | COLOR_PAIR(3));
+    visible_count = 0;
+    if (COLS < 84 || LINES < 25) {
+        attron(COLOR_PAIR(UI_ORANGE) | A_BOLD);
+        mvaddstr(0, 0, "PPA-1 MIDI / MIXER");
+        attroff(COLOR_PAIR(UI_ORANGE) | A_BOLD);
+        mvprintw(2, 1, "Resize terminal to at least 84x25 (now %dx%d).",
+                 COLS, LINES);
+        mvaddstr(4, 1, "Q: quit");
+        refresh();
+        return;
     }
-    line_at(6, 2, " #  Use  MIDI track / channel                  Notes    Waveform       Poly    Vol");
-    int rows = LINES - 11;
-    for (int y = 0; y < rows && y + top < ntracks; y++) {
-        int i = top + y;
+    bkgd(COLOR_PAIR(UI_PANEL));
+    attron(COLOR_PAIR(UI_HEADER) | A_BOLD);
+    mvhline(0, 0, ' ', COLS);
+    mvaddstr(0, 2, " PPA-1 / MIDI-to-ASM ");
+    mvprintw(0, COLS-30, "[ C11 / NCURSESW ]    %s",
+             optimize ? "OPT ON " : "OPT OFF");
+    attroff(COLOR_PAIR(UI_HEADER) | A_BOLD);
+
+    attron(COLOR_PAIR(UI_GREEN));
+    mvaddnstr(2, 2, "INPUT  ", COLS-3);
+    attroff(COLOR_PAIR(UI_GREEN));
+    mvaddnstr(2, 9, midi_path[0] ? midi_path : "(open MIDI with F3)",
+              COLS-11);
+    attron(COLOR_PAIR(UI_GREEN));
+    mvaddstr(3, 2, "OUTPUT ");
+    attroff(COLOR_PAIR(UI_GREEN));
+    mvaddnstr(3, 9, output_path, COLS-11);
+
+    int enabled = 0;
+    for (int i = 0; i < ntracks; ++i) if (tracks[i].enabled) enabled++;
+    attron(COLOR_PAIR(UI_ORANGE) | A_BOLD);
+    mvprintw(5, 2, "%s", optimize ? "[ OPTIMIZE: ON ]" : "[ OPTIMIZE: OFF ]");
+    attroff(COLOR_PAIR(UI_ORANGE) | A_BOLD);
+    mvprintw(5, 22, "TRACKS %d/%d  |  CPU %d  |  %d ms",
+             enabled, ntracks, clock_hz, tick_ms);
+    if (preview_valid) {
+        int x = COLS - 32;
+        mvprintw(5, x, "PEAK %u  DROP* %u",
+                 preview.max_simultaneous_notes,
+                 preview.dropped_note_events);
+    }
+    int split = COLS >= 112 ? COLS - 33 : COLS;
+    int source_end = LINES - 11;
+    attron(COLOR_PAIR(UI_HEADER) | A_BOLD);
+    mvhline(7, 0, ' ', COLS);
+    mvaddstr(7, 2, source_expanded && optimize
+                      ? " SOURCE TRACKS / EXPANDED NOTE LANES "
+                      : " SOURCE TRACKS / COMPACT ");
+    if (split < COLS) mvaddstr(7, split+2, " TRACK INSPECTOR ");
+    attroff(COLOR_PAIR(UI_HEADER) | A_BOLD);
+    if (split < COLS)
+        for (int y=8; y<source_end; ++y) {
+            attron(COLOR_PAIR(UI_GREEN));
+            mvaddch(y, split, ACS_VLINE);
+            attroff(COLOR_PAIR(UI_GREEN));
+        }
+    int y = 8;
+    for (int i = top; i < ntracks && y < source_end; ++i) {
         PpaMidiTrack *t = &tracks[i];
-        if (i == selected) attron(A_REVERSE);
-        mvprintw(7 + y, 1,
-                 "%3d  %-3s  %-35.35s  %6u   %-10s %-7s  %3d",
-                 i + 1, t->enabled ? "YES" : "NO",
-                 t->name, t->notes, symbols[t->wave],
-                 poly_id[t->poly], t->volume);
-        if (i == selected) attroff(A_REVERSE);
+        if (visible_count < 2048) {
+            visible_track[visible_count] = i;
+            visible_y[visible_count++] = y;
+        }
+        if (i == selected) attron(COLOR_PAIR(UI_SELECTED) | A_BOLD);
+        else attron(COLOR_PAIR(t->enabled ? UI_GREEN : UI_DIM));
+        mvhline(y, 1, ' ', split-2);
+        mvprintw(y, 2, "%c%3d %c %-*.*s",
+                 source_expanded && optimize ? '-' : '>',
+                 i+1, t->enabled ? '+' : 'x',
+                 split > 100 ? 27 : 18, split > 100 ? 27 : 18, t->name);
+        int meta = split > 100 ? 54 : 40;
+        if (meta + 23 < split) {
+            mvprintw(y, meta, "%-9.9s %3d",
+                     symbols[t->wave], t->volume);
+            if (preview_valid) mvprintw(y, meta+15, "x%d",
+                 preview.peak_polyphony[i] > 0 ? preview.peak_polyphony[i] : 1);
+        }
+        if (i == selected) attroff(COLOR_PAIR(UI_SELECTED) | A_BOLD);
+        else attroff(COLOR_PAIR(t->enabled ? UI_GREEN : UI_DIM));
+        ++y;
+        if (source_expanded && optimize && t->enabled && preview_valid) {
+            int lanes = preview.peak_polyphony[i];
+            if (lanes > 4) lanes = 4;
+            if (lanes < 1) lanes = 1;
+            for (int lane = 0; lane < lanes && y < source_end; ++lane) {
+                if (visible_count < 2048) {
+                    visible_track[visible_count] = i;
+                    visible_y[visible_count++] = y;
+                }
+                attron(COLOR_PAIR(UI_ORANGE));
+                mvprintw(y, 4, " |-- NOTE LANE %d", lane + 1);
+                attroff(COLOR_PAIR(UI_ORANGE));
+                int plot_x = 23;
+                int plot_w = split - plot_x - 3;
+                if (plot_w > 48) plot_w = 48;
+                draw_track_timeline(y, plot_x, plot_w, i, lane);
+                y++;
+            }
+            if (preview.peak_polyphony[i] > 4 && y < source_end) {
+                attron(COLOR_PAIR(UI_DIM));
+                mvprintw(y++, 6, "... %d more logical pitches (4 physical voices max)",
+                         preview.peak_polyphony[i] - 4);
+                attroff(COLOR_PAIR(UI_DIM));
+            }
+        }
     }
-    line_at(LINES - 4, 2, " UP/DOWN: select  SPACE: remove/restore  W: waveform  P: low/high/latest  +/-: volume");
-    line_at(LINES - 3, 2, " O: open MIDI  F: optimize  A: output  C: clock  T: tick  ENTER: export  Q: quit");
-    line_at(LINES - 1, 3, message);
+
+    if (split < COLS) {
+        PpaMidiTrack *t = ntracks ? &tracks[selected] : NULL;
+        attron(COLOR_PAIR(UI_GREEN) | A_BOLD);
+        if (9 < source_end) mvaddstr(9, split+2, "SELECTED TRACK");
+        attroff(COLOR_PAIR(UI_GREEN) | A_BOLD);
+        if (t) {
+            if (10 < source_end) mvaddnstr(10, split+2, t->name, 29);
+            if (12 < source_end)
+                mvprintw(12, split+2, "Wave %-10s %s",
+                         wave_name[t->wave], symbols[t->wave]);
+            if (13 < source_end)
+                mvprintw(13, split+2, "Volume  %3d / 255", t->volume);
+            if (14 < source_end)
+                draw_meter(stdscr, 14, split+2, 26, t->volume, UI_ORANGE);
+            if (16 < source_end)
+                mvprintw(16, split+2, "Poly    %s", poly_id[t->poly]);
+            if (17 < source_end)
+                mvprintw(17, split+2, "Pitch   %+d st", t->transpose);
+            if (18 < source_end)
+                mvprintw(18, split+2, "Enabled %s",
+                         t->enabled ? "YES" : "NO");
+            if (20 < source_end) {
+                attron(COLOR_PAIR(UI_ORANGE) | A_BOLD);
+                mvaddstr(20, split+2, "[F4] EDIT TRACK");
+                attroff(COLOR_PAIR(UI_ORANGE) | A_BOLD);
+            }
+        } else if (11 < source_end)
+            mvaddstr(11, split+2, "Open a MIDI file.");
+    }
+    int baseline = LINES - 10;
+    attron(COLOR_PAIR(UI_HEADER) | A_BOLD);
+    mvhline(baseline, 0, ' ', COLS);
+    mvaddstr(baseline, 2, " OUTPUT / 4 PHYSICAL OSCILLATORS  (OPTIMIZED MIX) ");
+    attroff(COLOR_PAIR(UI_HEADER) | A_BOLD);
+    for (int v = 0; v < 4; ++v) {
+        int row = baseline + 1 + v;
+        attron(COLOR_PAIR(UI_GREEN) | A_BOLD);
+        mvprintw(row, 2, "CH%d", v+1);
+        attroff(COLOR_PAIR(UI_GREEN) | A_BOLD);
+        int width = COLS - 16;
+        if (width > PPA_MIDI_PREVIEW_COLUMNS) width = PPA_MIDI_PREVIEW_COLUMNS;
+        if (preview_valid) for (int k = 0; k < width; ++k) {
+            int sample = k * (int)preview.cells / width;
+            int owner = preview.owner[v][sample];
+            attron(COLOR_PAIR(owner ? UI_ORANGE : UI_DIM));
+            mvaddch(row, 8+k, owner ? ACS_CKBOARD : ACS_HLINE);
+            attroff(COLOR_PAIR(owner ? UI_ORANGE : UI_DIM));
+        }
+        if (preview_valid) {
+            int owners[4] = {0}, seen = 0;
+            for (unsigned c = 0; c < preview.cells; ++c) {
+                int owner = preview.owner[v][c];
+                if (!owner) continue;
+                bool known = false;
+                for (int j=0; j<seen; ++j) if (owners[j] == owner) known = true;
+                if (!known && seen < 4) owners[seen++] = owner;
+            }
+            int labelx = 10 + width;
+            if (labelx < COLS - 8) {
+                if (seen) mvprintw(row, labelx, "T%d%s", owners[0],
+                                  seen > 1 ? "+" : "");
+                else mvaddstr(row, labelx, "idle");
+            }
+        }
+    }
+    attron(COLOR_PAIR(UI_HEADER));
+    mvhline(LINES-5, 0, ' ', COLS);
+    mvaddstr(LINES-5, 2, " F3 OPEN   F4 TRACK SETTINGS   F5 OPTIMIZE   F6 SAVE ASM   TAB EXPAND ");
+    attroff(COLOR_PAIR(UI_HEADER));
+    attron(COLOR_PAIR(UI_GREEN));
+    mvaddnstr(LINES-4, 2,
+       "SPACE enable  W wave  P priority  +/- volume  E edit  C clock  T tick",
+       COLS-3);
+    attroff(COLOR_PAIR(UI_GREEN));
+    attron(COLOR_PAIR(UI_ORANGE));
+    mvaddnstr(LINES-3, 2,
+       "Orange = sounding voice    Green = controls    DIM = silence   Q = quit",
+       COLS-3);
+    attroff(COLOR_PAIR(UI_ORANGE));
+    attron(COLOR_PAIR(UI_DIM));
+    mvaddnstr(LINES-2, 2, "*DROP = unallocated note samples; preview is a 64-step snapshot",
+              COLS-3);
+    attroff(COLOR_PAIR(UI_DIM));
+    attron(COLOR_PAIR(UI_GREEN) | A_BOLD);
+    mvhline(LINES-1, 0, ' ', COLS);
+    mvaddnstr(LINES-1, 2, message, COLS-3);
+    attroff(COLOR_PAIR(UI_GREEN) | A_BOLD);
     refresh();
 }
 int main(int argc, char **argv) {
@@ -435,9 +732,14 @@ int main(int argc, char **argv) {
     if (has_colors()) {
         start_color();
         use_default_colors();
-        init_pair(1, COLOR_BLACK, COLOR_CYAN);
-        init_pair(2, COLOR_CYAN, -1);
-        init_pair(3, COLOR_GREEN, -1);
+        init_pair(UI_HEADER, COLOR_BLACK, COLOR_GREEN);
+        init_pair(UI_GREEN, COLOR_GREEN, -1);
+        init_pair(UI_ORANGE, COLOR_YELLOW, -1);
+        init_pair(UI_SELECTED, COLOR_BLACK, COLOR_YELLOW);
+        init_pair(UI_DIM, COLOR_WHITE, -1);
+        init_pair(UI_PANEL, COLOR_WHITE, -1);
+        init_pair(UI_BAR, COLOR_BLACK, COLOR_YELLOW);
+        init_pair(UI_WARNING, COLOR_RED, -1);
     }
     if (argv[1] && *argv[1]) {
         snprintf(midi_path, sizeof(midi_path), "%s", argv[1]);
@@ -446,33 +748,48 @@ int main(int argc, char **argv) {
     int selected = 0, top = 0;
     for (;;) {
         if (selected >= ntracks) selected = ntracks ? ntracks - 1 : 0;
-        int rows = LINES - 11;
+        int rows = LINES - 20;
         if (rows < 1) rows = 1;
         if (selected < top) top = selected;
-        if (selected >= top + rows) top = selected - rows + 1;
+        /* Expanded logical lanes need more space than the parent rows.
+         * Scroll by track index and keep the highlighted parent visible. */
+        if (selected >= top + (source_expanded && optimize ? rows / 3 + 1 : rows))
+            top = selected - (source_expanded && optimize ? rows / 3 : rows - 1);
         render_editor(selected, top);
         int key = getch();
         if (key == KEY_MOUSE) {
             MEVENT mouse;
             if (getmouse(&mouse) == OK &&
-                (mouse.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED))) {
-                if (mouse.y == 5 && mouse.x >= 2 && mouse.x < 27) {
+                (mouse.bstate & (BUTTON1_CLICKED | BUTTON1_PRESSED |
+                                 BUTTON1_DOUBLE_CLICKED))) {
+                if (mouse.y == 5 && mouse.x >= 2 && mouse.x < 21) {
                     optimize = !optimize;
-                    snprintf(message, sizeof(message), "Four-channel optimizer: %s",
-                             optimize ? "ON" : "OFF");
-                } else if (mouse.y >= 7 && mouse.y < LINES - 4) {
-                    int index = top + mouse.y - 7;
-                    if (index >= 0 && index < ntracks) selected = index;
-                }
-            }
-            continue;
+                    source_expanded = optimize;
+                    update_preview();
+                } else if (mouse.y >= 8 && mouse.y < LINES - 11) {
+                    for (int i = 0; i < visible_count; ++i) {
+                        if (mouse.y != visible_y[i]) continue;
+                        selected = visible_track[i];
+                        if (mouse.bstate & BUTTON1_DOUBLE_CLICKED)
+                            track_settings_dialog(selected);
+                        break;
+                    }
+                } else if (mouse.y == LINES - 5) {
+                    if (mouse.x < 12) { /* F3 OPEN */ key = KEY_F(3); }
+                    else if (mouse.x < 31) { key = KEY_F(4); }
+                    else if (mouse.x < 45) { key = KEY_F(5); }
+                    else if (mouse.x < 59) { key = KEY_F(6); }
+                    else { key = '\t'; }
+                } else continue;
+            } else continue;
         }
         if (key == 'q' || key == 'Q') break;
-        if (key == 'o' || key == 'O') {
+        if (key == 'o' || key == 'O' || key == KEY_F(3)) {
             char path[PATH_MAX];
             if (browse_file(path, sizeof(path))) {
                 snprintf(midi_path, sizeof(midi_path), "%s", path);
-                load_tracks(); selected = top = 0; optimize = false;
+                optimize = false; source_expanded = false;
+                load_tracks(); selected = top = 0;
             }
             continue;
         }
@@ -481,6 +798,16 @@ int main(int argc, char **argv) {
             snprintf(path, sizeof(path), "%s", output_path);
             if (export_dialog(path, sizeof(path)))
                 snprintf(output_path, sizeof(output_path), "%s", path);
+            continue;
+        }
+        if (key == '\t') {
+            source_expanded = !source_expanded;
+            snprintf(message, sizeof(message), "Source logical lanes: %s",
+                     source_expanded ? "EXPANDED" : "COMPACT");
+            continue;
+        }
+        if (key == 'e' || key == 'E' || key == KEY_F(4)) {
+            if (ntracks) track_settings_dialog(selected);
             continue;
         }
         if (key == 'c' || key == 'C' || key == 't' || key == 'T') {
@@ -501,26 +828,37 @@ int main(int argc, char **argv) {
             }
             continue;
         }
-        if (key == 'f' || key == 'F') {
+        if (key == 'f' || key == 'F' || key == KEY_F(5)) {
             optimize = !optimize;
-            snprintf(message, sizeof(message), "4-voice fill-optimization: %s",
-                     optimize ? "ON (dynamic waveform switching)" : "OFF");
+            source_expanded = optimize;
+            update_preview();
+            snprintf(message, sizeof(message), "4-voice polyphony optimizer: %s",
+                     optimize ? "EXPANDED -> 4 MIXED OUTPUT VOICES" : "OFF");
             continue;
         }
         if (key == KEY_DOWN && selected + 1 < ntracks) selected++;
         if (key == KEY_UP && selected > 0) selected--;
-        if (key == '\n' || key == KEY_ENTER) do_export();
+        if (key == '\n' || key == KEY_ENTER || key == KEY_F(6))
+            do_export();
         if (!ntracks) continue;
         PpaMidiTrack *t = &tracks[selected];
-        if (key == ' ') t->enabled = !t->enabled;
-        if (key == 'w' || key == 'W') t->wave = (t->wave + 1) % 5;
-        if (key == 'p' || key == 'P') t->poly = (t->poly + 1) % 3;
+        bool changed = false;
+        if (key == ' ') { t->enabled = !t->enabled; changed = true; }
+        if (key == 'w' || key == 'W') {
+            t->wave = (t->wave + 1) % 5; changed = true;
+        }
+        if (key == 'p' || key == 'P') {
+            t->poly = (t->poly + 1) % 3; changed = true;
+        }
         if (key == '+' || key == '=') {
             t->volume += 8; if (t->volume > 255) t->volume = 255;
+            changed = true;
         }
         if (key == '-') {
             t->volume -= 8; if (t->volume < 0) t->volume = 0;
+            changed = true;
         }
+        if (changed) update_preview();
     }
     endwin();
     return 0;
