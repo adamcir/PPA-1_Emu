@@ -164,8 +164,76 @@ static void multi_bank_song(void) {
     unlink(prg); unlink(rom); unlink(out); unlink(midi);
 }
 
+/* A five-note chord within ONE MIDI track must spread across all four
+ * oscillators. HIGH priority should select notes 76, 72, 67, 64,
+ * leaving the lowest note 60 out until a voice becomes free. */
+static void one_track_polyphony(void) {
+    char midi[] = "/tmp/ppa-midi-poly-XXXXXX";
+    int fd = mkstemp(midi); assert(fd >= 0);
+    FILE *f = fdopen(fd, "wb"); assert(f);
+    start_song(f, 1);
+    fwrite("MTrk", 1, 4, f);
+    u32be(f, 5u * 4u + (5u + 4u * 4u) + 4u);
+    const unsigned notes[] = {60, 64, 67, 72, 76};
+    for (unsigned i = 0; i < 5; ++i) {
+        fputc(0, f); fputc(0x90, f); fputc(notes[i], f); fputc(100, f);
+    }
+    for (unsigned i = 0; i < 5; ++i) {
+        if (i == 0) vlq(f, 480);
+        else fputc(0, f);
+        fputc(0x80, f); fputc(notes[i], f); fputc(0, f);
+    }
+    fputc(0, f); fputc(0xFF, f); fputc(0x2F, f); fputc(0, f);
+    assert(fclose(f) == 0);
+    PpaMidiTrack tracks[8]; int count = 0;
+    char error[256] = "";
+    assert(ppa_midi_open(midi, tracks, 8, &count, error, sizeof(error)));
+    assert(count == 1 && tracks[0].notes == 5);
+    tracks[0].wave = 2;
+    tracks[0].poly = 1; /* high */
+    char out[] = "/tmp/ppa-midi-poly-asm-XXXXXX";
+    fd = mkstemp(out); assert(fd >= 0); close(fd);
+    int frames = 0, banks = 0;
+    assert(ppa_midi_export(midi, tracks, count, true, out, 100000, 10,
+                           &frames, &banks, error, sizeof(error)));
+    char *asmcode = read_all(out);
+    char *data = strstr(asmcode, ".bank 0001");
+    assert(data != NULL);
+    data = strstr(data, ".byte $");
+    assert(data != NULL);
+    unsigned char frame[18] = {0};
+    unsigned k = 0;
+    /* The 18-byte optimized frame is split into 16+2 .byte rows. */
+    char *cursor = data;
+    while (k < 18) {
+        char *line = strstr(cursor, ".byte ");
+        assert(line != NULL);
+        char *end = strchr(line, '\n');
+        assert(end != NULL);
+        for (char *p = line; p < end && k < 18; ++p) {
+            if (*p == '$') {
+                unsigned value;
+                assert(sscanf(p + 1, "%2x", &value) == 1);
+                frame[k++] = (unsigned char)value;
+            }
+        }
+        cursor = end + 1;
+    }
+    const unsigned frequencies[] = {659, 523, 392, 330};
+    for (unsigned i = 0; i < 4; ++i) {
+        unsigned offset = 2 + i * 4;
+        unsigned hz = frame[offset] | ((unsigned)frame[offset + 1] << 8);
+        assert(hz == frequencies[i]);
+        assert(frame[offset + 2] > 0);
+        assert(frame[offset + 3] == 2); /* triangle travels with note */
+    }
+    free(asmcode);
+    unlink(out); unlink(midi);
+}
+
 int main(void) {
     two_tracks();
+    one_track_polyphony();
     long_song();
     multi_bank_song();
     puts("PPA-1 MIDI native C parser and optimizer: OK");

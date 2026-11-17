@@ -436,58 +436,127 @@ static bool append_frames(FrameList *out, uint64_t duration, SoundState state,
     }
     return true;
 }
+/* A voice is assigned to a particular (track, MIDI pitch), not just a
+ * track. This permits the same MIDI chord to occupy all four oscillators.
+ * An assignment survives note/CC updates until its note becomes inaudible. */
+static uint8_t note_amplitude(const PpaMidiTrack *track,
+                              const Playing *state, int pitch) {
+    const Note *note = &state->note[pitch];
+    if (!track->enabled || (!note->pressed && !note->sustain_count))
+        return 0;
+    uint32_t value = (uint32_t)track->volume * note->velocity *
+                     state->cc7 * state->cc11 / (127u * 127u * 127u);
+    return (uint8_t)(value > 255 ? 255 : value);
+}
+static bool key_is_assigned(const int assigned[4], int key) {
+    for (int voice = 0; voice < 4; ++voice)
+        if (assigned[voice] == key) return true;
+    return false;
+}
+/* Compare notes within their original MIDI track using the user's
+ * requested polyphony policy (low, high or latest). */
+static bool preferred_note(const PpaMidiTrack *track, const Playing *state,
+                           int candidate, int current) {
+    if (current < 0) return true;
+    if (track->poly == 0) return candidate < current;
+    if (track->poly == 1) return candidate > current;
+    if (state->note[candidate].order != state->note[current].order)
+        return state->note[candidate].order > state->note[current].order;
+    return candidate > current;
+}
 static SoundState compose(const PpaMidiTrack *tracks, const Playing *state,
                           int count, bool optimized, int assigned[4]) {
     SoundState result = {0};
-    uint16_t pitch[PPA_MIDI_MAX_TRACKS] = {0};
-    uint8_t volume[PPA_MIDI_MAX_TRACKS] = {0};
-    for (int t = 0; t < count; ++t) {
-        if (!tracks[t].enabled) continue;
-        uint8_t vel = 0;
-        int note = selected_note(&state[t], &tracks[t], &vel);
-        if (note < 0) continue;
-        uint32_t amplitude = (uint32_t)tracks[t].volume * vel *
-                             state[t].cc7 * state[t].cc11 / (127u * 127u * 127u);
-        if (amplitude > 255) amplitude = 255;
-        pitch[t] = midi_frequency(note + tracks[t].transpose);
-        volume[t] = (uint8_t)amplitude;
-    }
     if (!optimized) {
+        /* Legacy behavior: one monophonic priority-selected note per track. */
         for (int t = 0; t < count; ++t) {
-            if (!tracks[t].enabled || tracks[t].voice < 1 || tracks[t].voice > 4)
-                continue;
-            unsigned v = (unsigned)(tracks[t].voice - 1);
-            result.frequency[v] = pitch[t];
-            result.volume[v] = volume[t];
-            result.waveform[v] = (uint8_t)tracks[t].wave;
+            if (!tracks[t].enabled || tracks[t].voice < 1 ||
+                tracks[t].voice > 4) continue;
+            uint8_t velocity = 0;
+            int note = selected_note(&state[t], &tracks[t], &velocity);
+            if (note < 0) continue;
+            uint8_t amplitude = note_amplitude(&tracks[t], &state[t], note);
+            unsigned voice = (unsigned)(tracks[t].voice - 1);
+            result.frequency[voice] = midi_frequency(note + tracks[t].transpose);
+            result.volume[voice] = amplitude;
+            result.waveform[voice] = (uint8_t)tracks[t].wave;
         }
         return result;
     }
-    /* Do not steal sustained voices; refill only idle oscillator slots. */
-    for (int v = 0; v < 4; ++v) {
-        int index = assigned[v];
-        if (index >= 0 && (index >= count || !volume[index]))
-            assigned[v] = -1;
+
+    /* Keep continuing notes on the same physical voice, even when the
+     * chord changes; note-off and sustain are processed by update_state. */
+    for (int voice = 0; voice < 4; ++voice) {
+        int key = assigned[voice];
+        if (key < 0) continue;
+        int track = key / 128, note = key % 128;
+        if (track >= count ||
+            !note_amplitude(&tracks[track], &state[track], note))
+            assigned[voice] = -1;
     }
-    for (int v = 0; v < 4; ++v) {
-        if (assigned[v] >= 0) continue;
-        int best = -1;
+
+    /* First offer one priority-selected pitch to each track. This prevents
+     * a dense chord from one track from consuming every newly free voice
+     * before another selected track has a chance to play. */
+    for (int voice = 0; voice < 4; ++voice) {
+        if (assigned[voice] >= 0) continue;
+        int best_key = -1;
+        uint8_t best_volume = 0;
         for (int t = 0; t < count; ++t) {
-            if (!volume[t]) continue;
-            bool already = false;
-            for (int i = 0; i < 4; ++i)
-                if (assigned[i] == t) already = true;
-            if (already) continue;
-            if (best < 0 || volume[t] > volume[best]) best = t;
+            if (!tracks[t].enabled) continue;
+            bool represented = false;
+            for (int v = 0; v < 4; ++v)
+                if (assigned[v] >= 0 && assigned[v] / 128 == t)
+                    represented = true;
+            if (represented) continue;
+            uint8_t velocity = 0;
+            int note = selected_note(&state[t], &tracks[t], &velocity);
+            if (note < 0 || key_is_assigned(assigned, t * 128 + note))
+                continue;
+            uint8_t amp = note_amplitude(&tracks[t], &state[t], note);
+            if (amp > best_volume) {
+                best_volume = amp;
+                best_key = t * 128 + note;
+            }
         }
-        assigned[v] = best;
+        if (best_key >= 0) assigned[voice] = best_key;
+        else break;
     }
-    for (int v = 0; v < 4; ++v) {
-        int t = assigned[v];
-        if (t < 0) continue;
-        result.frequency[v] = pitch[t];
-        result.volume[v] = volume[t];
-        result.waveform[v] = (uint8_t)tracks[t].wave;
+
+    /* Spend remaining idle voices on *additional pitches of the same
+     * tracks*. Within one track obey low/high/latest selection for the
+     * next pitch; across tracks choose the loudest available candidate. */
+    for (int voice = 0; voice < 4; ++voice) {
+        if (assigned[voice] >= 0) continue;
+        int best_key = -1;
+        uint8_t best_volume = 0;
+        for (int t = 0; t < count; ++t) {
+            if (!tracks[t].enabled) continue;
+            int chosen = -1;
+            for (int note = 0; note < 128; ++note) {
+                if (key_is_assigned(assigned, t * 128 + note) ||
+                    !note_amplitude(&tracks[t], &state[t], note))
+                    continue;
+                if (preferred_note(&tracks[t], &state[t], note, chosen))
+                    chosen = note;
+            }
+            if (chosen < 0) continue;
+            uint8_t amp = note_amplitude(&tracks[t], &state[t], chosen);
+            if (amp > best_volume) {
+                best_volume = amp;
+                best_key = t * 128 + chosen;
+            }
+        }
+        if (best_key < 0) break;
+        assigned[voice] = best_key;
+    }
+    for (int voice = 0; voice < 4; ++voice) {
+        int key = assigned[voice];
+        if (key < 0) continue;
+        int t = key / 128, note = key % 128;
+        result.frequency[voice] = midi_frequency(note + tracks[t].transpose);
+        result.volume[voice] = note_amplitude(&tracks[t], &state[t], note);
+        result.waveform[voice] = (uint8_t)tracks[t].wave;
     }
     return result;
 }

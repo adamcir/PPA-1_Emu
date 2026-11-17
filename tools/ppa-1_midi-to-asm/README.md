@@ -68,12 +68,32 @@ Waveform register codes are 0 square, 1 saw, 2 triangle, 3 sine, 4 noise.
 
 ## Four-channel optimizer
 
-Each MIDI track uses a monophonic priority policy (lowest, highest or
-newest note). Up to four streams play simultaneously. Ongoing notes keep
-their assigned oscillator; idle oscillators are filled with waiting
-tracks, ordered by effective volume and track position. When an
-oscillator begins to play another track, its **waveform changes too**.
-This is achieved by encoding an extra WAVE byte for every voice update.
+With optimization disabled, each MIDI track is monophonic:
+the selected low/high/latest note is played by its dedicated oscillator.
+
+With optimization enabled, **individual pitches inside one MIDI track
+are spread across available oscillators**. A chord (C, E, G, B) in a
+single track can occupy all four physical voices, rather than collapsing
+to one pitch. Track polyphony preference determines the order in which
+a chord's additional pitches are chosen:
+
+- LOW favors lower pitches first;
+- HIGH favors higher pitches first;
+- LATEST favors the newest-started pitches first.
+
+Assignments are tracked per (track, note), so notes keep their own
+sounding intervals and remain on the same oscillator until released
+(or sustain ends). To retain the character of multitrack arrangements,
+the allocator first gives eligible unrepresented tracks one voice when
+free slots are available, then fills remaining free slots with other
+notes of the same tracks. When more than four pitches are sounding,
+excess notes wait; freed oscillators are reassigned according to track
+priority and audible volume.
+
+**Every allocated oscillator also receives that note's track waveform**.
+Moving a note from a piano track to an available voice can change the
+waveform from a bass track's square to piano's triangle; the output
+ASM contains dynamic WAVE bytes for all four voices.
 
 The native MIDI parser supports SMF format 0/1 with PPQN, running status,
 tempo changes, note-on/off, velocity, CC7/CC11 volume and expression,
@@ -115,7 +135,7 @@ There are no separate bank binary sidecar files.
     make test-midi
 
 The native tests use C-generated SMF MIDI fixtures. They cover
-multiple tracks, changing waveform, long songs, multi-bank output,
+multiple tracks, single-track chord splitting, changing waveform, long songs, multi-bank output,
 and the actual assembler/ROMPACK pipeline. No Python runtime is used
 by the MIDI converter or its tests.
 
