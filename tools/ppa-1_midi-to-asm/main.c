@@ -68,9 +68,13 @@ static void initialize_paths(void) {
         if (slash) {
             *slash = 0;
             char candidate[PATH_MAX];
-            snprintf(candidate, sizeof(candidate), "%s/../..", exe);
-            if (!realpath(candidate, repository_root))
-                snprintf(repository_root, sizeof(repository_root), ".");
+            size_t len = strlen(exe);
+            if (len + sizeof("/../..") <= sizeof(candidate)) {
+                memcpy(candidate, exe, len);
+                memcpy(candidate + len, "/../..", sizeof("/../.."));
+                if (!realpath(candidate, repository_root))
+                    snprintf(repository_root, sizeof(repository_root), ".");
+            }
         }
     }
 #endif
@@ -81,28 +85,6 @@ static bool optimize = false;
 static int clock_hz = 100000;
 static int tick_ms = 10;
 
-static int file_cmp(const void *va, const void *vb) {
-    const Entry *a = va, *b = vb;
-    if (a->directory != b->directory) return b->directory - a->directory;
-    return strcasecmp(a->name, b->name);
-}
-static bool midi_extension(const char *name) {
-    const char *dot = strrchr(name, '.');
-    return dot && (!strcasecmp(dot, ".mid") || !strcasecmp(dot, ".midi"));
-}
-static void line_at(int row, int color, const char *label) {
-    if (row < 0 || row >= LINES) return;
-    attron(COLOR_PAIR(color));
-    mvaddnstr(row, 0, label, COLS - 1);
-    clrtoeol();
-    attroff(COLOR_PAIR(color));
-}
-static void title(const char *what) {
-    attron(A_BOLD | COLOR_PAIR(1));
-    mvhline(0, 0, ' ', COLS);
-    mvaddnstr(0, 2, what, COLS - 4);
-    attroff(A_BOLD | COLOR_PAIR(1));
-}
 static void ask_string(const char *prompt, char *out, size_t cap) {
     echo(); curs_set(1);
     int row = LINES - 2;
@@ -137,7 +119,11 @@ static void load_tracks(void) {
     const char *base = strrchr(midi_path, '/');
     base = base ? base + 1 : midi_path;
     char stem[160];
-    snprintf(stem, sizeof(stem), "%s", base);
+    /* Clip the display/project stem deliberately; do not silently
+     * overrun the fixed-size project name field. */
+    size_t stem_len = strnlen(base, sizeof(stem) - 1);
+    memcpy(stem, base, stem_len);
+    stem[stem_len] = '\0';
     char *dot = strrchr(stem, '.');
     if (dot) *dot = 0;
     for (char *p = stem; *p; ++p)
@@ -256,7 +242,7 @@ static void track_settings_dialog(int idx) {
                     if (part->wave==previous_wave)part->wave=edited.wave;
                 }
             update_preview();
-            snprintf(message, sizeof(message), "Updated track %d: %s",
+            snprintf(message, sizeof(message), "Updated track %d: %.190s",
                      idx + 1, edited.name);
             return;
         }
@@ -341,10 +327,12 @@ static void part_settings_dialog(int track, int lane) {
             case 1:edited.wave=(edited.wave+5+(delta>0?1:-1))%5;break;
             case 2:edited.volume+=delta;
                    if(edited.volume<0)edited.volume=0;
-                   if(edited.volume>255)edited.volume=255;break;
+                   if (edited.volume > 255) edited.volume = 255;
+                   break;
             case 3:edited.transpose+=delta>0?1:-1;
                    if(edited.transpose< -48)edited.transpose=-48;
-                   if(edited.transpose>48)edited.transpose=48;break;
+                   if (edited.transpose > 48) edited.transpose = 48;
+                   break;
         }
     }
 }
@@ -401,7 +389,9 @@ static void load_project(void) {
     selected_part=-1;source_expanded=optimize;
     const char *base=strrchr(path,'/');
     base=base?base+1:path;
-    snprintf(project_name,sizeof(project_name),"%s",base);
+    size_t project_len = strnlen(base, sizeof(project_name) - 1);
+    memcpy(project_name, base, project_len);
+    project_name[project_len] = '\0';
     char *dot=strrchr(project_name,'.');if(dot)*dot=0;
     snprintf(output_path,sizeof(output_path),"%s/%s.asm",
              ppa_browser_last(&browser,PPA_BROWSER_ASM_SAVE),project_name);

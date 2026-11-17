@@ -631,7 +631,6 @@ bool ppa_midi_preview_parts(const char *path, const PpaMidiTrack *tracks,
     int assigned[4] = {-1, -1, -1, -1};
     uint64_t total_ticks = m->end_tick ? m->end_tick : 1;
     uint64_t previous_tick = 0;
-    int owner[4] = {0}, pitch[4] = {0};
     size_t event = 0;
     /* Fill time slices with assignments made after the MIDI event group
      * at the interval's starting point, including intervals of silence. */
