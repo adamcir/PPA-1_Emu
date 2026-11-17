@@ -122,48 +122,48 @@ sound_voice4:
 sound_adsr_defaults:
     CALL slots_use_sound
     MOV A,#00
-    ST SOUND_CH1_ATTACK,A
-    ST SOUND_CH1_DECAY,A
-    ST SOUND_CH1_RELEASE,A
-    ST SOUND_CH2_ATTACK,A
-    ST SOUND_CH2_DECAY,A
-    ST SOUND_CH2_RELEASE,A
-    ST SOUND_CH3_ATTACK,A
-    ST SOUND_CH3_DECAY,A
-    ST SOUND_CH3_RELEASE,A
-    ST SOUND_CH4_ATTACK,A
-    ST SOUND_CH4_DECAY,A
-    ST SOUND_CH4_RELEASE,A
+    ST $0025,A
+    ST $0026,A
+    ST $0028,A
+    ST $0035,A
+    ST $0036,A
+    ST $0038,A
+    ST $0045,A
+    ST $0046,A
+    ST $0048,A
+    ST $0055,A
+    ST $0056,A
+    ST $0058,A
     MOV A,#FF
-    ST SOUND_CH1_SUSTAIN,A
-    ST SOUND_CH2_SUSTAIN,A
-    ST SOUND_CH3_SUSTAIN,A
-    ST SOUND_CH4_SUSTAIN,A
+    ST $0027,A
+    ST $0037,A
+    ST $0047,A
+    ST $0057,A
     RET
 
 ; CALL sound_gate1: A=0 (release), 1 (hold), 2 (retrigger).
 ; Gate is optional; caller controls the envelope independently of ENABLE.
 sound_gate1:
     CALL slots_use_sound
-    ST SOUND_CH1_GATE,A
+    ST $0029,A
     RET
 ; CALL sound_gate2: A=0 (release), 1 (hold), 2 (retrigger).
 ; Gate is optional; caller controls the envelope independently of ENABLE.
 sound_gate2:
     CALL slots_use_sound
-    ST SOUND_CH2_GATE,A
+    ST $0039,A
     RET
 ; CALL sound_gate3: A=0 (release), 1 (hold), 2 (retrigger).
 ; Gate is optional; caller controls the envelope independently of ENABLE.
 sound_gate3:
     CALL slots_use_sound
-    ST SOUND_CH3_GATE,A
+    ST $0049,A
     RET
 ; CALL sound_gate4: A=0 (release), 1 (hold), 2 (retrigger).
 ; Gate is optional; caller controls the envelope independently of ENABLE.
 sound_gate4:
     CALL slots_use_sound
-    ST SOUND_CH4_GATE,A
+    ST $0059,A
     RET
 
 ; Set individual ADSR using direct ST SOUND_CHn_* with BR bound
