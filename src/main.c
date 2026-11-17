@@ -585,7 +585,7 @@ static uint8_t system_read8(Memory *memory, Serial *serial, uint16_t addr) {
     if (addr >= SYSTEM_IO_START && addr <= SYSTEM_IO_END) {
         if (addr >= PPA_IRQ_PENDING && addr <= PPA_IRQ_ACTIVE)
             return ppa_irq_read(&g_irq, addr);
-        if (addr >= PPA_TIMER_LO && addr <= PPA_TIMER_COUNT_HI)
+        if (addr >= PPA_TIMER_LO && addr <= PPA_TIMER_PRESCALE)
             return ppa_irq_read(&g_irq, addr);
         if (addr >= 0xFF30u && addr <= 0xFF36u)
             return ppam_discovery_read(addr);
@@ -621,7 +621,7 @@ static void system_write8(Memory *memory, Serial *serial, uint16_t addr, uint8_t
             return;
         }
         if ((addr >= PPA_IRQ_PENDING && addr <= PPA_IRQ_ACTIVE) ||
-            (addr >= PPA_TIMER_LO && addr <= PPA_TIMER_COUNT_HI)) {
+            (addr >= PPA_TIMER_LO && addr <= PPA_TIMER_PRESCALE)) {
             ppa_irq_write(&g_irq, addr, v);
             return;
         }
@@ -827,6 +827,17 @@ static inline uint8_t pop8(CPU *cpu,
     cpu->AR = address;
     return bus_read_bank8(cpu, memory, serial,
                           bank, address, BUS_OP_READ);
+}
+
+/* Per-instruction RUN trace is opt-in: flushing on each instruction
+ * otherwise starves the real-time CPU scheduler and sound playback. */
+static bool ppa_trace_run_enabled(void) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        const char *value = getenv("PPA_TRACE_CPU");
+        enabled = value && strcmp(value, "1") == 0;
+    }
+    return enabled != 0;
 }
 
 static void trace_cpu_state(const char *frontend,
@@ -2150,7 +2161,8 @@ static void gui_backend_tick(void *ctx, int clock_edges) {
 
         if (complete) {
             g->instruction_count++;
-            gui_dump_cpu_state(g, "RUN / INSTRUCTION COMPLETE");
+            if (ppa_trace_run_enabled())
+                gui_dump_cpu_state(g, "RUN / INSTRUCTION COMPLETE");
         }
 
         if (g->cpu->halted) {
@@ -2939,9 +2951,10 @@ int main(int argc, char **argv) {
 
             if (complete) {
                 instruction_count++;
-                trace_cpu_state(
-                    "NOGUI", "RUN / INSTRUCTION COMPLETE",
-                    instruction_count, microcycle_count, &cpu);
+                if (ppa_trace_run_enabled())
+                    trace_cpu_state(
+                        "NOGUI", "RUN / INSTRUCTION COMPLETE",
+                        instruction_count, microcycle_count, &cpu);
             }
         }
 

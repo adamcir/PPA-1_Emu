@@ -3646,9 +3646,14 @@ int ppa_gui_run_panel(const char *initial_rom,
                 int rising_edges = (int)whole_cycles;
                 clock_phase = total_cycles - whole_cycles;
 
-                if (rising_edges > 5000) rising_edges = 5000;
-                if (rising_edges > 0) {
-                    backend->tick(backend->ctx, rising_edges);
+                /* 5000 is a backend call limit, not a frame's clock cap:
+                 * dropping excess edges made the CPU (and MIDI) slow down. */
+                while (rising_edges > 0 &&
+                       backend->is_running(backend->ctx) &&
+                       !backend->is_halted(backend->ctx)) {
+                    int batch = rising_edges > 5000 ? 5000 : rising_edges;
+                    backend->tick(backend->ctx, batch);
+                    rising_edges -= batch;
                 }
 
                 clock_level = clock_phase < 0.5;

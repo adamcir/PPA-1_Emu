@@ -32,6 +32,9 @@ RESET clears SR.I, IVR, pending, masks, timer and active IRQ.
 | FF22 | TIMER-CTRL | RW | bit0 enable, bit1 periodic |
 | FF23 | TIMER-COUNT-LO | R | current countdown low byte |
 | FF24 | TIMER-COUNT-HI | R | current countdown high byte |
+| FF25 | TIMER-WAIT-LO | RW | low byte of 16-bit WAIT load; read live remainder |
+| FF26 | TIMER-WAIT-HI | RW | high byte; write atomically arms WAIT countdown |
+| FF27 | TIMER-PRESCALE | RW | bits 0..1 select division /1, /4, /16 or /64 |
 
 8 IRQ lines: IRQ0 is the internal microcycle timer, IRQ2 is SERIAL/1
 receiver (raised at RX_READY transition). IRQ1/3..7 are available for
@@ -42,6 +45,22 @@ IRQ-ACK. During an ISR no new interrupt is accepted (no nesting, v1).
 IRQ0 timer counts one tick per CPU microstep and latches IRQ0 on zero.
 A TIMER-CTRL write with enable set reloads the counter. Reload=0
 disables countdown. Oneshot clears enable when countdown reaches zero.
+
+### WAIT counter — hardware extension v1.1
+
+TIMER/1 also has a 16-bit WAIT downcounter driven by periodic TIMER
+expirations, **not by software instruction loops or a host callback**.
+Write FF25 (low), then FF26 (high) to arm the complete duration.
+Read FF25/FF26 to poll the remaining units; at zero it saturates.
+Writing TIMER-CTRL restarts or disables the main timer and clears WAIT.
+Use TIMER-CTRL=03 (enabled+periodic). Register FF27 selects a hardware
+prescaler (clock enable, not a separate clock): /1, /4, /16, /64.
+Reset selects /1, keeping all older software fully compatible.
+
+This maps to ordinary 74HC counters, zero detectors, register latches,
+and bus decode logic. WAIT uses no private ROM access, host clock, DMA,
+or synthesized instructions. TIMER/1 is shared hardware: the MIDI
+player must have exclusive access while playing.
 
 ## Vector table and IRQ bus sequence
 
@@ -82,7 +101,8 @@ HLT remains a hard halt, not an interruptible sleep instruction.
 - A priority encoder selects IRQ0 first.
 - IAR is a 3-bit latch (plus valid flag); ISR is state decode.
 - IRQ_ACK is a decoded write pulse that clears IPR flip-flops.
-- Timer: 16-bit down-counter, reload register and control flip-flops.
+- Timer: 16-bit down-counter, reload register and control flip-flops,
+  plus clock-enable prescaler and 16-bit WAIT downcounter.
 - CPU: IVR two 8-bit latches, SR.I flip-flop, seven-step entry
   sequencer and five-step IRET sequencer.
 - No extra interrupt stack is required. Each microstep performs

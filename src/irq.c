@@ -27,9 +27,15 @@ void ppa_irq_leave(PpaIrqController *irq) {
 }
 void ppa_irq_tick(PpaIrqController *irq) {
     if (!irq || !(irq->timer_control & 1) || !irq->timer_reload) return;
+    /* Simple hardware: prescaler flip-flops + two cascaded downcounters.
+     * Each tick comes from CPU microcycles, never the host audio callback. */
+    unsigned divider = 1u << (2u * irq->timer_prescaler);
+    if (++irq->timer_prescale_phase < divider) return;
+    irq->timer_prescale_phase = 0;
     if (irq->timer_count) --irq->timer_count;
     if (!irq->timer_count) {
         ppa_irq_request(irq, PPA_IRQ_TIMER);
+        if (irq->timer_wait_count) --irq->timer_wait_count;
         if (irq->timer_control & 2) irq->timer_count = irq->timer_reload;
         else irq->timer_control &= (uint8_t)~1u;
     }
@@ -48,6 +54,9 @@ uint8_t ppa_irq_read(const PpaIrqController *irq, uint16_t address) {
         case PPA_TIMER_CONTROL: return irq->timer_control;
         case PPA_TIMER_COUNT_LO: return (uint8_t)irq->timer_count;
         case PPA_TIMER_COUNT_HI: return (uint8_t)(irq->timer_count >> 8);
+        case PPA_TIMER_WAIT_LO: return (uint8_t)irq->timer_wait_count;
+        case PPA_TIMER_WAIT_HI: return (uint8_t)(irq->timer_wait_count >> 8);
+        case PPA_TIMER_PRESCALE: return irq->timer_prescaler;
         default: return 0xFF;
     }
 }
@@ -64,8 +73,22 @@ void ppa_irq_write(PpaIrqController *irq, uint16_t address, uint8_t value) {
             break;
         case PPA_TIMER_CONTROL:
             irq->timer_control = value & 3u;
+            irq->timer_prescale_phase = 0;
+            irq->timer_wait_count = 0;
             if (irq->timer_control & 1) irq->timer_count = irq->timer_reload;
             else irq->timer_count = 0;
+            break;
+        case PPA_TIMER_WAIT_LO:
+            irq->timer_wait_load = (uint16_t)((irq->timer_wait_load & 0xFF00u) | value);
+            break;
+        case PPA_TIMER_WAIT_HI:
+            irq->timer_wait_load = (uint16_t)((irq->timer_wait_load & 0x00FFu) |
+                                              ((uint16_t)value << 8));
+            irq->timer_wait_count = irq->timer_wait_load;
+            break;
+        case PPA_TIMER_PRESCALE:
+            irq->timer_prescaler = value & 3u;
+            irq->timer_prescale_phase = 0;
             break;
         default: break;
     }
