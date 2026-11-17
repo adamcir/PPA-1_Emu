@@ -8,6 +8,7 @@
 #include <ncurses.h>
 #include "midi_core.h"
 #include "project.h"
+#include "browser.h"
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -50,6 +51,7 @@ static PpaMidiPart parts[TRACK_MAX * PPA_MIDI_PARTS_PER_TRACK];
 static int selected_part = -1;
 static char project_name[160] = "Untitled";
 static char owned_midi[PATH_MAX] = "";
+static PpaBrowserState browser;
 static int ntracks = 0;
 static char midi_path[PATH_MAX] = "";
 static char repository_root[PATH_MAX] = ".";
@@ -110,250 +112,15 @@ static void ask_string(const char *prompt, char *out, size_t cap) {
     getnstr(out, (int)(cap - 1));
     noecho(); curs_set(0);
 }
+/* All filesystem operations use the same persistent ncurses popup. */
 static bool browse_file(char *selected, size_t size) {
-    char cwd[PATH_MAX];
-    if (!getcwd(cwd, sizeof(cwd))) return false;
-    int top = 0, cursor = 0;
-    for (;;) {
-        Entry *entries = calloc(FILE_MAX, sizeof(*entries));
-        if (!entries) return false;
-        size_t count = 0;
-        DIR *dir = opendir(cwd);
-        if (!dir) { free(entries); return false; }
-        while (count < FILE_MAX - 1) {
-            struct dirent *de = readdir(dir);
-            if (!de) break;
-            if (!strcmp(de->d_name, ".")) continue;
-            char path[PATH_MAX];
-            snprintf(path, sizeof(path), "%s/%s", cwd, de->d_name);
-            struct stat sb;
-            if (stat(path, &sb) != 0) continue;
-            if (!S_ISDIR(sb.st_mode) && (!S_ISREG(sb.st_mode) ||
-                !midi_extension(de->d_name))) continue;
-            snprintf(entries[count].name, sizeof(entries[count].name),
-                     "%s", de->d_name);
-            entries[count].directory = S_ISDIR(sb.st_mode);
-            count++;
-        }
-        closedir(dir);
-        qsort(entries, count, sizeof(*entries), file_cmp);
-        if (cursor >= (int)count) cursor = count ? (int)count - 1 : 0;
-        for (;;) {
-            erase();
-            title("PPA-1_MIDI-to-ASM / OPEN MIDI");
-            mvaddnstr(2, 2, cwd, COLS - 3);
-            mvaddstr(3, 2, "UP/DOWN: choose   ENTER: open   BACKSPACE: parent   ESC: cancel");
-            int visible = LINES - 7;
-            if (cursor < top) top = cursor;
-            if (cursor >= top + visible) top = cursor - visible + 1;
-            for (int i = 0; i < visible && top + i < (int)count; ++i) {
-                int idx = top + i;
-                if (idx == cursor) attron(A_REVERSE);
-                mvprintw(i + 5, 3, "%-3s %-*.*s",
-                         entries[idx].directory ? "[D]" : "MID",
-                         COLS - 10, COLS - 10, entries[idx].name);
-                if (idx == cursor) attroff(A_REVERSE);
-            }
-            refresh();
-            int key = getch();
-            if (key == 27) { free(entries); return false; }
-            if (key == KEY_DOWN && cursor + 1 < (int)count) cursor++;
-            if (key == KEY_UP && cursor > 0) cursor--;
-            if (key == KEY_BACKSPACE || key == 127 || key == 8) {
-                char *slash = strrchr(cwd, '/');
-                if (slash && slash != cwd) *slash = '\0';
-                else snprintf(cwd, sizeof(cwd), "/");
-                cursor = top = 0;
-                break;
-            }
-            if ((key == '\n' || key == KEY_ENTER) && count) {
-                char path[PATH_MAX];
-                snprintf(path, sizeof(path), "%s/%s", cwd, entries[cursor].name);
-                if (entries[cursor].directory) {
-                    snprintf(cwd, sizeof(cwd), "%s", path);
-                    cursor = top = 0;
-                    break;
-                }
-                snprintf(selected, size, "%s", path);
-                free(entries);
-                return true;
-            }
-        }
-        free(entries);
-    }
+    return ppa_browser_show(&browser, PPA_BROWSER_MIDI, NULL, selected, size);
 }
-
-/* Modal "Save ASM as" dialog. Arrow keys navigate directories, F2 edits
- * filename, S/Enter writes path, Esc cancels. No file is created here. */
 static bool export_dialog(char *destination, size_t capacity) {
-    char dir[PATH_MAX];
-    char filename[256] = "";
-    snprintf(dir, sizeof(dir), "%s", destination);
-    char *slash = strrchr(dir, '/');
-    if (slash) {
-        snprintf(filename, sizeof(filename), "%s", slash + 1);
-        if (slash == dir) dir[1] = '\0';
-        else *slash = '\0';
-    } else {
-        snprintf(filename, sizeof(filename), "%s", destination);
-        if (!getcwd(dir, sizeof(dir))) return false;
-    }
-    if (!*filename) snprintf(filename, sizeof(filename), "music.asm");
-    int cursor = 0, top = 0;
-    for (;;) {
-        Entry *entries = calloc(FILE_MAX, sizeof(*entries));
-        if (!entries) return false;
-        size_t count = 0;
-        DIR *dp = opendir(dir);
-        if (!dp) {
-            snprintf(message, sizeof(message), "Cannot browse export directory");
-            free(entries); return false;
-        }
-        struct dirent *de;
-        while ((de = readdir(dp)) && count < FILE_MAX - 1) {
-            if (!strcmp(de->d_name, ".")) continue;
-            char full[PATH_MAX];
-            int n = snprintf(full, sizeof(full), "%s/%s", dir, de->d_name);
-            if (n < 0 || (size_t)n >= sizeof(full)) continue;
-            struct stat st;
-            if (stat(full, &st)) continue;
-            if (!S_ISDIR(st.st_mode) &&
-                (!S_ISREG(st.st_mode) || !strrchr(de->d_name, '.') ||
-                 strcasecmp(strrchr(de->d_name, '.'), ".asm")))
-                continue;
-            snprintf(entries[count].name, sizeof(entries[count].name),
-                     "%s", de->d_name);
-            entries[count].directory = S_ISDIR(st.st_mode);
-            count++;
-        }
-        closedir(dp);
-        qsort(entries, count, sizeof(*entries), file_cmp);
-        if (cursor >= (int)count) cursor = count ? (int)count - 1 : 0;
-        bool navigate = false;
-        for (;;) {
-            int height = LINES > 17 ? LINES - 4 : LINES;
-            int width = COLS > 78 ? COLS - 8 : COLS;
-            if (height < 9 || width < 32) {
-                free(entries);
-                snprintf(message, sizeof(message),
-                         "Terminal too small for Save ASM dialog");
-                return false;
-            }
-            int y = (LINES - height) / 2;
-            int x = (COLS - width) / 2;
-            WINDOW *win = newwin(height, width, y, x);
-            if (!win) { free(entries); return false; }
-            keypad(win, TRUE);
-            box(win, 0, 0);
-            wattron(win, A_BOLD);
-            mvwaddnstr(win, 0, 3, " SAVE ASM AS ", width - 6);
-            wattroff(win, A_BOLD);
-            mvwprintw(win, 2, 2, "Directory: %.*s",
-                      width - 15, dir);
-            mvwprintw(win, 3, 2, "Filename:  %.*s",
-                      width - 15, filename);
-            mvwaddnstr(win, 4, 2,
-                "UP/DOWN directory | ENTER open/save | F2 name | S save | ESC cancel",
-                width - 4);
-            int visible = height - 8;
-            if (cursor < top) top = cursor;
-            if (cursor >= top + visible) top = cursor - visible + 1;
-            for (int i = 0; i < visible && top + i < (int)count; ++i) {
-                int idx = top + i;
-                if (idx == cursor) wattron(win, A_REVERSE);
-                mvwprintw(win, 6 + i, 2, "%-3s %.*s",
-                          entries[idx].directory ? "[D]" : "ASM",
-                          width - 9, entries[idx].name);
-                if (idx == cursor) wattroff(win, A_REVERSE);
-            }
-            mvwaddnstr(win, height - 2, 2,
-                       "Backspace: parent | F2: edit filename | S: confirm",
-                       width - 4);
-            wrefresh(win);
-            int key = wgetch(win);
-            if (key == 27) {
-                delwin(win); free(entries); touchwin(stdscr); refresh();
-                return false;
-            }
-            if (key == KEY_UP && cursor > 0) cursor--;
-            if (key == KEY_DOWN && cursor + 1 < (int)count) cursor++;
-            if (key == KEY_BACKSPACE || key == 127 || key == 8) {
-                char *parent = strrchr(dir, '/');
-                if (parent && parent != dir) *parent = '\0';
-                else snprintf(dir, sizeof(dir), "/");
-                cursor = top = 0; navigate = true;
-            }
-            if (key == KEY_F(2)) {
-                char typed[256] = "";
-                echo(); curs_set(1);
-                mvwprintw(win, 3, 2, "Filename:  %-*s", width - 16, "");
-                wmove(win, 3, 13); wrefresh(win);
-                wgetnstr(win, typed, (int)sizeof(typed) - 1);
-                noecho(); curs_set(0);
-                if (*typed && !strchr(typed, '/')) {
-                    snprintf(filename, sizeof(filename), "%s", typed);
-                }
-            }
-            if ((key == '\n' || key == KEY_ENTER) && count) {
-                if (entries[cursor].directory) {
-                    char next[PATH_MAX];
-                    int n = snprintf(next, sizeof(next), "%s/%s",
-                                     dir, entries[cursor].name);
-                    if (n > 0 && (size_t)n < sizeof(next)) {
-                        snprintf(dir, sizeof(dir), "%s", next);
-                        cursor = top = 0; navigate = true;
-                    }
-                } else {
-                    snprintf(filename, sizeof(filename), "%s",
-                             entries[cursor].name);
-                    key = 's';
-                }
-            } else if (key == '\n' || key == KEY_ENTER) {
-                key = 's';
-            }
-            if (key == 's' || key == 'S') {
-                size_t len = strlen(filename);
-                if (len && !strchr(filename, '/') && strcmp(filename, ".") &&
-                    strcmp(filename, "..")) {
-                    if (len < 4 || strcasecmp(filename + len - 4, ".asm")) {
-                        if (len + 4 < sizeof(filename)) strcat(filename, ".asm");
-                        else { delwin(win); continue; }
-                    }
-                    char full[PATH_MAX];
-                    int n = snprintf(full, sizeof(full), "%s/%s", dir, filename);
-                    if (n > 0 && (size_t)n < capacity && (size_t)n < sizeof(full)) {
-                        struct stat st;
-                        if (!stat(full, &st) && !S_ISREG(st.st_mode)) {
-                            snprintf(message, sizeof(message),
-                                     "Export target is not a regular file");
-                        } else {
-                            /* Do not overwrite without explicit confirmation. */
-                            bool exists = !stat(full, &st);
-                            if (exists) {
-                                mvwaddnstr(win, height - 2, 2,
-                                    "FILE EXISTS. Overwrite? (y/N) ", width - 4);
-                                wclrtoeol(win); wrefresh(win);
-                                int answer = wgetch(win);
-                                if (answer != 'y' && answer != 'Y') {
-                                    delwin(win); continue;
-                                }
-                            }
-                            snprintf(destination, capacity, "%s", full);
-                            delwin(win); free(entries);
-                            touchwin(stdscr); refresh();
-                            return true;
-                        }
-                    } else {
-                        snprintf(message, sizeof(message),
-                                 "ASM path exceeds maximum length");
-                    }
-                }
-            }
-            delwin(win);
-            if (navigate) break;
-        }
-        free(entries);
-    }
+    const char *name = strrchr(destination, '/');
+    name = name ? name+1 : destination;
+    return ppa_browser_show(&browser, PPA_BROWSER_ASM_SAVE,
+                            name, destination, capacity);
 }
 
 static void update_preview(void);
@@ -376,8 +143,10 @@ static void load_tracks(void) {
     for (char *p = stem; *p; ++p)
         if (!isalnum((unsigned char)*p) && *p != '_' && *p != '-')
             *p = '_';
-    snprintf(output_path, sizeof(output_path), "%s/examples/%s.asm",
-             repository_root, stem);
+    /* ASM and .ppasp projects share ~/PPA-Songs as the initial folder;
+     * after export we remember whichever directory the user chose. */
+    snprintf(output_path, sizeof(output_path), "%s/%s.asm",
+             ppa_browser_last(&browser, PPA_BROWSER_ASM_SAVE), stem);
     snprintf(project_name, sizeof(project_name), "%s", stem);
     for (int i=0; i<ntracks; ++i)
         for (int lane=0;lane<4;lane++)
@@ -602,56 +371,9 @@ static void save_project(void) {
     } else snprintf(message,sizeof(message),"PPASP save failed: %.180s",error);
 }
 
-/* Project picker is rooted at ~/PPA-Songs; only PPASP files appear. */
-static bool pick_project(char *chosen,size_t cap) {
-    char dir[PATH_MAX],error[256]="";
-    if (!ppa_project_folder(dir,sizeof(dir),error,sizeof(error))) {
-        snprintf(message,sizeof(message),"%s",error);return false;
-    }
-    int cursor=0,top=0;
-    for (;;) {
-        Entry *items=calloc(FILE_MAX,sizeof(*items));
-        if(!items)return false;
-        int count=0;
-        DIR *dp=opendir(dir);
-        if(!dp){free(items);return false;}
-        struct dirent *entry;
-        while((entry=readdir(dp))&&count<FILE_MAX) {
-            size_t n=strlen(entry->d_name);
-            if(n<6||strcasecmp(entry->d_name+n-6,".ppasp"))continue;
-            char full[PATH_MAX];
-            if(snprintf(full,sizeof(full),"%s/%s",dir,entry->d_name)>=(int)sizeof(full))
-                continue;
-            struct stat st;
-            if(stat(full,&st)||!S_ISREG(st.st_mode))continue;
-            snprintf(items[count].name,sizeof(items[count].name),"%s",entry->d_name);
-            count++;
-        }
-        closedir(dp);qsort(items,(size_t)count,sizeof(*items),file_cmp);
-        if(cursor>=count)cursor=count?count-1:0;
-        for(;;) {
-            erase();title(" OPEN PPA SOUND PROJECT / ~/PPA-Songs ");
-            mvaddnstr(2,2,dir,COLS-4);
-            mvaddstr(3,2,"UP/DOWN: select   ENTER: open   ESC: cancel");
-            int visible=LINES-7;
-            if(cursor<top)top=cursor;
-            if(cursor>=top+visible)top=cursor-visible+1;
-            for(int i=0;i<visible&&top+i<count;i++) {
-                if(top+i==cursor)attron(A_REVERSE);
-                mvaddnstr(5+i,4,items[top+i].name,COLS-6);
-                if(top+i==cursor)attroff(A_REVERSE);
-            }
-            refresh();
-            int key=getch();
-            if(key==27){free(items);return false;}
-            if(key==KEY_UP&&cursor>0)cursor--;
-            if(key==KEY_DOWN&&cursor+1<count)cursor++;
-            if((key=='\n'||key==KEY_ENTER)&&count) {
-                int n=snprintf(chosen,cap,"%s/%s",dir,items[cursor].name);
-                free(items);return n>0&&(size_t)n<cap;
-            }
-        }
-    }
+/* PPASP picker shares the same favorite and recent folders as MIDI/ASM. */
+static bool pick_project(char *chosen, size_t cap) {
+    return ppa_browser_show(&browser, PPA_BROWSER_PROJECT, NULL, chosen, cap);
 }
 static void load_project(void) {
     char path[PATH_MAX],temp[PATH_MAX],error[256]="";
@@ -681,8 +403,8 @@ static void load_project(void) {
     base=base?base+1:path;
     snprintf(project_name,sizeof(project_name),"%s",base);
     char *dot=strrchr(project_name,'.');if(dot)*dot=0;
-    snprintf(output_path,sizeof(output_path),"%s/examples/%s.asm",
-             repository_root,project_name);
+    snprintf(output_path,sizeof(output_path),"%s/%s.asm",
+             ppa_browser_last(&browser,PPA_BROWSER_ASM_SAVE),project_name);
     update_preview();
     snprintf(message,sizeof(message),"Loaded PPASP project: %s",project_name);
 }
@@ -955,6 +677,9 @@ static void render_editor(int selected, int top) {
 int main(int argc, char **argv) {
     (void)argc;
     initialize_paths();
+    ppa_browser_init(&browser);
+    snprintf(output_path,sizeof(output_path),"%s/music.asm",
+             ppa_browser_last(&browser,PPA_BROWSER_ASM_SAVE));
     initscr(); cbreak(); noecho(); keypad(stdscr, TRUE); curs_set(0);
     mousemask(ALL_MOUSE_EVENTS, NULL);
     if (has_colors()) {

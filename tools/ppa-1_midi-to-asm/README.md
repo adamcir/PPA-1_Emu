@@ -26,8 +26,45 @@ Or run using:
 
     make midi-run
 
-The file browser navigates directories and shows .mid/.midi files.
-By default the ASM output goes to the repository examples directory.
+File selection uses a shared ncurses **popup** for MIDI (F3), PPASP (F8)
+and ASM export (F6). The default ASM export directory is now
+`~/PPA-Songs/`, next to the saved `.ppasp` projects (not `examples/`).
+The ASM can still be saved into `examples/` when desired; the assembler's
+relative include paths should be kept in mind.
+
+## File browser: favorites and remembered folders
+
+The popup follows a two-pane file-manager layout:
+
+- **Left:** up to eight favorite filesystem directories;
+  press **1–8** to jump directly to one of them.
+- **Right:** folders plus the corresponding `.mid/.midi`,
+  `.ppasp`, or `.asm` files.
+- **B:** add/remove current directory from favorites.
+- **H:** jump to `$HOME`; **P:** jump to `~/PPA-Songs`.
+- **R:** return to the last folder remembered for this dialog type.
+- **Backspace:** go to parent; **Enter:** enter a folder or open a file.
+- ASM save dialog: **F2** changes the filename; **S** confirms export,
+  asking first before overwriting an existing file.
+- **Esc:** cancel and return to the mixer without replacing the selection.
+
+The browser remembers three directories independently (last MIDI,
+last PPASP, last ASM export), and stores the favorites between sessions
+in:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/ppa-1-midi-to-asm/browser.conf
+```
+
+Invalid or no-longer-present folders in this config are safely ignored.
+Home and PPA-Songs are initial favorites. Opening a new dialog starts
+in its own last visited directory, including after restarting the editor.
+Folder changes are saved immediately so closing the dialog with Esc does
+not lose the last location.
+
+The project browser defaults to `~/PPA-Songs/`, and `F7` continues
+to save PPASP files there. ASM export also defaults to that directory,
+but can be pointed anywhere through the popup.
 
 ## Keyboard and mouse controls
 
