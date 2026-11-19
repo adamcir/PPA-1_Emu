@@ -12,112 +12,335 @@
 #include <unistd.h>
 #include <sys/types.h>
 
-static bool ps2_map_scancode(SDL_Scancode sc, uint8_t *code, bool *ext) {
+static bool ps2_map_scancode(SDL_Scancode sc, uint8_t *code, bool *ext)
+{
     *ext = false;
-    switch(sc) {
-        case SDL_SCANCODE_A:*code=0x1C;break;
-        case SDL_SCANCODE_B:*code=0x32;break;
-        case SDL_SCANCODE_C:*code=0x21;break;
-        case SDL_SCANCODE_D:*code=0x23;break;
-        case SDL_SCANCODE_E:*code=0x24;break;
-        case SDL_SCANCODE_F:*code=0x2B;break;
-        case SDL_SCANCODE_G:*code=0x34;break;
-        case SDL_SCANCODE_H:*code=0x33;break;
-        case SDL_SCANCODE_I:*code=0x43;break;
-        case SDL_SCANCODE_J:*code=0x3B;break;
-        case SDL_SCANCODE_K:*code=0x42;break;
-        case SDL_SCANCODE_L:*code=0x4B;break;
-        case SDL_SCANCODE_M:*code=0x3A;break;
-        case SDL_SCANCODE_N:*code=0x31;break;
-        case SDL_SCANCODE_O:*code=0x44;break;
-        case SDL_SCANCODE_P:*code=0x4D;break;
-        case SDL_SCANCODE_Q:*code=0x15;break;
-        case SDL_SCANCODE_R:*code=0x2D;break;
-        case SDL_SCANCODE_S:*code=0x1B;break;
-        case SDL_SCANCODE_T:*code=0x2C;break;
-        case SDL_SCANCODE_U:*code=0x3C;break;
-        case SDL_SCANCODE_V:*code=0x2A;break;
-        case SDL_SCANCODE_W:*code=0x1D;break;
-        case SDL_SCANCODE_X:*code=0x22;break;
-        case SDL_SCANCODE_Y:*code=0x35;break;
-        case SDL_SCANCODE_Z:*code=0x1A;break;
-        case SDL_SCANCODE_1:*code=0x16;break;
-        case SDL_SCANCODE_2:*code=0x1E;break;
-        case SDL_SCANCODE_3:*code=0x26;break;
-        case SDL_SCANCODE_4:*code=0x25;break;
-        case SDL_SCANCODE_5:*code=0x2E;break;
-        case SDL_SCANCODE_6:*code=0x36;break;
-        case SDL_SCANCODE_7:*code=0x3D;break;
-        case SDL_SCANCODE_8:*code=0x3E;break;
-        case SDL_SCANCODE_9:*code=0x46;break;
-        case SDL_SCANCODE_0:*code=0x45;break;
-        case SDL_SCANCODE_RETURN:*code=0x5A;break;
-        case SDL_SCANCODE_ESCAPE:*code=0x76;break;
-        case SDL_SCANCODE_BACKSPACE:*code=0x66;break;
-        case SDL_SCANCODE_TAB:*code=0x0D;break;
-        case SDL_SCANCODE_SPACE:*code=0x29;break;
-        case SDL_SCANCODE_MINUS:*code=0x4E;break;
-        case SDL_SCANCODE_EQUALS:*code=0x55;break;
-        case SDL_SCANCODE_LEFTBRACKET:*code=0x54;break;
-        case SDL_SCANCODE_RIGHTBRACKET:*code=0x5B;break;
-        case SDL_SCANCODE_BACKSLASH:*code=0x5D;break;
-        case SDL_SCANCODE_NONUSBACKSLASH:*code=0x61;break;
-        case SDL_SCANCODE_SEMICOLON:*code=0x4C;break;
-        case SDL_SCANCODE_APOSTROPHE:*code=0x52;break;
-        case SDL_SCANCODE_GRAVE:*code=0x0E;break;
-        case SDL_SCANCODE_COMMA:*code=0x41;break;
-        case SDL_SCANCODE_PERIOD:*code=0x49;break;
-        case SDL_SCANCODE_SLASH:*code=0x4A;break;
-        case SDL_SCANCODE_CAPSLOCK:*code=0x58;break;
-        case SDL_SCANCODE_F1:*code=0x05;break;
-        case SDL_SCANCODE_F2:*code=0x06;break;
-        case SDL_SCANCODE_F3:*code=0x04;break;
-        case SDL_SCANCODE_F4:*code=0x0C;break;
-        case SDL_SCANCODE_F5:*code=0x03;break;
-        case SDL_SCANCODE_F6:*code=0x0B;break;
-        case SDL_SCANCODE_F7:*code=0x83;break;
-        case SDL_SCANCODE_F8:*code=0x0A;break;
-        case SDL_SCANCODE_F9:*code=0x01;break;
-        case SDL_SCANCODE_F10:*code=0x09;break;
-        case SDL_SCANCODE_F11:*code=0x78;break;
-        case SDL_SCANCODE_F12:*code=0x07;break;
-        case SDL_SCANCODE_LCTRL:*code=0x14;break;
-        case SDL_SCANCODE_RCTRL:*code=0x14;*ext=true;break;
-        case SDL_SCANCODE_LSHIFT:*code=0x12;break;
-        case SDL_SCANCODE_RSHIFT:*code=0x59;break;
-        case SDL_SCANCODE_LALT:*code=0x11;break;
-        case SDL_SCANCODE_RALT:*code=0x11;*ext=true;break;
-        case SDL_SCANCODE_LGUI:*code=0x1F;*ext=true;break;
-        case SDL_SCANCODE_RGUI:*code=0x27;*ext=true;break;
-        case SDL_SCANCODE_UP:*code=0x75;*ext=true;break;
-        case SDL_SCANCODE_DOWN:*code=0x72;*ext=true;break;
-        case SDL_SCANCODE_LEFT:*code=0x6B;*ext=true;break;
-        case SDL_SCANCODE_RIGHT:*code=0x74;*ext=true;break;
-        case SDL_SCANCODE_INSERT:*code=0x70;*ext=true;break;
-        case SDL_SCANCODE_DELETE:*code=0x71;*ext=true;break;
-        case SDL_SCANCODE_HOME:*code=0x6C;*ext=true;break;
-        case SDL_SCANCODE_END:*code=0x69;*ext=true;break;
-        case SDL_SCANCODE_PAGEUP:*code=0x7D;*ext=true;break;
-        case SDL_SCANCODE_PAGEDOWN:*code=0x7A;*ext=true;break;
-        case SDL_SCANCODE_NUMLOCKCLEAR:*code=0x77;break;
-        case SDL_SCANCODE_SCROLLLOCK:*code=0x7E;break;
-        case SDL_SCANCODE_KP_0:*code=0x70;break;
-        case SDL_SCANCODE_KP_1:*code=0x69;break;
-        case SDL_SCANCODE_KP_2:*code=0x72;break;
-        case SDL_SCANCODE_KP_3:*code=0x7A;break;
-        case SDL_SCANCODE_KP_4:*code=0x6B;break;
-        case SDL_SCANCODE_KP_5:*code=0x73;break;
-        case SDL_SCANCODE_KP_6:*code=0x74;break;
-        case SDL_SCANCODE_KP_7:*code=0x6C;break;
-        case SDL_SCANCODE_KP_8:*code=0x75;break;
-        case SDL_SCANCODE_KP_9:*code=0x7D;break;
-        case SDL_SCANCODE_KP_PERIOD:*code=0x71;break;
-        case SDL_SCANCODE_KP_PLUS:*code=0x79;break;
-        case SDL_SCANCODE_KP_MINUS:*code=0x7B;break;
-        case SDL_SCANCODE_KP_MULTIPLY:*code=0x7C;break;
-        case SDL_SCANCODE_KP_DIVIDE:*code=0x4A;*ext=true;break;
-        case SDL_SCANCODE_KP_ENTER:*code=0x5A;*ext=true;break;
-        default:return false;
+    switch (sc)
+    {
+    case SDL_SCANCODE_A:
+        *code = 0x1C;
+        break;
+    case SDL_SCANCODE_B:
+        *code = 0x32;
+        break;
+    case SDL_SCANCODE_C:
+        *code = 0x21;
+        break;
+    case SDL_SCANCODE_D:
+        *code = 0x23;
+        break;
+    case SDL_SCANCODE_E:
+        *code = 0x24;
+        break;
+    case SDL_SCANCODE_F:
+        *code = 0x2B;
+        break;
+    case SDL_SCANCODE_G:
+        *code = 0x34;
+        break;
+    case SDL_SCANCODE_H:
+        *code = 0x33;
+        break;
+    case SDL_SCANCODE_I:
+        *code = 0x43;
+        break;
+    case SDL_SCANCODE_J:
+        *code = 0x3B;
+        break;
+    case SDL_SCANCODE_K:
+        *code = 0x42;
+        break;
+    case SDL_SCANCODE_L:
+        *code = 0x4B;
+        break;
+    case SDL_SCANCODE_M:
+        *code = 0x3A;
+        break;
+    case SDL_SCANCODE_N:
+        *code = 0x31;
+        break;
+    case SDL_SCANCODE_O:
+        *code = 0x44;
+        break;
+    case SDL_SCANCODE_P:
+        *code = 0x4D;
+        break;
+    case SDL_SCANCODE_Q:
+        *code = 0x15;
+        break;
+    case SDL_SCANCODE_R:
+        *code = 0x2D;
+        break;
+    case SDL_SCANCODE_S:
+        *code = 0x1B;
+        break;
+    case SDL_SCANCODE_T:
+        *code = 0x2C;
+        break;
+    case SDL_SCANCODE_U:
+        *code = 0x3C;
+        break;
+    case SDL_SCANCODE_V:
+        *code = 0x2A;
+        break;
+    case SDL_SCANCODE_W:
+        *code = 0x1D;
+        break;
+    case SDL_SCANCODE_X:
+        *code = 0x22;
+        break;
+    case SDL_SCANCODE_Y:
+        *code = 0x35;
+        break;
+    case SDL_SCANCODE_Z:
+        *code = 0x1A;
+        break;
+    case SDL_SCANCODE_1:
+        *code = 0x16;
+        break;
+    case SDL_SCANCODE_2:
+        *code = 0x1E;
+        break;
+    case SDL_SCANCODE_3:
+        *code = 0x26;
+        break;
+    case SDL_SCANCODE_4:
+        *code = 0x25;
+        break;
+    case SDL_SCANCODE_5:
+        *code = 0x2E;
+        break;
+    case SDL_SCANCODE_6:
+        *code = 0x36;
+        break;
+    case SDL_SCANCODE_7:
+        *code = 0x3D;
+        break;
+    case SDL_SCANCODE_8:
+        *code = 0x3E;
+        break;
+    case SDL_SCANCODE_9:
+        *code = 0x46;
+        break;
+    case SDL_SCANCODE_0:
+        *code = 0x45;
+        break;
+    case SDL_SCANCODE_RETURN:
+        *code = 0x5A;
+        break;
+    case SDL_SCANCODE_ESCAPE:
+        *code = 0x76;
+        break;
+    case SDL_SCANCODE_BACKSPACE:
+        *code = 0x66;
+        break;
+    case SDL_SCANCODE_TAB:
+        *code = 0x0D;
+        break;
+    case SDL_SCANCODE_SPACE:
+        *code = 0x29;
+        break;
+    case SDL_SCANCODE_MINUS:
+        *code = 0x4E;
+        break;
+    case SDL_SCANCODE_EQUALS:
+        *code = 0x55;
+        break;
+    case SDL_SCANCODE_LEFTBRACKET:
+        *code = 0x54;
+        break;
+    case SDL_SCANCODE_RIGHTBRACKET:
+        *code = 0x5B;
+        break;
+    case SDL_SCANCODE_BACKSLASH:
+        *code = 0x5D;
+        break;
+    case SDL_SCANCODE_NONUSBACKSLASH:
+        *code = 0x61;
+        break;
+    case SDL_SCANCODE_SEMICOLON:
+        *code = 0x4C;
+        break;
+    case SDL_SCANCODE_APOSTROPHE:
+        *code = 0x52;
+        break;
+    case SDL_SCANCODE_GRAVE:
+        *code = 0x0E;
+        break;
+    case SDL_SCANCODE_COMMA:
+        *code = 0x41;
+        break;
+    case SDL_SCANCODE_PERIOD:
+        *code = 0x49;
+        break;
+    case SDL_SCANCODE_SLASH:
+        *code = 0x4A;
+        break;
+    case SDL_SCANCODE_CAPSLOCK:
+        *code = 0x58;
+        break;
+    case SDL_SCANCODE_F1:
+        *code = 0x05;
+        break;
+    case SDL_SCANCODE_F2:
+        *code = 0x06;
+        break;
+    case SDL_SCANCODE_F3:
+        *code = 0x04;
+        break;
+    case SDL_SCANCODE_F4:
+        *code = 0x0C;
+        break;
+    case SDL_SCANCODE_F5:
+        *code = 0x03;
+        break;
+    case SDL_SCANCODE_F6:
+        *code = 0x0B;
+        break;
+    case SDL_SCANCODE_F7:
+        *code = 0x83;
+        break;
+    case SDL_SCANCODE_F8:
+        *code = 0x0A;
+        break;
+    case SDL_SCANCODE_F9:
+        *code = 0x01;
+        break;
+    case SDL_SCANCODE_F10:
+        *code = 0x09;
+        break;
+    case SDL_SCANCODE_F11:
+        *code = 0x78;
+        break;
+    case SDL_SCANCODE_F12:
+        *code = 0x07;
+        break;
+    case SDL_SCANCODE_LCTRL:
+        *code = 0x14;
+        break;
+    case SDL_SCANCODE_RCTRL:
+        *code = 0x14;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_LSHIFT:
+        *code = 0x12;
+        break;
+    case SDL_SCANCODE_RSHIFT:
+        *code = 0x59;
+        break;
+    case SDL_SCANCODE_LALT:
+        *code = 0x11;
+        break;
+    case SDL_SCANCODE_RALT:
+        *code = 0x11;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_LGUI:
+        *code = 0x1F;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_RGUI:
+        *code = 0x27;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_UP:
+        *code = 0x75;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_DOWN:
+        *code = 0x72;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_LEFT:
+        *code = 0x6B;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_RIGHT:
+        *code = 0x74;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_INSERT:
+        *code = 0x70;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_DELETE:
+        *code = 0x71;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_HOME:
+        *code = 0x6C;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_END:
+        *code = 0x69;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_PAGEUP:
+        *code = 0x7D;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_PAGEDOWN:
+        *code = 0x7A;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_NUMLOCKCLEAR:
+        *code = 0x77;
+        break;
+    case SDL_SCANCODE_SCROLLLOCK:
+        *code = 0x7E;
+        break;
+    case SDL_SCANCODE_KP_0:
+        *code = 0x70;
+        break;
+    case SDL_SCANCODE_KP_1:
+        *code = 0x69;
+        break;
+    case SDL_SCANCODE_KP_2:
+        *code = 0x72;
+        break;
+    case SDL_SCANCODE_KP_3:
+        *code = 0x7A;
+        break;
+    case SDL_SCANCODE_KP_4:
+        *code = 0x6B;
+        break;
+    case SDL_SCANCODE_KP_5:
+        *code = 0x73;
+        break;
+    case SDL_SCANCODE_KP_6:
+        *code = 0x74;
+        break;
+    case SDL_SCANCODE_KP_7:
+        *code = 0x6C;
+        break;
+    case SDL_SCANCODE_KP_8:
+        *code = 0x75;
+        break;
+    case SDL_SCANCODE_KP_9:
+        *code = 0x7D;
+        break;
+    case SDL_SCANCODE_KP_PERIOD:
+        *code = 0x71;
+        break;
+    case SDL_SCANCODE_KP_PLUS:
+        *code = 0x79;
+        break;
+    case SDL_SCANCODE_KP_MINUS:
+        *code = 0x7B;
+        break;
+    case SDL_SCANCODE_KP_MULTIPLY:
+        *code = 0x7C;
+        break;
+    case SDL_SCANCODE_KP_DIVIDE:
+        *code = 0x4A;
+        *ext = true;
+        break;
+    case SDL_SCANCODE_KP_ENTER:
+        *code = 0x5A;
+        *ext = true;
+        break;
+    default:
+        return false;
     }
     return true;
 }
@@ -125,36 +348,40 @@ static bool ps2_map_scancode(SDL_Scancode sc, uint8_t *code, bool *ext) {
 #define PANEL_W 1280
 #define PANEL_H 760
 
-static const SDL_Color COL_BLACK      = {10, 11, 11, 255};
-static const SDL_Color COL_DARK_GRAY  = {39, 41, 40, 255};
-static const SDL_Color COL_GRAY       = {101, 103, 100, 255};
+static const SDL_Color COL_BLACK = {10, 11, 11, 255};
+static const SDL_Color COL_DARK_GRAY = {39, 41, 40, 255};
+static const SDL_Color COL_GRAY = {101, 103, 100, 255};
 static const SDL_Color COL_LIGHT_GRAY = {174, 177, 171, 255};
-static const SDL_Color COL_WHITE      = {238, 240, 234, 255};
-static const SDL_Color COL_ORANGE     = {229, 145, 34, 255};
-static const SDL_Color COL_GREEN      = {126, 226, 112, 255};
-static const SDL_Color COL_RED        = {205, 67, 58, 255};
-static const SDL_Color COL_BLUE       = {99, 199, 221, 255};
+static const SDL_Color COL_WHITE = {238, 240, 234, 255};
+static const SDL_Color COL_ORANGE = {229, 145, 34, 255};
+static const SDL_Color COL_GREEN = {126, 226, 112, 255};
+static const SDL_Color COL_RED = {205, 67, 58, 255};
+static const SDL_Color COL_BLUE = {99, 199, 221, 255};
 
-typedef struct {
+typedef struct
+{
     char rom_path[1024];
     bool dialog_open;
     bool load_requested;
 } FileDialogState;
 
-typedef struct {
+typedef struct
+{
     char path[1024];
     bool dialog_open;
     bool export_requested;
 } ExportDialogState;
 
-typedef struct {
+typedef struct
+{
     char path[1024];
     bool dialog_open;
     bool load_requested;
     int slot;
 } ModuleDialogState;
 
-typedef struct {
+typedef struct
+{
     TTF_Font *title;
     TTF_Font *badge;
     TTF_Font *section;
@@ -163,19 +390,22 @@ typedef struct {
     TTF_Font *mono;
 } PanelFonts;
 
-typedef struct {
+typedef struct
+{
     SDL_Texture *up;
     SDL_Texture *down;
 } ToggleTextures;
 
-typedef struct {
+typedef struct
+{
     SDL_Texture *base;
     SDL_Texture *rotor;
 } KnobTextures;
 
 static float g_text_pixel_scale = 1.0f;
 
-typedef enum {
+typedef enum
+{
     AUX_NONE = 0,
     AUX_PREFERENCES,
     AUX_VIEW,
@@ -189,7 +419,8 @@ typedef enum {
 #define TERM_LINES 128
 #define TERM_COLS 96
 
-typedef enum {
+typedef enum
+{
     BTN_NONE = 0,
     BTN_LOAD_BANK,
     BTN_LOAD_ADDR,
@@ -205,7 +436,8 @@ typedef enum {
     BTN_RESET
 } ButtonId;
 
-typedef struct {
+typedef struct
+{
     SDL_Window *window;
     SDL_Renderer *renderer;
     AuxKind kind;
@@ -222,7 +454,8 @@ typedef struct {
     int slot_index;
 } AuxWindow;
 
-typedef struct {
+typedef struct
+{
     SDL_Window *window;
     SDL_Renderer *renderer;
 
@@ -241,7 +474,8 @@ typedef struct {
     int csi_len;
 } TerminalWindow;
 
-typedef struct {
+typedef struct
+{
     bool auto_run;
     bool lamp_test;
     bool tty_requested;
@@ -257,75 +491,93 @@ static const SDL_FRect PREF_PTY_BUTTON = {24, 222, 512, 62};
 static const SDL_FRect PREF_ROM_SIZE = {24, 350, 250, 48};
 static const SDL_FRect PREF_RAM_SIZE = {286, 350, 250, 48};
 
-static SDL_FRect module_button(int slot, int action) {
+static SDL_FRect module_button(int slot, int action)
+{
     return (SDL_FRect){24.0f + 106.0f * action,
                        102.0f + 62.0f * slot, 99.0f, 34.0f};
 }
 
 static const SDL_FRect VIEW_FOLLOW_BUTTON = {24, 356, 120, 34};
-static const SDL_FRect VIEW_BANK_DEC      = {156, 356, 72, 34};
-static const SDL_FRect VIEW_BANK_INC      = {236, 356, 72, 34};
-static const SDL_FRect VIEW_ADDR_DEC      = {328, 356, 72, 34};
-static const SDL_FRect VIEW_ADDR_INC      = {408, 356, 72, 34};
-static const SDL_FRect VIEW_PAGE_DEC      = {500, 356, 72, 34};
-static const SDL_FRect VIEW_PAGE_INC      = {580, 356, 72, 34};
-static const SDL_FRect VIEW_EDIT_HEX      = {508, 320, 144, 28};
+static const SDL_FRect VIEW_BANK_DEC = {156, 356, 72, 34};
+static const SDL_FRect VIEW_BANK_INC = {236, 356, 72, 34};
+static const SDL_FRect VIEW_ADDR_DEC = {328, 356, 72, 34};
+static const SDL_FRect VIEW_ADDR_INC = {408, 356, 72, 34};
+static const SDL_FRect VIEW_PAGE_DEC = {500, 356, 72, 34};
+static const SDL_FRect VIEW_PAGE_INC = {580, 356, 72, 34};
+static const SDL_FRect VIEW_EDIT_HEX = {508, 320, 144, 28};
 
-static const SDL_FRect HEX_BANK_DEC       = {24, 78, 82, 32};
-static const SDL_FRect HEX_BANK_INC       = {114, 78, 82, 32};
-static const SDL_FRect HEX_PAGE_DEC       = {216, 78, 82, 32};
-static const SDL_FRect HEX_PAGE_INC       = {306, 78, 82, 32};
+static const SDL_FRect HEX_BANK_DEC = {24, 78, 82, 32};
+static const SDL_FRect HEX_BANK_INC = {114, 78, 82, 32};
+static const SDL_FRect HEX_PAGE_DEC = {216, 78, 82, 32};
+static const SDL_FRect HEX_PAGE_INC = {306, 78, 82, 32};
 
-static int hex_digit_value(char ch) {
-    if (ch >= '0' && ch <= '9') return ch - '0';
-    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
-    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+static int hex_digit_value(char ch)
+{
+    if (ch >= '0' && ch <= '9')
+        return ch - '0';
+    if (ch >= 'a' && ch <= 'f')
+        return ch - 'a' + 10;
+    if (ch >= 'A' && ch <= 'F')
+        return ch - 'A' + 10;
     return -1;
 }
 
-static uint16_t hex_page_base(uint16_t address) {
+static uint16_t hex_page_base(uint16_t address)
+{
     return (uint16_t)(address & 0xFF00u);
 }
 
-static void hex_editor_select(AuxWindow *aux, uint16_t address) {
-    if (!aux) return;
+static void hex_editor_select(AuxWindow *aux, uint16_t address)
+{
+    if (!aux)
+        return;
     aux->edit_address = address;
     aux->edit_base = hex_page_base(address);
     aux->edit_high_nibble = -1;
 }
 
-static void hex_editor_move(AuxWindow *aux, int delta) {
-    if (!aux) return;
+static void hex_editor_move(AuxWindow *aux, int delta)
+{
+    if (!aux)
+        return;
     hex_editor_select(aux, (uint16_t)(aux->edit_address + delta));
 }
 
-static void hex_editor_change_bank(AuxWindow *aux, int delta) {
-    if (!aux) return;
+static void hex_editor_change_bank(AuxWindow *aux, int delta)
+{
+    if (!aux)
+        return;
 
     int bank = (int)aux->edit_bank + delta;
-    if (bank < 0) bank = 0xFFFF;
-    if (bank > 0xFFFF) bank = 0x0000;
+    if (bank < 0)
+        bank = 0xFFFF;
+    if (bank > 0xFFFF)
+        bank = 0x0000;
 
     aux->edit_bank = (uint16_t)bank;
     aux->edit_high_nibble = -1;
 }
 
-static bool point_in_rect(float x, float y, const SDL_FRect *r) {
+static bool point_in_rect(float x, float y, const SDL_FRect *r)
+{
     return x >= r->x && y >= r->y && x < r->x + r->w && y < r->y + r->h;
 }
 
-static bool point_in_circle(float x, float y, float cx, float cy, float radius) {
+static bool point_in_circle(float x, float y, float cx, float cy, float radius)
+{
     float dx = x - cx;
     float dy = y - cy;
     return dx * dx + dy * dy <= radius * radius;
 }
 
-static void file_dialog_callback(void *userdata, const char * const *filelist, int filter) {
+static void file_dialog_callback(void *userdata, const char *const *filelist, int filter)
+{
     (void)filter;
     FileDialogState *state = (FileDialogState *)userdata;
     state->dialog_open = false;
 
-    if (!filelist || !filelist[0]) {
+    if (!filelist || !filelist[0])
+    {
         ppa_log_printf("GUI: ROM selection cancelled.\n");
         return;
     }
@@ -336,29 +588,33 @@ static void file_dialog_callback(void *userdata, const char * const *filelist, i
 }
 
 static void module_dialog_callback(void *userdata,
-                                   const char * const *filelist,
+                                   const char *const *filelist,
                                    int filter)
 {
     (void)filter;
     ModuleDialogState *state = userdata;
-    if (!state) return;
+    if (!state)
+        return;
     state->dialog_open = false;
-    if (!filelist || !filelist[0]) return;
+    if (!filelist || !filelist[0])
+        return;
     snprintf(state->path, sizeof(state->path), "%s", filelist[0]);
     state->load_requested = true;
 }
 
 static void export_dialog_callback(void *userdata,
-                                   const char * const *filelist,
+                                   const char *const *filelist,
                                    int filter)
 {
     (void)filter;
     ExportDialogState *state = (ExportDialogState *)userdata;
-    if (!state) return;
+    if (!state)
+        return;
 
     state->dialog_open = false;
 
-    if (!filelist || !filelist[0]) {
+    if (!filelist || !filelist[0])
+    {
         ppa_log_printf("GUI: EEPROM export cancelled.\n");
         return;
     }
@@ -368,85 +624,102 @@ static void export_dialog_callback(void *userdata,
     ppa_log_printf("GUI: selected EEPROM export path: %s\n", state->path);
 }
 
-static const char *find_regular_font(void) {
+static const char *find_regular_font(void)
+{
     static const char *paths[] = {
         "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        NULL
-    };
+        NULL};
 
-    for (int i = 0; paths[i]; i++) {
-        if (SDL_GetPathInfo(paths[i], NULL)) return paths[i];
+    for (int i = 0; paths[i]; i++)
+    {
+        if (SDL_GetPathInfo(paths[i], NULL))
+            return paths[i];
     }
     return NULL;
 }
 
-static const char *find_bold_font(void) {
+static const char *find_bold_font(void)
+{
     static const char *paths[] = {
         "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-        NULL
-    };
+        NULL};
 
-    for (int i = 0; paths[i]; i++) {
-        if (SDL_GetPathInfo(paths[i], NULL)) return paths[i];
+    for (int i = 0; paths[i]; i++)
+    {
+        if (SDL_GetPathInfo(paths[i], NULL))
+            return paths[i];
     }
     return NULL;
 }
 
-static const char *find_mono_font(void) {
+static const char *find_mono_font(void)
+{
     static const char *paths[] = {
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationMono-Regular.ttf",
         "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
-        NULL
-    };
+        NULL};
 
-    for (int i = 0; paths[i]; i++) {
-        if (SDL_GetPathInfo(paths[i], NULL)) return paths[i];
+    for (int i = 0; paths[i]; i++)
+    {
+        if (SDL_GetPathInfo(paths[i], NULL))
+            return paths[i];
     }
     return NULL;
 }
 
-static bool load_fonts_scaled(PanelFonts *f, float scale) {
+static bool load_fonts_scaled(PanelFonts *f, float scale)
+{
     const char *regular = find_regular_font();
     const char *bold = find_bold_font();
     const char *mono = find_mono_font();
 
-    if (!regular || !bold || !mono) {
+    if (!regular || !bold || !mono)
+    {
         ppa_log_printf("GUI: no suitable technical TrueType font found.\n");
         return false;
     }
 
-    if (scale < 1.0f) scale = 1.0f;
+    if (scale < 1.0f)
+        scale = 1.0f;
 
     /* The front-panel model name is intentionally large and heavy.
        Re-open it at the panel supersampling scale so it is never just
        a low-resolution bitmap stretched with the window. */
-    f->title   = TTF_OpenFont(bold, 46.0f * scale);
-    f->badge   = TTF_OpenFont(bold, 46.0f * scale);
+    f->title = TTF_OpenFont(bold, 46.0f * scale);
+    f->badge = TTF_OpenFont(bold, 46.0f * scale);
     f->section = TTF_OpenFont(bold, 17.0f * scale);
-    f->label   = TTF_OpenFont(bold, 13.5f * scale);
-    f->small   = TTF_OpenFont(regular, 11.5f * scale);
-    f->mono    = TTF_OpenFont(mono, 12.0f * scale);
+    f->label = TTF_OpenFont(bold, 13.5f * scale);
+    f->small = TTF_OpenFont(regular, 11.5f * scale);
+    f->mono = TTF_OpenFont(mono, 12.0f * scale);
 
     return f->title && f->badge && f->section && f->label &&
            f->small && f->mono;
 }
 
-static bool load_fonts(PanelFonts *f) {
+static bool load_fonts(PanelFonts *f)
+{
     return load_fonts_scaled(f, 1.0f);
 }
 
-static void close_fonts(PanelFonts *f) {
-    if (f->title) TTF_CloseFont(f->title);
-    if (f->badge) TTF_CloseFont(f->badge);
-    if (f->section) TTF_CloseFont(f->section);
-    if (f->label) TTF_CloseFont(f->label);
-    if (f->small) TTF_CloseFont(f->small);
-    if (f->mono) TTF_CloseFont(f->mono);
+static void close_fonts(PanelFonts *f)
+{
+    if (f->title)
+        TTF_CloseFont(f->title);
+    if (f->badge)
+        TTF_CloseFont(f->badge);
+    if (f->section)
+        TTF_CloseFont(f->section);
+    if (f->label)
+        TTF_CloseFont(f->label);
+    if (f->small)
+        TTF_CloseFont(f->small);
+    if (f->mono)
+        TTF_CloseFont(f->mono);
     memset(f, 0, sizeof(*f));
 }
 
@@ -454,17 +727,22 @@ static SDL_Texture *make_text_texture(SDL_Renderer *r, TTF_Font *font,
                                       SDL_Color color, const char *text,
                                       int *w, int *h)
 {
-    if (!font || !text || !*text) return NULL;
+    if (!font || !text || !*text)
+        return NULL;
 
     SDL_Surface *surface = TTF_RenderText_Blended(font, text, 0, color);
-    if (!surface) return NULL;
+    if (!surface)
+        return NULL;
 
     SDL_Texture *texture = SDL_CreateTextureFromSurface(r, surface);
-    if (texture) {
+    if (texture)
+    {
         SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_LINEAR);
     }
-    if (w) *w = surface->w;
-    if (h) *h = surface->h;
+    if (w)
+        *w = surface->w;
+    if (h)
+        *h = surface->h;
     SDL_DestroySurface(surface);
     return texture;
 }
@@ -475,7 +753,8 @@ static void draw_text(SDL_Renderer *r, TTF_Font *font,
 {
     int w = 0, h = 0;
     SDL_Texture *texture = make_text_texture(r, font, color, text, &w, &h);
-    if (!texture) return;
+    if (!texture)
+        return;
 
     float logical_w = (float)w / g_text_pixel_scale;
     float logical_h = (float)h / g_text_pixel_scale;
@@ -490,15 +769,15 @@ static void draw_text_center(SDL_Renderer *r, TTF_Font *font,
 {
     int w = 0, h = 0;
     SDL_Texture *texture = make_text_texture(r, font, color, text, &w, &h);
-    if (!texture) return;
+    if (!texture)
+        return;
 
     float logical_w = (float)w / g_text_pixel_scale;
     float logical_h = (float)h / g_text_pixel_scale;
     SDL_FRect dst = {
         rect.x + (rect.w - logical_w) * 0.5f,
         rect.y + (rect.h - logical_h) * 0.5f,
-        logical_w, logical_h
-    };
+        logical_w, logical_h};
     SDL_RenderTexture(r, texture, NULL, &dst);
     SDL_DestroyTexture(texture);
 }
@@ -509,8 +788,10 @@ static void draw_text_fit(SDL_Renderer *r, TTF_Font *font,
 {
     int w = 0, h = 0;
     SDL_Texture *texture = make_text_texture(r, font, color, text, &w, &h);
-    if (!texture || w <= 0 || h <= 0) {
-        if (texture) SDL_DestroyTexture(texture);
+    if (!texture || w <= 0 || h <= 0)
+    {
+        if (texture)
+            SDL_DestroyTexture(texture);
         return;
     }
 
@@ -519,14 +800,14 @@ static void draw_text_fit(SDL_Renderer *r, TTF_Font *font,
     float scale_x = rect.w / logical_w;
     float scale_y = rect.h / logical_h;
     float fit = scale_x < scale_y ? scale_x : scale_y;
-    if (fit > 1.0f) fit = 1.0f;
+    if (fit > 1.0f)
+        fit = 1.0f;
 
     SDL_FRect dst = {
         rect.x + (rect.w - logical_w * fit) * 0.5f,
         rect.y + (rect.h - logical_h * fit) * 0.5f,
         logical_w * fit,
-        logical_h * fit
-    };
+        logical_h * fit};
     SDL_RenderTexture(r, texture, NULL, &dst);
     SDL_DestroyTexture(texture);
 }
@@ -537,8 +818,10 @@ static void draw_text_stretched(SDL_Renderer *r, TTF_Font *font,
 {
     int w = 0, h = 0;
     SDL_Texture *texture = make_text_texture(r, font, color, text, &w, &h);
-    if (!texture || w <= 0 || h <= 0) {
-        if (texture) SDL_DestroyTexture(texture);
+    if (!texture || w <= 0 || h <= 0)
+    {
+        if (texture)
+            SDL_DestroyTexture(texture);
         return;
     }
 
@@ -549,21 +832,23 @@ static void draw_text_stretched(SDL_Renderer *r, TTF_Font *font,
      */
     float logical_h = (float)h / g_text_pixel_scale;
     float dst_h = rect.h;
-    if (dst_h > logical_h) dst_h = logical_h;
+    if (dst_h > logical_h)
+        dst_h = logical_h;
 
     SDL_FRect dst = {
         rect.x,
         rect.y + (rect.h - dst_h) * 0.5f,
         rect.w,
-        dst_h
-    };
+        dst_h};
 
     SDL_RenderTexture(r, texture, NULL, &dst);
     SDL_DestroyTexture(texture);
 }
 
-static void fill_circle(SDL_Renderer *r, float cx, float cy, float radius) {
-    for (int y = -(int)radius; y <= (int)radius; y++) {
+static void fill_circle(SDL_Renderer *r, float cx, float cy, float radius)
+{
+    for (int y = -(int)radius; y <= (int)radius; y++)
+    {
         float inside = radius * radius - (float)(y * y);
         float dx = inside > 0.0f ? sqrtf(inside) : 0.0f;
         SDL_RenderLine(r, cx - dx, cy + (float)y, cx + dx, cy + (float)y);
@@ -585,7 +870,8 @@ static void draw_bevel_panel(SDL_Renderer *r, SDL_FRect rect,
     SDL_RenderLine(r, rect.x + rect.w, rect.y, rect.x + rect.w, rect.y + rect.h);
 }
 
-static void draw_screw(SDL_Renderer *r, float x, float y) {
+static void draw_screw(SDL_Renderer *r, float x, float y)
+{
     SDL_SetRenderDrawColor(r, 164, 165, 157, 255);
     fill_circle(r, x, y, 5.0f);
     SDL_SetRenderDrawColor(r, 52, 53, 50, 255);
@@ -598,8 +884,8 @@ static void draw_section(SDL_Renderer *r, PanelFonts *fonts,
     SDL_Color fill = {39, 41, 40, 255};
 
     draw_bevel_panel(r, rect, fill,
-        (SDL_Color){129, 130, 121, 255},
-        (SDL_Color){14, 15, 15, 255});
+                     (SDL_Color){129, 130, 121, 255},
+                     (SDL_Color){14, 15, 15, 255});
 
     draw_screw(r, rect.x + 10, rect.y + 10);
     draw_screw(r, rect.x + rect.w - 10, rect.y + 10);
@@ -622,25 +908,29 @@ static void draw_led(SDL_Renderer *r, PanelFonts *fonts,
     SDL_FRect lens = {x + 4, y + 23, 18, 16};
 
     draw_text_center(r, fonts->small,
-        (SDL_FRect){x - 4, y, 34, 17},
-        (SDL_Color){220, 216, 198, 255}, label);
+                     (SDL_FRect){x - 4, y, 34, 17},
+                     (SDL_Color){220, 216, 198, 255}, label);
 
     SDL_SetRenderDrawColor(r, 10, 11, 11, 255);
     SDL_RenderFillRect(r, &bezel);
     SDL_SetRenderDrawColor(r, 105, 107, 100, 255);
     SDL_RenderRect(r, &bezel);
 
-    if (on) {
+    if (on)
+    {
         SDL_SetRenderDrawColor(r, lamp.r, lamp.g, lamp.b, 255);
-    } else {
+    }
+    else
+    {
         SDL_SetRenderDrawColor(r,
-            (Uint8)(lamp.r / 7),
-            (Uint8)(lamp.g / 7),
-            (Uint8)(lamp.b / 7), 255);
+                               (Uint8)(lamp.r / 7),
+                               (Uint8)(lamp.g / 7),
+                               (Uint8)(lamp.b / 7), 255);
     }
     SDL_RenderFillRect(r, &lens);
 
-    if (on) {
+    if (on)
+    {
         SDL_SetRenderDrawColor(r, 245, 244, 210, 210);
         SDL_FRect glint = {lens.x + 5, lens.y + 3, 6, 5};
         SDL_RenderFillRect(r, &glint);
@@ -667,26 +957,31 @@ static void draw_rack_status_lamp(SDL_Renderer *r, PanelFonts *fonts,
     SDL_RenderRect(r, &bezel);
     bool on = lit || lamp_test;
     SDL_SetRenderDrawColor(r,
-        on ? color.r : (Uint8)(color.r / 7),
-        on ? color.g : (Uint8)(color.g / 7),
-        on ? color.b : (Uint8)(color.b / 7), 255);
+                           on ? color.r : (Uint8)(color.r / 7),
+                           on ? color.g : (Uint8)(color.g / 7),
+                           on ? color.b : (Uint8)(color.b / 7), 255);
     SDL_RenderFillRect(r, &lens);
-    if (show_mask) {
+    if (show_mask)
+    {
         SDL_FRect mask = {x + 4.0f, y + 32.0f, 18.0f, 3.0f};
         bool enabled = mask_enabled || lamp_test;
         SDL_SetRenderDrawColor(r,
-            enabled ? COL_GREEN.r : (Uint8)(COL_GREEN.r / 7),
-            enabled ? COL_GREEN.g : (Uint8)(COL_GREEN.g / 7),
-            enabled ? COL_GREEN.b : (Uint8)(COL_GREEN.b / 7), 255);
+                               enabled ? COL_GREEN.r : (Uint8)(COL_GREEN.r / 7),
+                               enabled ? COL_GREEN.g : (Uint8)(COL_GREEN.g / 7),
+                               enabled ? COL_GREEN.b : (Uint8)(COL_GREEN.b / 7), 255);
         SDL_RenderFillRect(r, &mask);
     }
 }
 
-static void destroy_toggle_textures(ToggleTextures *textures) {
-    if (!textures) return;
+static void destroy_toggle_textures(ToggleTextures *textures)
+{
+    if (!textures)
+        return;
 
-    if (textures->up) SDL_DestroyTexture(textures->up);
-    if (textures->down) SDL_DestroyTexture(textures->down);
+    if (textures->up)
+        SDL_DestroyTexture(textures->up);
+    if (textures->down)
+        SDL_DestroyTexture(textures->down);
     textures->up = NULL;
     textures->down = NULL;
 }
@@ -694,14 +989,18 @@ static void destroy_toggle_textures(ToggleTextures *textures) {
 static SDL_Texture *load_panel_texture(SDL_Renderer *renderer,
                                        const char *relative_path)
 {
-    if (!renderer || !relative_path || !*relative_path) return NULL;
+    if (!renderer || !relative_path || !*relative_path)
+        return NULL;
 
     char path[2048];
     const char *base = SDL_GetBasePath();
 
-    if (base && *base) {
+    if (base && *base)
+    {
         snprintf(path, sizeof(path), "%s%s", base, relative_path);
-    } else {
+    }
+    else
+    {
         snprintf(path, sizeof(path), "%s", relative_path);
     }
 
@@ -711,14 +1010,17 @@ static SDL_Texture *load_panel_texture(SDL_Renderer *renderer,
      * Development fallback: if someone runs a binary from the repository
      * before assets have been copied next to it, also try the CWD path.
      */
-    if (!surface && base && *base) {
+    if (!surface && base && *base)
+    {
         surface = IMG_Load(relative_path);
-        if (surface) {
+        if (surface)
+        {
             snprintf(path, sizeof(path), "%s", relative_path);
         }
     }
 
-    if (!surface) {
+    if (!surface)
+    {
         ppa_log_printf(
             "GUI: failed to load texture %s: %s\n",
             path, SDL_GetError());
@@ -730,13 +1032,17 @@ static SDL_Texture *load_panel_texture(SDL_Renderer *renderer,
      * In that case treat pure black as transparent. If the artwork is later
      * re-exported as RGBA, keep its real alpha instead and do not color-key it.
      */
-    if (!SDL_ISPIXELFORMAT_ALPHA(surface->format)) {
+    if (!SDL_ISPIXELFORMAT_ALPHA(surface->format))
+    {
         Uint32 black = SDL_MapSurfaceRGB(surface, 0, 0, 0);
-        if (!SDL_SetSurfaceColorKey(surface, true, black)) {
+        if (!SDL_SetSurfaceColorKey(surface, true, black))
+        {
             ppa_log_printf(
                 "GUI: failed to apply black transparency key to %s: %s\n",
                 path, SDL_GetError());
-        } else {
+        }
+        else
+        {
             ppa_log_printf(
                 "GUI: %s has no alpha; using black as transparent color key.\n",
                 path);
@@ -747,7 +1053,8 @@ static SDL_Texture *load_panel_texture(SDL_Renderer *renderer,
         SDL_CreateTextureFromSurface(renderer, surface);
     SDL_DestroySurface(surface);
 
-    if (!texture) {
+    if (!texture)
+    {
         ppa_log_printf(
             "GUI: failed to create texture from %s: %s\n",
             path, SDL_GetError());
@@ -762,7 +1069,8 @@ static SDL_Texture *load_panel_texture(SDL_Renderer *renderer,
 static bool load_toggle_textures(SDL_Renderer *renderer,
                                  ToggleTextures *textures)
 {
-    if (!renderer || !textures) return false;
+    if (!renderer || !textures)
+        return false;
 
     destroy_toggle_textures(textures);
 
@@ -771,7 +1079,8 @@ static bool load_toggle_textures(SDL_Renderer *renderer,
     textures->down = load_panel_texture(
         renderer, "assets/textures/switch_down.png");
 
-    if (!textures->up || !textures->down) {
+    if (!textures->up || !textures->down)
+    {
         ppa_log_printf(
             "GUI: switch textures unavailable; using procedural fallback.\n");
         destroy_toggle_textures(textures);
@@ -783,11 +1092,15 @@ static bool load_toggle_textures(SDL_Renderer *renderer,
     return true;
 }
 
-static void destroy_knob_textures(KnobTextures *textures) {
-    if (!textures) return;
+static void destroy_knob_textures(KnobTextures *textures)
+{
+    if (!textures)
+        return;
 
-    if (textures->base) SDL_DestroyTexture(textures->base);
-    if (textures->rotor) SDL_DestroyTexture(textures->rotor);
+    if (textures->base)
+        SDL_DestroyTexture(textures->base);
+    if (textures->rotor)
+        SDL_DestroyTexture(textures->rotor);
     textures->base = NULL;
     textures->rotor = NULL;
 }
@@ -795,7 +1108,8 @@ static void destroy_knob_textures(KnobTextures *textures) {
 static bool load_knob_textures(SDL_Renderer *renderer,
                                KnobTextures *textures)
 {
-    if (!renderer || !textures) return false;
+    if (!renderer || !textures)
+        return false;
 
     destroy_knob_textures(textures);
 
@@ -804,7 +1118,8 @@ static bool load_knob_textures(SDL_Renderer *renderer,
     textures->rotor = load_panel_texture(
         renderer, "assets/textures/knob_rotor.png");
 
-    if (!textures->base || !textures->rotor) {
+    if (!textures->base || !textures->rotor)
+    {
         ppa_log_printf(
             "GUI: knob textures unavailable; using procedural fallback.\n");
         destroy_knob_textures(textures);
@@ -821,15 +1136,17 @@ static void draw_toggle(SDL_Renderer *r, PanelFonts *fonts,
                         float x, float y, const char *label, bool on)
 {
     draw_text_center(r, fonts->small,
-        (SDL_FRect){x - 4, y, 34, 17},
-        (SDL_Color){221, 217, 199, 255}, label);
+                     (SDL_FRect){x - 4, y, 34, 17},
+                     (SDL_Color){221, 217, 199, 255}, label);
 
     SDL_Texture *texture = NULL;
-    if (textures) {
+    if (textures)
+    {
         texture = on ? textures->up : textures->down;
     }
 
-    if (texture) {
+    if (texture)
+    {
         /*
          * Source artwork is 112x192. Render it larger than the original
          * procedural switch while keeping the mechanical pivot fixed at
@@ -842,8 +1159,7 @@ static void draw_toggle(SDL_Renderer *r, PanelFonts *fonts,
             (x + 13.0f) - switch_w * 0.5f,
             (y + 42.0f) - switch_h * 0.5f,
             switch_w,
-            switch_h
-        };
+            switch_h};
         SDL_RenderTexture(r, texture, NULL, &dst);
         return;
     }
@@ -868,32 +1184,37 @@ static void draw_push_button(SDL_Renderer *r, PanelFonts *fonts,
                              SDL_Color face, bool active, bool pressed)
 {
     SDL_Color actual = face;
-    if (active) {
+    if (active)
+    {
         actual.r = (Uint8)SDL_min(255, actual.r + 24);
         actual.g = (Uint8)SDL_min(255, actual.g + 24);
         actual.b = (Uint8)SDL_min(255, actual.b + 24);
     }
 
-    if (pressed) {
+    if (pressed)
+    {
         rect.x += 2.0f;
         rect.y += 2.0f;
         actual.r = (Uint8)(actual.r * 0.84f);
         actual.g = (Uint8)(actual.g * 0.84f);
         actual.b = (Uint8)(actual.b * 0.84f);
         draw_bevel_panel(r, rect, actual,
-            (SDL_Color){24, 24, 23, 255},
-            (SDL_Color){150, 148, 136, 255});
-    } else {
+                         (SDL_Color){24, 24, 23, 255},
+                         (SDL_Color){150, 148, 136, 255});
+    }
+    else
+    {
         draw_bevel_panel(r, rect, actual,
-            (SDL_Color){208, 206, 190, 255},
-            (SDL_Color){16, 16, 16, 255});
+                         (SDL_Color){208, 206, 190, 255},
+                         (SDL_Color){16, 16, 16, 255});
     }
 
     draw_text_center(r, fonts->label, rect,
                      (SDL_Color){246, 242, 221, 255}, label);
 }
 
-static bool button_pressed(ButtonId current, ButtonId id, Uint64 until) {
+static bool button_pressed(ButtonId current, ButtonId id, Uint64 until)
+{
     return current == id && SDL_GetTicks() < until;
 }
 
@@ -920,21 +1241,22 @@ static void draw_knob(SDL_Renderer *r, PanelFonts *fonts,
     SDL_RenderLine(r, cx, cy, px, py);
 
     draw_text_center(r, fonts->small,
-        (SDL_FRect){cx - 70, cy + radius + 8, 140, 18},
-        (SDL_Color){215, 210, 191, 255}, value);
+                     (SDL_FRect){cx - 70, cy + radius + 8, 140, 18},
+                     (SDL_Color){215, 210, 191, 255}, value);
 }
 
 static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
                               const KnobTextures *textures,
                               float cx, float cy, float radius,
                               int index, int count,
-                              const char * const *labels,
+                              const char *const *labels,
                               bool enabled)
 {
     SDL_Color tick_color = enabled ? COL_WHITE : COL_GRAY;
     SDL_Color label_color = enabled ? COL_WHITE : COL_GRAY;
 
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++)
+    {
         float t = count > 1 ? (float)i / (float)(count - 1) : 0.0f;
         float angle = (225.0f - t * 270.0f) *
                       3.14159265358979323846f / 180.0f;
@@ -945,10 +1267,11 @@ static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
         float oy = cy - sinf(angle) * (radius + 13.0f);
 
         SDL_SetRenderDrawColor(r,
-            tick_color.r, tick_color.g, tick_color.b, tick_color.a);
+                               tick_color.r, tick_color.g, tick_color.b, tick_color.a);
         SDL_RenderLine(r, ix, iy, ox, oy);
 
-        if (labels && labels[i]) {
+        if (labels && labels[i])
+        {
             float lx = cx + cosf(angle) * (radius + 27.0f);
             float ly = cy - sinf(angle) * (radius + 27.0f);
 
@@ -957,7 +1280,8 @@ static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
         }
     }
 
-    if (textures && textures->base && textures->rotor) {
+    if (textures && textures->base && textures->rotor)
+    {
         /*
          * The source PNGs are 256x256. The visible base occupies roughly
          * 80 % of that canvas, so a 70x70 logical destination produces a
@@ -968,8 +1292,7 @@ static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
             cx - knob_size * 0.5f,
             cy - knob_size * 0.5f,
             knob_size,
-            knob_size
-        };
+            knob_size};
 
         SDL_RenderTexture(r, textures->base, NULL, &dst);
 
@@ -1007,7 +1330,7 @@ static void draw_labeled_knob(SDL_Renderer *r, PanelFonts *fonts,
     float py = cy - sinf(angle) * radius * 0.68f;
 
     SDL_SetRenderDrawColor(r,
-        tick_color.r, tick_color.g, tick_color.b, 255);
+                           tick_color.r, tick_color.g, tick_color.b, 255);
     SDL_RenderLine(r, cx, cy, px, py);
 }
 
@@ -1023,7 +1346,8 @@ static void draw_menu_button(SDL_Renderer *r, PanelFonts *fonts,
 }
 
 /* Disabled controls are visually subdued and never accept input. */
-static void draw_disabled_control(SDL_Renderer *r, SDL_FRect rect) {
+static void draw_disabled_control(SDL_Renderer *r, SDL_FRect rect)
+{
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(r, 24, 26, 27, 210);
     SDL_RenderFillRect(r, &rect);
@@ -1034,9 +1358,11 @@ static void draw_disabled_control(SDL_Renderer *r, SDL_FRect rect) {
 
 static void draw_menu_button_enabled(SDL_Renderer *r, PanelFonts *fonts,
                                      SDL_FRect rect, const char *label,
-                                     bool enabled) {
+                                     bool enabled)
+{
     draw_menu_button(r, fonts, rect, label);
-    if (!enabled) draw_disabled_control(r, rect);
+    if (!enabled)
+        draw_disabled_control(r, rect);
 }
 
 static void draw_aux_header(SDL_Renderer *r, PanelFonts *fonts,
@@ -1049,7 +1375,8 @@ static void draw_aux_header(SDL_Renderer *r, PanelFonts *fonts,
     draw_text(r, fonts->section, 24, 18,
               (SDL_Color){238, 240, 234, 255}, title);
 
-    if (subtitle && *subtitle) {
+    if (subtitle && *subtitle)
+    {
         draw_text(r, fonts->small, 24, 42,
                   (SDL_Color){151, 156, 151, 255}, subtitle);
     }
@@ -1066,11 +1393,11 @@ static void draw_aux_toggle_button(SDL_Renderer *r, PanelFonts *fonts,
                                    SDL_Color accent)
 {
     SDL_Color fill = enabled
-        ? (SDL_Color){42, 47, 44, 255}
-        : (SDL_Color){34, 36, 36, 255};
+                         ? (SDL_Color){42, 47, 44, 255}
+                         : (SDL_Color){34, 36, 36, 255};
     SDL_Color border = enabled
-        ? accent
-        : (SDL_Color){78, 81, 78, 255};
+                           ? accent
+                           : (SDL_Color){78, 81, 78, 255};
 
     SDL_SetRenderDrawColor(r, fill.r, fill.g, fill.b, 255);
     SDL_RenderFillRect(r, &rect);
@@ -1080,8 +1407,7 @@ static void draw_aux_toggle_button(SDL_Renderer *r, PanelFonts *fonts,
 
     SDL_FRect inner = {
         rect.x + 1.0f, rect.y + 1.0f,
-        rect.w - 2.0f, rect.h - 2.0f
-    };
+        rect.w - 2.0f, rect.h - 2.0f};
     SDL_RenderRect(r, &inner);
 
     draw_text(r, fonts->label,
@@ -1095,21 +1421,20 @@ static void draw_aux_toggle_button(SDL_Renderer *r, PanelFonts *fonts,
     SDL_FRect state = {
         rect.x + rect.w - 70.0f,
         rect.y + 16.0f,
-        52.0f, 30.0f
-    };
+        52.0f, 30.0f};
 
     SDL_Color state_fill = enabled
-        ? accent
-        : (SDL_Color){52, 54, 53, 255};
+                               ? accent
+                               : (SDL_Color){52, 54, 53, 255};
 
     SDL_SetRenderDrawColor(r,
-        state_fill.r, state_fill.g, state_fill.b, 255);
+                           state_fill.r, state_fill.g, state_fill.b, 255);
     SDL_RenderFillRect(r, &state);
 
     SDL_SetRenderDrawColor(r,
-        enabled ? 225 : 91,
-        enabled ? 226 : 94,
-        enabled ? 218 : 91, 255);
+                           enabled ? 225 : 91,
+                           enabled ? 226 : 94,
+                           enabled ? 218 : 91, 255);
     SDL_RenderRect(r, &state);
 
     draw_text_center(r, fonts->label, state,
@@ -1117,19 +1442,24 @@ static void draw_aux_toggle_button(SDL_Renderer *r, PanelFonts *fonts,
                      enabled ? "ON" : "OFF");
 }
 
-static void read_log_tail(char lines[][160], int *line_count, int max_lines) {
+static void read_log_tail(char lines[][160], int *line_count, int max_lines)
+{
     *line_count = 0;
-    if (max_lines < 1) return;
-    if (max_lines > 64) max_lines = 64;
+    if (max_lines < 1)
+        return;
+    if (max_lines > 64)
+        max_lines = 64;
 
     FILE *f = fopen(ppa_log_path(), "r");
-    if (!f) return;
+    if (!f)
+        return;
 
     char ring[64][160] = {{0}};
     int total = 0;
     char buf[160];
 
-    while (fgets(buf, sizeof(buf), f)) {
+    while (fgets(buf, sizeof(buf), f))
+    {
         snprintf(ring[total % max_lines], 160, "%s", buf);
         total++;
     }
@@ -1138,17 +1468,20 @@ static void read_log_tail(char lines[][160], int *line_count, int max_lines) {
     int count = total < max_lines ? total : max_lines;
     int start = total > max_lines ? total - max_lines : 0;
 
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++)
+    {
         snprintf(lines[i], 160, "%s", ring[(start + i) % max_lines]);
         size_t n = strlen(lines[i]);
-        while (n && (lines[i][n - 1] == '\n' || lines[i][n - 1] == '\r')) {
+        while (n && (lines[i][n - 1] == '\n' || lines[i][n - 1] == '\r'))
+        {
             lines[i][--n] = '\0';
         }
     }
     *line_count = count;
 }
 
-static SDL_Color terminal_color(uint8_t index) {
+static SDL_Color terminal_color(uint8_t index)
+{
     static const SDL_Color palette[] = {
         {201, 230, 208, 255}, /* default */
         {92, 96, 94, 255},    /* black */
@@ -1169,7 +1502,8 @@ static SDL_Color terminal_color(uint8_t index) {
         {248, 250, 244, 255}  /* bright white */
     };
 
-    if (index >= (uint8_t)(sizeof(palette) / sizeof(palette[0]))) {
+    if (index >= (uint8_t)(sizeof(palette) / sizeof(palette[0])))
+    {
         index = 0;
     }
     return palette[index];
@@ -1177,37 +1511,50 @@ static SDL_Color terminal_color(uint8_t index) {
 
 static void terminal_clear(TerminalWindow *term);
 
-static void terminal_apply_sgr(TerminalWindow *term, const char *params) {
-    if (!term) return;
+static void terminal_apply_sgr(TerminalWindow *term, const char *params)
+{
+    if (!term)
+        return;
 
-    if (!params || !*params) {
+    if (!params || !*params)
+    {
         term->current_color = 0;
         return;
     }
 
     const char *p = params;
-    while (*p) {
+    while (*p)
+    {
         int value = 0;
         bool have_digit = false;
 
-        while (*p >= '0' && *p <= '9') {
+        while (*p >= '0' && *p <= '9')
+        {
             have_digit = true;
             value = value * 10 + (*p - '0');
             p++;
         }
 
-        if (!have_digit) value = 0;
+        if (!have_digit)
+            value = 0;
 
-        if (value == 0 || value == 39) {
+        if (value == 0 || value == 39)
+        {
             term->current_color = 0;
-        } else if (value >= 30 && value <= 37) {
+        }
+        else if (value >= 30 && value <= 37)
+        {
             term->current_color = (uint8_t)(1 + value - 30);
-        } else if (value >= 90 && value <= 97) {
+        }
+        else if (value >= 90 && value <= 97)
+        {
             term->current_color = (uint8_t)(9 + value - 90);
         }
 
-        if (*p == ';') p++;
-        else break;
+        if (*p == ';')
+            p++;
+        else
+            break;
     }
 }
 
@@ -1215,23 +1562,28 @@ static int terminal_csi_param(const char *params,
                               int index,
                               int default_value)
 {
-    if (!params || !*params) return default_value;
+    if (!params || !*params)
+        return default_value;
 
     int current = 0;
     int value = 0;
     bool have_digit = false;
 
-    for (const char *p = params; ; p++) {
+    for (const char *p = params;; p++)
+    {
         char ch = *p;
 
-        if (ch >= '0' && ch <= '9') {
+        if (ch >= '0' && ch <= '9')
+        {
             value = value * 10 + (ch - '0');
             have_digit = true;
             continue;
         }
 
-        if (ch == ';' || ch == '\0') {
-            if (current == index) {
+        if (ch == ';' || ch == '\0')
+        {
+            if (current == index)
+            {
                 return have_digit ? value : default_value;
             }
 
@@ -1239,30 +1591,40 @@ static int terminal_csi_param(const char *params,
             value = 0;
             have_digit = false;
 
-            if (ch == '\0') break;
+            if (ch == '\0')
+                break;
         }
     }
 
     return default_value;
 }
 
-static void terminal_set_cursor(TerminalWindow *term, int row, int col) {
-    if (!term) return;
+static void terminal_set_cursor(TerminalWindow *term, int row, int col)
+{
+    if (!term)
+        return;
 
-    if (row < 0) row = 0;
-    if (row >= TERM_LINES) row = TERM_LINES - 1;
-    if (col < 0) col = 0;
-    if (col >= TERM_COLS) col = TERM_COLS - 1;
+    if (row < 0)
+        row = 0;
+    if (row >= TERM_LINES)
+        row = TERM_LINES - 1;
+    if (col < 0)
+        col = 0;
+    if (col >= TERM_COLS)
+        col = TERM_COLS - 1;
 
     term->line = row;
     term->col = col;
-    if (term->line > term->max_line) {
+    if (term->line > term->max_line)
+    {
         term->max_line = term->line;
     }
 
     size_t len = strlen(term->lines[term->line]);
-    if ((size_t)term->col > len) {
-        for (size_t i = len; i < (size_t)term->col; i++) {
+    if ((size_t)term->col > len)
+    {
+        for (size_t i = len; i < (size_t)term->col; i++)
+        {
             term->lines[term->line][i] = ' ';
             term->colors[term->line][i] = term->current_color;
         }
@@ -1270,32 +1632,48 @@ static void terminal_set_cursor(TerminalWindow *term, int row, int col) {
     }
 }
 
-static void terminal_finish_csi(TerminalWindow *term, uint8_t final_byte) {
-    if (!term) return;
+static void terminal_finish_csi(TerminalWindow *term, uint8_t final_byte)
+{
+    if (!term)
+        return;
 
     term->csi[term->csi_len] = '\0';
 
-    if (final_byte == 'm') {
+    if (final_byte == 'm')
+    {
         terminal_apply_sgr(term, term->csi);
-    } else if (final_byte == 'J') {
+    }
+    else if (final_byte == 'J')
+    {
         int mode = terminal_csi_param(term->csi, 0, 0);
-        if (mode == 2) {
+        if (mode == 2)
+        {
             terminal_clear(term);
         }
-    } else if (final_byte == 'H' || final_byte == 'f') {
+    }
+    else if (final_byte == 'H' || final_byte == 'f')
+    {
         int row = terminal_csi_param(term->csi, 0, 1);
         int col = terminal_csi_param(term->csi, 1, 1);
         terminal_set_cursor(term, row - 1, col - 1);
-    } else if (final_byte == 'A') {
+    }
+    else if (final_byte == 'A')
+    {
         int n = terminal_csi_param(term->csi, 0, 1);
         terminal_set_cursor(term, term->line - n, term->col);
-    } else if (final_byte == 'B') {
+    }
+    else if (final_byte == 'B')
+    {
         int n = terminal_csi_param(term->csi, 0, 1);
         terminal_set_cursor(term, term->line + n, term->col);
-    } else if (final_byte == 'C') {
+    }
+    else if (final_byte == 'C')
+    {
         int n = terminal_csi_param(term->csi, 0, 1);
         terminal_set_cursor(term, term->line, term->col + n);
-    } else if (final_byte == 'D') {
+    }
+    else if (final_byte == 'D')
+    {
         int n = terminal_csi_param(term->csi, 0, 1);
         terminal_set_cursor(term, term->line, term->col - n);
     }
@@ -1312,7 +1690,8 @@ static void terminal_draw_colored_line(SDL_Renderer *renderer,
                                        int line)
 {
     if (!renderer || !font || !term ||
-        line < 0 || line >= TERM_LINES) {
+        line < 0 || line >= TERM_LINES)
+    {
         return;
     }
 
@@ -1321,12 +1700,14 @@ static void terminal_draw_colored_line(SDL_Renderer *renderer,
     int start = 0;
     float draw_x = x;
 
-    while (start < len) {
+    while (start < len)
+    {
         uint8_t color_index = term->colors[line][start];
         int end = start + 1;
 
         while (end < len &&
-               term->colors[line][end] == color_index) {
+               term->colors[line][end] == color_index)
+        {
             end++;
         }
 
@@ -1340,7 +1721,8 @@ static void terminal_draw_colored_line(SDL_Renderer *renderer,
             renderer, font, terminal_color(color_index),
             segment, &w, &h);
 
-        if (texture) {
+        if (texture)
+        {
             float logical_w = (float)w / g_text_pixel_scale;
             float logical_h = (float)h / g_text_pixel_scale;
             SDL_FRect dst = {draw_x, y, logical_w, logical_h};
@@ -1360,7 +1742,8 @@ static void terminal_draw_cursor(TerminalWindow *term,
                                  float y,
                                  float line_height)
 {
-    if (!term || !term->renderer || !font) return;
+    if (!term || !term->renderer || !font)
+        return;
 
     /*
      * Behave like a normal terminal cursor: while UART TX is actively
@@ -1372,38 +1755,46 @@ static void terminal_draw_cursor(TerminalWindow *term,
     Uint64 now = SDL_GetTicks();
     Uint64 idle_ms = now - term->last_output_ticks;
 
-    if (idle_ms < cursor_idle_delay_ms) return;
+    if (idle_ms < cursor_idle_delay_ms)
+        return;
 
     Uint64 blink_time = idle_ms - cursor_idle_delay_ms;
-    if (((blink_time / cursor_blink_ms) & 1u) != 0u) return;
+    if (((blink_time / cursor_blink_ms) & 1u) != 0u)
+        return;
 
-    if (term->line < first_visible_line) return;
+    if (term->line < first_visible_line)
+        return;
 
     int visible_row = term->line - first_visible_line;
-    if (visible_row < 0) return;
+    if (visible_row < 0)
+        return;
 
     int glyph_w = 0, glyph_h = 0;
     SDL_Texture *probe = make_text_texture(
         term->renderer, font, terminal_color(term->current_color),
         "M", &glyph_w, &glyph_h);
-    if (probe) SDL_DestroyTexture(probe);
+    if (probe)
+        SDL_DestroyTexture(probe);
 
-    if (glyph_w <= 0) glyph_w = 8;
-    if (glyph_h <= 0) glyph_h = 14;
+    if (glyph_w <= 0)
+        glyph_w = 8;
+    if (glyph_h <= 0)
+        glyph_h = 14;
 
     float char_w = (float)glyph_w / g_text_pixel_scale;
     float char_h = (float)glyph_h / g_text_pixel_scale;
 
     int cursor_col = term->col;
-    if (cursor_col < 0) cursor_col = 0;
-    if (cursor_col >= TERM_COLS) cursor_col = TERM_COLS - 1;
+    if (cursor_col < 0)
+        cursor_col = 0;
+    if (cursor_col >= TERM_COLS)
+        cursor_col = TERM_COLS - 1;
 
     SDL_FRect cursor = {
         x + cursor_col * char_w,
         y + visible_row * line_height,
         char_w,
-        char_h
-    };
+        char_h};
 
     SDL_Color color = terminal_color(term->current_color);
     SDL_SetRenderDrawColor(
@@ -1411,20 +1802,25 @@ static void terminal_draw_cursor(TerminalWindow *term,
     SDL_RenderFillRect(term->renderer, &cursor);
 }
 
-static void terminal_new_line(TerminalWindow *term) {
-    if (!term) return;
+static void terminal_new_line(TerminalWindow *term)
+{
+    if (!term)
+        return;
 
     term->line++;
     term->col = 0;
 
-    if (term->line >= TERM_LINES) {
+    if (term->line >= TERM_LINES)
+    {
         memmove(term->lines[0], term->lines[1],
                 sizeof(term->lines[0]) * (TERM_LINES - 1));
         memmove(term->colors[0], term->colors[1],
                 sizeof(term->colors[0]) * (TERM_LINES - 1));
         term->line = TERM_LINES - 1;
         term->max_line = TERM_LINES - 1;
-    } else if (term->line > term->max_line) {
+    }
+    else if (term->line > term->max_line)
+    {
         term->max_line = term->line;
     }
 
@@ -1432,8 +1828,10 @@ static void terminal_new_line(TerminalWindow *term) {
     memset(term->colors[term->line], 0, sizeof(term->colors[term->line]));
 }
 
-static void terminal_put_byte(TerminalWindow *term, uint8_t value) {
-    if (!term) return;
+static void terminal_put_byte(TerminalWindow *term, uint8_t value)
+{
+    if (!term)
+        return;
 
     /*
      * Minimal ANSI/ASCII terminal protocol:
@@ -1444,55 +1842,71 @@ static void terminal_put_byte(TerminalWindow *term, uint8_t value) {
      *   ESC [ n A/B/C/D            = cursor movement
      *   ASCII FF (0x0C)            = clear screen
      */
-    if (term->ansi_state == 1) {
-        if (value == '[') {
+    if (term->ansi_state == 1)
+    {
+        if (value == '[')
+        {
             term->ansi_state = 2;
             term->csi_len = 0;
-        } else {
+        }
+        else
+        {
             term->ansi_state = 0;
         }
         return;
     }
 
-    if (term->ansi_state == 2) {
-        if ((value >= '0' && value <= '9') || value == ';') {
-            if (term->csi_len < (int)sizeof(term->csi) - 1) {
+    if (term->ansi_state == 2)
+    {
+        if ((value >= '0' && value <= '9') || value == ';')
+        {
+            if (term->csi_len < (int)sizeof(term->csi) - 1)
+            {
                 term->csi[term->csi_len++] = (char)value;
             }
             return;
         }
 
-        if (value >= 0x40 && value <= 0x7E) {
+        if (value >= 0x40 && value <= 0x7E)
+        {
             terminal_finish_csi(term, value);
-        } else {
+        }
+        else
+        {
             term->ansi_state = 0;
             term->csi_len = 0;
         }
         return;
     }
 
-    if (value == 0x1B) {
+    if (value == 0x1B)
+    {
         term->ansi_state = 1;
         return;
     }
 
-    if (value == 0x0C) {
+    if (value == 0x0C)
+    {
         terminal_clear(term);
         return;
     }
 
-    if (value == '\r') {
+    if (value == '\r')
+    {
         term->col = 0;
         return;
     }
 
-    if (value == '\n') {
+    if (value == '\n')
+    {
         terminal_new_line(term);
         return;
     }
 
-    if (value == '\b' || value == 0x7F) {
-        if (term->col > 0) {
+    if (value == '\b' || value == 0x7F)
+    {
+        if (term->col > 0)
+        {
             term->col--;
             term->lines[term->line][term->col] = '\0';
             term->colors[term->line][term->col] = 0;
@@ -1500,27 +1914,34 @@ static void terminal_put_byte(TerminalWindow *term, uint8_t value) {
         return;
     }
 
-    if (value == '\t') {
+    if (value == '\t')
+    {
         int spaces = 4 - (term->col % 4);
-        while (spaces-- > 0) terminal_put_byte(term, ' ');
+        while (spaces-- > 0)
+            terminal_put_byte(term, ' ');
         return;
     }
 
-    if (value < 0x20) return;
+    if (value < 0x20)
+        return;
 
-    if (term->col >= TERM_COLS) terminal_new_line(term);
+    if (term->col >= TERM_COLS)
+        terminal_new_line(term);
 
     term->lines[term->line][term->col] = (char)value;
     term->colors[term->line][term->col] = term->current_color;
-    if (term->line > term->max_line) {
+    if (term->line > term->max_line)
+    {
         term->max_line = term->line;
     }
     term->col++;
     term->lines[term->line][term->col] = '\0';
 }
 
-static void terminal_clear(TerminalWindow *term) {
-    if (!term) return;
+static void terminal_clear(TerminalWindow *term)
+{
+    if (!term)
+        return;
 
     memset(term->lines, 0, sizeof(term->lines));
     memset(term->colors, 0, sizeof(term->colors));
@@ -1531,10 +1952,12 @@ static void terminal_clear(TerminalWindow *term) {
     term->csi_len = 0;
 }
 
-static SDL_FRect terminal_clear_button_rect(const TerminalWindow *term) {
+static SDL_FRect terminal_clear_button_rect(const TerminalWindow *term)
+{
     int w = 680;
     int h = 380;
-    if (term && term->window) {
+    if (term && term->window)
+    {
         SDL_GetWindowSize(term->window, &w, &h);
     }
     (void)h;
@@ -1543,17 +1966,18 @@ static SDL_FRect terminal_clear_button_rect(const TerminalWindow *term) {
         (float)w - 112.0f,
         18.0f,
         88.0f,
-        34.0f
-    };
+        34.0f};
     return rect;
 }
 
 static bool open_terminal(TerminalWindow *term,
                           const PPA1GuiBackend *backend)
 {
-    if (!term || !backend) return false;
+    if (!term || !backend)
+        return false;
 
-    if (term->window) {
+    if (term->window)
+    {
         SDL_RaiseWindow(term->window);
         return true;
     }
@@ -1562,12 +1986,14 @@ static bool open_terminal(TerminalWindow *term,
         "PPA-1 UART Terminal",
         680, 380,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-    if (!term->window) return false;
+    if (!term->window)
+        return false;
 
     SDL_SetWindowMinimumSize(term->window, 480, 280);
 
     term->renderer = SDL_CreateRenderer(term->window, NULL);
-    if (!term->renderer) {
+    if (!term->renderer)
+    {
         SDL_DestroyWindow(term->window);
         memset(term, 0, sizeof(*term));
         return false;
@@ -1577,7 +2003,8 @@ static bool open_terminal(TerminalWindow *term,
     SDL_StartTextInput(term->window);
     term->last_output_ticks = SDL_GetTicks();
 
-    if (backend->set_terminal_enabled) {
+    if (backend->set_terminal_enabled)
+    {
         backend->set_terminal_enabled(backend->ctx, true);
     }
     return true;
@@ -1586,34 +2013,43 @@ static bool open_terminal(TerminalWindow *term,
 static void close_terminal(TerminalWindow *term,
                            const PPA1GuiBackend *backend)
 {
-    if (!term) return;
+    if (!term)
+        return;
 
-    if (term->window) SDL_StopTextInput(term->window);
+    if (term->window)
+        SDL_StopTextInput(term->window);
 
-    if (backend && backend->set_terminal_enabled) {
+    if (backend && backend->set_terminal_enabled)
+    {
         backend->set_terminal_enabled(backend->ctx, false);
     }
 
-    if (term->renderer) SDL_DestroyRenderer(term->renderer);
-    if (term->window) SDL_DestroyWindow(term->window);
+    if (term->renderer)
+        SDL_DestroyRenderer(term->renderer);
+    if (term->window)
+        SDL_DestroyWindow(term->window);
     memset(term, 0, sizeof(*term));
 }
 
 static void update_terminal(TerminalWindow *term,
                             const PPA1GuiBackend *backend)
 {
-    if (!term || !term->window || !backend || !backend->terminal_read_tx) return;
+    if (!term || !term->window || !backend || !backend->terminal_read_tx)
+        return;
 
     uint8_t buf[256];
     size_t n;
-    do {
+    do
+    {
         n = backend->terminal_read_tx(backend->ctx, buf, sizeof(buf));
 
-        if (n > 0) {
+        if (n > 0)
+        {
             term->last_output_ticks = SDL_GetTicks();
         }
 
-        for (size_t i = 0; i < n; i++) {
+        for (size_t i = 0; i < n; i++)
+        {
             terminal_put_byte(term, buf[i]);
         }
     } while (n == sizeof(buf));
@@ -1622,7 +2058,8 @@ static void update_terminal(TerminalWindow *term,
 static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
                           const PPA1GuiBackend *backend)
 {
-    if (!term || !term->renderer || !fonts) return;
+    if (!term || !term->renderer || !fonts)
+        return;
 
     update_terminal(term, backend);
 
@@ -1646,27 +2083,32 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
      * VIEW, PREFERENCES and CREDITS.
      */
     int visible = (h - 94) / 18;
-    if (visible < 1) visible = 1;
-    if (visible > TERM_LINES) visible = TERM_LINES;
+    if (visible < 1)
+        visible = 1;
+    if (visible > TERM_LINES)
+        visible = TERM_LINES;
 
     int start = term->max_line - visible + 1;
-    if (start < 0) start = 0;
+    if (start < 0)
+        start = 0;
 
     /*
      * If ANSI moved the cursor above the automatic scroll window, keep the
      * cursor visible without discarding lines below it.
      */
-    if (term->line < start) {
+    if (term->line < start)
+    {
         start = term->line;
     }
 
     SDL_FRect body = {
         24.0f, 78.0f,
         (float)w - 48.0f,
-        (float)h - 96.0f
-    };
-    if (body.w < 1.0f) body.w = 1.0f;
-    if (body.h < 1.0f) body.h = 1.0f;
+        (float)h - 96.0f};
+    if (body.w < 1.0f)
+        body.w = 1.0f;
+    if (body.h < 1.0f)
+        body.h = 1.0f;
 
     SDL_SetRenderDrawColor(term->renderer, 22, 24, 24, 255);
     SDL_RenderFillRect(term->renderer, &body);
@@ -1679,10 +2121,13 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
 
     float y = terminal_text_y;
     int last_visible = start + visible - 1;
-    if (last_visible > term->max_line) last_visible = term->max_line;
-    if (last_visible >= TERM_LINES) last_visible = TERM_LINES - 1;
+    if (last_visible > term->max_line)
+        last_visible = term->max_line;
+    if (last_visible >= TERM_LINES)
+        last_visible = TERM_LINES - 1;
 
-    for (int line = start; line <= last_visible; line++) {
+    for (int line = start; line <= last_visible; line++)
+    {
         terminal_draw_colored_line(
             term->renderer, fonts->mono,
             terminal_text_x, y, term, line);
@@ -1696,49 +2141,64 @@ static void draw_terminal(TerminalWindow *term, PanelFonts *fonts,
     SDL_RenderPresent(term->renderer);
 }
 
-static void destroy_aux(AuxWindow *aux) {
-    if (!aux) return;
+static void destroy_aux(AuxWindow *aux)
+{
+    if (!aux)
+        return;
 
     if (aux->window && (aux->kind == AUX_HEX_MEMORY ||
-                        aux->kind == AUX_MODULE_DETAIL)) {
+                        aux->kind == AUX_MODULE_DETAIL))
+    {
         SDL_StopTextInput(aux->window);
     }
 
-    if (aux->renderer) SDL_DestroyRenderer(aux->renderer);
-    if (aux->window) SDL_DestroyWindow(aux->window);
+    if (aux->renderer)
+        SDL_DestroyRenderer(aux->renderer);
+    if (aux->window)
+        SDL_DestroyWindow(aux->window);
     memset(aux, 0, sizeof(*aux));
 }
 
-static void store_module_window(const AuxWindow *aux, PpaModuleLayout *layout) {
-    if (!aux || !layout || !aux->window) return;
+static void store_module_window(const AuxWindow *aux, PpaModuleLayout *layout)
+{
+    if (!aux || !layout || !aux->window)
+        return;
     SDL_GetWindowPosition(aux->window, &layout->x, &layout->y);
     SDL_GetWindowSize(aux->window, &layout->width, &layout->height);
 }
 /* Reopening any module restores its native logical dimensions. */
 static void restore_module_window(AuxWindow *aux, const PpaModuleLayout *layout,
-                                  bool vga) {
-    if (!aux || !aux->window) return;
+                                  bool vga)
+{
+    if (!aux || !aux->window)
+        return;
     SDL_SetWindowSize(aux->window, vga ? 1280 : 540, vga ? 800 : 510);
     if (layout && layout->x != -1 && layout->y != -1)
         SDL_SetWindowPosition(aux->window, layout->x, layout->y);
 }
 static void save_module_config(PpaConfig *config,
-                               const PPA1GuiBackend *backend, int slot) {
+                               const PPA1GuiBackend *backend, int slot)
+{
     if (!config || !backend || !backend->module_info ||
-        slot < 0 || slot >= PPA_CONFIG_MODULE_SLOTS) return;
+        slot < 0 || slot >= PPA_CONFIG_MODULE_SLOTS)
+        return;
     PPA1ModuleInfo info = {0};
-    if (!backend->module_info(backend->ctx, slot, &info)) return;
+    if (!backend->module_info(backend->ctx, slot, &info))
+        return;
     PpaModuleLayout *layout = &config->modules[slot];
     snprintf(layout->path, sizeof(layout->path), "%s",
              info.installed ? info.path : "");
     layout->active = info.installed && info.active;
-    if (!info.installed) layout->visible = false;
+    if (!info.installed)
+        layout->visible = false;
     if (!ppa_config_save(config))
         ppa_log_printf("GUI: failed saving module layout: %s\n", ppa_config_path());
 }
 
-static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int h) {
-    if (aux->window) {
+static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int h)
+{
+    if (aux->window)
+    {
         if (SDL_GetWindowFlags(aux->window) & SDL_WINDOW_MINIMIZED)
             SDL_RestoreWindow(aux->window);
         SDL_ShowWindow(aux->window);
@@ -1750,39 +2210,51 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
 
     Uint64 flags = SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (kind == AUX_LOG || kind == AUX_VIEW || kind == AUX_HEX_MEMORY ||
-        kind == AUX_MODULE_DETAIL) {
+        kind == AUX_MODULE_DETAIL)
+    {
         flags |= SDL_WINDOW_RESIZABLE;
     }
 
     aux->window = SDL_CreateWindow(title, w, h, flags);
-    if (!aux->window) return;
+    if (!aux->window)
+        return;
 
-    if (kind == AUX_MODULE_DETAIL) {
+    if (kind == AUX_MODULE_DETAIL)
+    {
         SDL_SetWindowMinimumSize(aux->window, 280, 260);
-    } else if (kind == AUX_LOG) {
+    }
+    else if (kind == AUX_LOG)
+    {
         SDL_SetWindowMinimumSize(aux->window, 560, 300);
-    } else if (kind == AUX_VIEW) {
+    }
+    else if (kind == AUX_VIEW)
+    {
         SDL_SetWindowMinimumSize(aux->window, 680, 520);
-    } else if (kind == AUX_HEX_MEMORY) {
+    }
+    else if (kind == AUX_HEX_MEMORY)
+    {
         SDL_SetWindowMinimumSize(aux->window, 800, 610);
         aux->edit_high_nibble = -1;
     }
 
     aux->renderer = SDL_CreateRenderer(aux->window, NULL);
-    if (!aux->renderer) {
+    if (!aux->renderer)
+    {
         SDL_DestroyWindow(aux->window);
         memset(aux, 0, sizeof(*aux));
         return;
     }
 
     SDL_SetRenderVSync(aux->renderer, 0); /* independent of window visibility */
-    if (kind == AUX_MODULE_DETAIL) {
+    if (kind == AUX_MODULE_DETAIL)
+    {
         /* Scale each module's own 540x510 virtual front panel gracefully. */
         SDL_SetRenderLogicalPresentation(aux->renderer, 540, 510,
                                          SDL_LOGICAL_PRESENTATION_LETTERBOX);
     }
 
-    if (kind == AUX_HEX_MEMORY) {
+    if (kind == AUX_HEX_MEMORY)
+    {
         SDL_StartTextInput(aux->window);
     }
 }
@@ -1791,9 +2263,11 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                             Preferences *prefs,
                             const PPA1GuiBackend *backend)
 {
-    if (!aux || !aux->renderer || !aux->window) return;
+    if (!aux || !aux->renderer || !aux->window)
+        return;
     Uint64 window_flags = SDL_GetWindowFlags(aux->window);
-    if (window_flags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) return;
+    if (window_flags & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED))
+        return;
 
     SDL_Renderer *r = aux->renderer;
     SDL_SetRenderDrawColor(r, 28, 30, 30, 255);
@@ -1802,7 +2276,8 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
     SDL_Color cream = {228, 222, 201, 255};
     SDL_Color muted = {180, 181, 171, 255};
 
-    if (aux->kind == AUX_PREFERENCES) {
+    if (aux->kind == AUX_PREFERENCES)
+    {
         draw_aux_header(r, fonts, "PREFERENCES",
                         "EMULATOR & FRONT PANEL");
 
@@ -1828,11 +2303,14 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
             pty_on, COL_BLUE);
 
         char pty_line[256];
-        if (pty_on && backend->tty_name) {
+        if (pty_on && backend->tty_name)
+        {
             snprintf(pty_line, sizeof(pty_line),
                      "ACTIVE DEVICE: %s",
                      backend->tty_name(backend->ctx));
-        } else {
+        }
+        else
+        {
             snprintf(pty_line, sizeof(pty_line),
                      "No external serial device active.");
         }
@@ -1849,9 +2327,11 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                                  can_change_memory);
         draw_menu_button_enabled(r, fonts, PREF_RAM_SIZE, prefs->ram_bytes,
                                  can_change_memory);
-        if (can_change_memory && prefs->editing_memory) {
+        if (can_change_memory && prefs->editing_memory)
+        {
             SDL_FRect selected = prefs->editing_memory == 1
-                ? PREF_ROM_SIZE : PREF_RAM_SIZE;
+                                     ? PREF_ROM_SIZE
+                                     : PREF_RAM_SIZE;
             SDL_SetRenderDrawColor(r, 244, 169, 59, 255);
             SDL_RenderRect(r, &selected);
         }
@@ -1862,8 +2342,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                       : "Click value, type decimal bytes, Enter to apply. Stack = final 256 RAM bytes.");
         draw_text(r, fonts->small, 24, 469, muted,
                   "With RAM below 256 bytes, stack instructions raise ERROR.");
-
-    } else if (aux->kind == AUX_VIEW) {
+    }
+    else if (aux->kind == AUX_VIEW)
+    {
         draw_aux_header(r, fonts, "PROCESSOR VIEW",
                         "LIVE CPU STATE / REGISTERS / MEMORY");
 
@@ -1872,28 +2353,31 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
 
         bool loaded = backend->is_loaded(backend->ctx);
         bool image_attached = backend->is_image_attached
-            ? backend->is_image_attached(backend->ctx)
-            : false;
+                                  ? backend->is_image_attached(backend->ctx)
+                                  : false;
         bool power = backend->is_powered(backend->ctx);
         bool running = backend->is_running(backend->ctx);
         bool halted = backend->is_halted(backend->ctx);
         bool error = backend->is_error
-            ? backend->is_error(backend->ctx)
-            : false;
+                         ? backend->is_error(backend->ctx)
+                         : false;
 
         PPA1CpuSnapshot cpu = {0};
-        if (backend->cpu_snapshot) {
+        if (backend->cpu_snapshot)
+        {
             backend->cpu_snapshot(backend->ctx, &cpu);
         }
 
-        if (!aux->inspect_initialized) {
+        if (!aux->inspect_initialized)
+        {
             aux->inspect_initialized = true;
             aux->inspect_follow_ar = true;
             aux->inspect_bank = cpu.BR;
             aux->inspect_address = cpu.AR;
         }
 
-        if (aux->inspect_follow_ar) {
+        if (aux->inspect_follow_ar)
+        {
             aux->inspect_bank = cpu.BR;
             aux->inspect_address = cpu.AR;
         }
@@ -1979,17 +2463,21 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_menu_button(r, fonts, VIEW_PAGE_INC, "PAGE +");
 
         const char *bank_type = "FREE";
-        if (aux->inspect_bank <= 0x0FFFu) bank_type = "EEPROM";
-        else if (aux->inspect_bank <= 0x1FFFu) bank_type = "RAM";
-        else if (aux->inspect_bank <= 0x9FFFu) bank_type = "SLOT";
-        else if (aux->inspect_bank >= 0xF000u) bank_type = "I/O";
+        if (aux->inspect_bank <= 0x0FFFu)
+            bank_type = "EEPROM";
+        else if (aux->inspect_bank <= 0x1FFFu)
+            bank_type = "RAM";
+        else if (aux->inspect_bank <= 0x9FFFu)
+            bank_type = "SLOT";
+        else if (aux->inspect_bank >= 0xF000u)
+            bank_type = "I/O";
 
         uint8_t current_value = backend->memory_inspect
-            ? backend->memory_inspect(
-                  backend->ctx,
-                  aux->inspect_bank,
-                  aux->inspect_address)
-            : 0xFF;
+                                    ? backend->memory_inspect(
+                                          backend->ctx,
+                                          aux->inspect_bank,
+                                          aux->inspect_address)
+                                    : 0xFF;
 
         snprintf(line, sizeof(line),
                  "BANK=%04X (%s)  ADDRESS=%04X  VALUE=%02X",
@@ -1998,15 +2486,17 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->mono, 24, 408, COL_BLUE, line);
 
         float mem_box_h = (float)view_h - 476.0f;
-        if (mem_box_h < 38.0f) mem_box_h = 38.0f;
-        if (mem_box_h > 126.0f) mem_box_h = 126.0f;
+        if (mem_box_h < 38.0f)
+            mem_box_h = 38.0f;
+        if (mem_box_h > 126.0f)
+            mem_box_h = 126.0f;
 
         SDL_FRect mem_box = {
             24.0f, 434.0f,
             (float)view_w - 48.0f,
-            mem_box_h
-        };
-        if (mem_box.w < 1.0f) mem_box.w = 1.0f;
+            mem_box_h};
+        if (mem_box.w < 1.0f)
+            mem_box.w = 1.0f;
 
         SDL_SetRenderDrawColor(r, 22, 24, 24, 255);
         SDL_RenderFillRect(r, &mem_box);
@@ -2014,22 +2504,26 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         SDL_RenderRect(r, &mem_box);
 
         int visible_rows = (int)((mem_box.h - 14.0f) / 25.0f);
-        if (visible_rows < 1) visible_rows = 1;
-        if (visible_rows > 4) visible_rows = 4;
+        if (visible_rows < 1)
+            visible_rows = 1;
+        if (visible_rows > 4)
+            visible_rows = 4;
 
-        for (int row = 0; row < visible_rows; row++) {
+        for (int row = 0; row < visible_rows; row++)
+        {
             uint16_t row_addr =
                 (uint16_t)(aux->inspect_address + row * 16);
 
             int off = snprintf(line, sizeof(line), "%04X: ", row_addr);
-            for (int col = 0; col < 16 && off < (int)sizeof(line) - 4; col++) {
+            for (int col = 0; col < 16 && off < (int)sizeof(line) - 4; col++)
+            {
                 uint16_t addr = (uint16_t)(row_addr + col);
                 uint8_t v = backend->memory_inspect
-                    ? backend->memory_inspect(
-                          backend->ctx,
-                          aux->inspect_bank,
-                          addr)
-                    : 0xFF;
+                                ? backend->memory_inspect(
+                                      backend->ctx,
+                                      aux->inspect_bank,
+                                      addr)
+                                : 0xFF;
                 off += snprintf(line + off, sizeof(line) - (size_t)off,
                                 "%02X ", v);
             }
@@ -2041,7 +2535,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_text(r, fonts->small, 24,
                   (float)view_h - 28.0f, muted,
                   "ADDR +/- = 1 byte   PAGE +/- = 64 bytes   inspector reads are side-effect free.");
-    } else if (aux->kind == AUX_HEX_MEMORY) {
+    }
+    else if (aux->kind == AUX_HEX_MEMORY)
+    {
         draw_aux_header(r, fonts, "HEX MEMORY EDITOR",
                         "POWER-OFF MEMORY EDITING");
 
@@ -2049,7 +2545,8 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         SDL_GetCurrentRenderOutputSize(r, &hex_w, &hex_h);
 
         bool power = backend->is_powered(backend->ctx);
-        if (power) {
+        if (power)
+        {
             aux->edit_high_nibble = -1;
         }
 
@@ -2059,15 +2556,19 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         draw_menu_button(r, fonts, HEX_PAGE_INC, "PAGE +");
 
         const char *bank_type = "FREE";
-        if (aux->edit_bank <= 0x0FFFu) bank_type = "EEPROM";
-        else if (aux->edit_bank <= 0x1FFFu) bank_type = "RAM";
-        else if (aux->edit_bank <= 0x9FFFu) bank_type = "SLOT";
-        else if (aux->edit_bank >= 0xF000u) bank_type = "I/O";
+        if (aux->edit_bank <= 0x0FFFu)
+            bank_type = "EEPROM";
+        else if (aux->edit_bank <= 0x1FFFu)
+            bank_type = "RAM";
+        else if (aux->edit_bank <= 0x9FFFu)
+            bank_type = "SLOT";
+        else if (aux->edit_bank >= 0xF000u)
+            bank_type = "I/O";
 
         uint8_t selected_value = backend->memory_inspect
-            ? backend->memory_inspect(
-                  backend->ctx, aux->edit_bank, aux->edit_address)
-            : 0xFF;
+                                     ? backend->memory_inspect(
+                                           backend->ctx, aux->edit_bank, aux->edit_address)
+                                     : 0xFF;
 
         char line[256];
         snprintf(line, sizeof(line),
@@ -2076,15 +2577,20 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                  aux->edit_address, selected_value);
         draw_text(r, fonts->mono, 410, 86, COL_BLUE, line);
 
-        if (power) {
+        if (power)
+        {
             draw_text(r, fonts->label, 24, 122, COL_RED,
                       "LOCKED - TURN PWR OFF TO EDIT MEMORY");
-        } else if (aux->edit_high_nibble >= 0) {
+        }
+        else if (aux->edit_high_nibble >= 0)
+        {
             snprintf(line, sizeof(line),
                      "ENTER BYTE: %X_   (second hex digit writes)",
                      aux->edit_high_nibble);
             draw_text(r, fonts->mono, 24, 122, COL_GREEN, line);
-        } else {
+        }
+        else
+        {
             draw_text(r, fonts->small, 24, 122, muted,
                       "Click a byte or use arrows. Type two hex digits to write.");
         }
@@ -2095,20 +2601,23 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         const float row_h = 25.0f;
 
         draw_text(r, fonts->mono, 24, 146, muted, "ADDR");
-        for (int col = 0; col < 16; col++) {
+        for (int col = 0; col < 16; col++)
+        {
             char col_label[2] = {"0123456789ABCDEF"[col], 0};
             SDL_FRect cr = {
                 grid_x + col * cell_w, 142.0f,
-                cell_w - 2.0f, 20.0f
-            };
+                cell_w - 2.0f, 20.0f};
             draw_text_center(r, fonts->mono, cr, muted, col_label);
         }
 
         int visible_rows = (int)(((float)hex_h - grid_y - 44.0f) / row_h);
-        if (visible_rows < 1) visible_rows = 1;
-        if (visible_rows > 16) visible_rows = 16;
+        if (visible_rows < 1)
+            visible_rows = 1;
+        if (visible_rows > 16)
+            visible_rows = 16;
 
-        for (int row = 0; row < visible_rows; row++) {
+        for (int row = 0; row < visible_rows; row++)
+        {
             uint16_t row_address =
                 (uint16_t)(aux->edit_base + row * 16u);
 
@@ -2117,23 +2626,24 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                       grid_y + row * row_h + 4.0f,
                       muted, line);
 
-            for (int col = 0; col < 16; col++) {
+            for (int col = 0; col < 16; col++)
+            {
                 uint16_t address =
                     (uint16_t)(row_address + (uint16_t)col);
                 uint8_t value = backend->memory_inspect
-                    ? backend->memory_inspect(
-                          backend->ctx, aux->edit_bank, address)
-                    : 0xFF;
+                                    ? backend->memory_inspect(
+                                          backend->ctx, aux->edit_bank, address)
+                                    : 0xFF;
 
                 SDL_FRect cell = {
                     grid_x + col * cell_w,
                     grid_y + row * row_h,
                     cell_w - 2.0f,
-                    row_h - 2.0f
-                };
+                    row_h - 2.0f};
 
                 bool selected = address == aux->edit_address;
-                if (selected) {
+                if (selected)
+                {
                     SDL_SetRenderDrawColor(r, 56, 63, 58, 255);
                     SDL_RenderFillRect(r, &cell);
                     SDL_SetRenderDrawColor(
@@ -2152,11 +2662,13 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
 
         draw_text(r, fonts->small, 24, (float)hex_h - 26.0f, muted,
                   "Arrows = move | PgUp/PgDn = page | two hex digits = write | SYSTEM FF00-FF7F is I/O and read-only.");
-
-    } else if (aux->kind == AUX_MODULES) {
+    }
+    else if (aux->kind == AUX_MODULES)
+    {
         draw_aux_header(r, fonts, "PPA-BUS/1 MODULES",
                         "LOAD / ACTIVATE / VIEW  -  POWER OFF TO MODIFY");
-        for (int slot = 0; slot < 8; ++slot) {
+        for (int slot = 0; slot < 8; ++slot)
+        {
             PPA1ModuleInfo info = {0};
             if (backend->module_info)
                 backend->module_info(backend->ctx, slot, &info);
@@ -2183,7 +2695,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         }
         draw_text(r, fonts->small, 24, 603, muted,
                   "LOAD a PPAM file first, then ACTIVATE. Slot addressing is automatic.");
-    } else if (aux->kind == AUX_MODULE_DETAIL) {
+    }
+    else if (aux->kind == AUX_MODULE_DETAIL)
+    {
         PPA1ModuleInfo info = {0};
         if (backend->module_info)
             backend->module_info(backend->ctx, aux->slot_index, &info);
@@ -2191,7 +2705,9 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
             ppa_module_ui_draw(r, fonts->small, &info, aux->slot_index);
         else
             draw_aux_header(r, fonts, "PPAMOD", "MODULE NOT INSTALLED");
-    } else if (aux->kind == AUX_LOG) {
+    }
+    else if (aux->kind == AUX_LOG)
+    {
         draw_aux_header(r, fonts, "LATEST.LOG",
                         "LIVE EMULATOR TRACE");
 
@@ -2200,18 +2716,23 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         (void)rw;
 
         int visible_lines = (rh - 88) / 20;
-        if (visible_lines < 1) visible_lines = 1;
-        if (visible_lines > 64) visible_lines = 64;
+        if (visible_lines < 1)
+            visible_lines = 1;
+        if (visible_lines > 64)
+            visible_lines = 64;
 
         char lines[64][160];
         int count = 0;
         read_log_tail(lines, &count, visible_lines);
 
         float y = 80.0f;
-        for (int i = 0; i < count; i++, y += 20.0f) {
+        for (int i = 0; i < count; i++, y += 20.0f)
+        {
             draw_text(r, fonts->small, 24, y, muted, lines[i]);
         }
-    } else if (aux->kind == AUX_CREDITS) {
+    }
+    else if (aux->kind == AUX_CREDITS)
+    {
         draw_aux_header(r, fonts, "CREDITS",
                         "PROGRAMBLE PROCESSOR A-1");
 
@@ -2222,8 +2743,7 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         SDL_RenderRect(r, &badge);
         SDL_FRect badge_inner = {
             badge.x + 2.0f, badge.y + 2.0f,
-            badge.w - 4.0f, badge.h - 4.0f
-        };
+            badge.w - 4.0f, badge.h - 4.0f};
         SDL_RenderRect(r, &badge_inner);
         draw_text_stretched(r, fonts->badge,
                             (SDL_FRect){34, 94, 164, 62},
@@ -2260,14 +2780,18 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
     SDL_RenderPresent(r);
 }
 
-void ppa_gui_init_state(PPA1GuiState *state, bool no_gui) {
-    if (!state) return;
+void ppa_gui_init_state(PPA1GuiState *state, bool no_gui)
+{
+    if (!state)
+        return;
     state->requested = !no_gui;
     state->available = !no_gui;
 }
 
-void ppa_gui_log_mode(const PPA1GuiState *state) {
-    if (!state) return;
+void ppa_gui_log_mode(const PPA1GuiState *state)
+{
+    if (!state)
+        return;
     ppa_log_printf("Mode: %s\n", state->requested ? "GUI" : "--nogui (console)");
 }
 
@@ -2276,21 +2800,25 @@ int ppa_gui_run_panel(const char *initial_rom,
                       const PPA1GuiBackend *backend,
                       PpaConfig *config)
 {
-    if (!backend || !backend->ctx) return 1;
+    if (!backend || !backend->ctx)
+        return 1;
 
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
+    {
         ppa_log_printf("GUI: SDL_Init failed: %s\n", SDL_GetError());
         return 1;
     }
 
-    if (!TTF_Init()) {
+    if (!TTF_Init())
+    {
         ppa_log_printf("GUI: TTF_Init failed: %s\n", SDL_GetError());
         SDL_Quit();
         return 1;
     }
 
     PanelFonts fonts = {0};
-    if (!load_fonts(&fonts)) {
+    if (!load_fonts(&fonts))
+    {
         ppa_log_printf("GUI: font initialization failed.\n");
         TTF_Quit();
         SDL_Quit();
@@ -2298,7 +2826,8 @@ int ppa_gui_run_panel(const char *initial_rom,
     }
 
     PanelFonts panel_fonts = {0};
-    if (!load_fonts_scaled(&panel_fonts, 1.0f)) {
+    if (!load_fonts_scaled(&panel_fonts, 1.0f))
+    {
         ppa_log_printf("GUI: panel font initialization failed.\n");
         close_fonts(&fonts);
         TTF_Quit();
@@ -2319,18 +2848,23 @@ int ppa_gui_run_panel(const char *initial_rom,
     SDL_Rect usable_bounds = {0};
     bool have_usable_bounds =
         SDL_GetDisplayUsableBounds(SDL_GetPrimaryDisplay(), &usable_bounds);
-    if (have_usable_bounds) {
+    if (have_usable_bounds)
+    {
         int max_width = usable_bounds.w - 32;
         int max_height = usable_bounds.h - 32;
-        if (max_width < 480) max_width = usable_bounds.w;
-        if (max_height < 320) max_height = usable_bounds.h;
-        if (max_width > 0 && max_height > 38) {
+        if (max_width < 480)
+            max_width = usable_bounds.w;
+        if (max_height < 320)
+            max_height = usable_bounds.h;
+        if (max_width > 0 && max_height > 38)
+        {
             float scale = 1.0f;
             if (max_width < PANEL_W)
                 scale = (float)max_width / (float)PANEL_W;
             if ((float)(max_height - 38) / (float)PANEL_H < scale)
                 scale = (float)(max_height - 38) / (float)PANEL_H;
-            if (scale < 0.01f) scale = 0.01f;
+            if (scale < 0.01f)
+                scale = 0.01f;
             initial_width = (int)((float)PANEL_W * scale);
             initial_height = (int)((float)PANEL_H * scale) + 38;
         }
@@ -2340,7 +2874,8 @@ int ppa_gui_run_panel(const char *initial_rom,
         "PROGRAMBLE PROCESSOR A-1",
         initial_width, initial_height,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
-    if (!window) {
+    if (!window)
+    {
         close_fonts(&panel_fonts);
         close_fonts(&fonts);
         TTF_Quit();
@@ -2357,14 +2892,18 @@ int ppa_gui_run_panel(const char *initial_rom,
         (int64_t)config->panel_x + initial_width <=
             (int64_t)usable_bounds.x + usable_bounds.w &&
         (int64_t)config->panel_y + initial_height <=
-            (int64_t)usable_bounds.y + usable_bounds.h) {
+            (int64_t)usable_bounds.y + usable_bounds.h)
+    {
         SDL_SetWindowPosition(window, config->panel_x, config->panel_y);
-    } else {
+    }
+    else
+    {
         SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED,
-                             SDL_WINDOWPOS_CENTERED);
+                              SDL_WINDOWPOS_CENTERED);
     }
     SDL_Renderer *renderer = SDL_CreateRenderer(window, NULL);
-    if (!renderer) {
+    if (!renderer)
+    {
         SDL_DestroyWindow(window);
         close_fonts(&panel_fonts);
         close_fonts(&fonts);
@@ -2384,7 +2923,8 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     SDL_Texture *adava_logo = load_panel_texture(
         renderer, "assets/textures/adava.png");
-    if (!adava_logo) {
+    if (!adava_logo)
+    {
         ppa_log_printf(
             "GUI: Adava Electronics logo unavailable; using text fallback.\n");
     }
@@ -2394,9 +2934,11 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_PIXELFORMAT_RGBA8888,
         SDL_TEXTUREACCESS_TARGET,
         PANEL_W, PANEL_H);
-    if (!panel_texture) {
+    if (!panel_texture)
+    {
         ppa_log_printf("GUI: failed to create panel render target: %s\n", SDL_GetError());
-        if (adava_logo) SDL_DestroyTexture(adava_logo);
+        if (adava_logo)
+            SDL_DestroyTexture(adava_logo);
         destroy_knob_textures(&knob_textures);
         destroy_toggle_textures(&toggle_textures);
         SDL_DestroyRenderer(renderer);
@@ -2415,34 +2957,37 @@ int ppa_gui_run_panel(const char *initial_rom,
     FileDialogState file_state = {0};
     ExportDialogState export_state = {0};
 
-    if (initial_rom && *initial_rom) {
+    if (initial_rom && *initial_rom)
+    {
         snprintf(file_state.rom_path, sizeof(file_state.rom_path), "%s", initial_rom);
         file_state.load_requested = true;
     }
 
     const SDL_DialogFileFilter filters[] = {
         {"PPA-1 EEPROM image", "bin"},
-        {"All files", "*"}
-    };
+        {"All files", "*"}};
 
     Preferences prefs = {
         .auto_run = config ? config->auto_run : false,
         .lamp_test = config ? config->lamp_test : false,
-        .tty_requested = config ? config->tty_enabled : false
-    };
+        .tty_requested = config ? config->tty_enabled : false};
 
-    if (initial_tty_enabled && backend->set_tty_enabled) {
+    if (initial_tty_enabled && backend->set_tty_enabled)
+    {
         backend->set_tty_enabled(backend->ctx, true);
     }
-    if (backend->is_tty_enabled) {
+    if (backend->is_tty_enabled)
+    {
         prefs.tty_requested = backend->is_tty_enabled(backend->ctx);
     }
     snprintf(prefs.rom_bytes, sizeof(prefs.rom_bytes), "%u",
              (unsigned)(backend->memory_size
-                 ? backend->memory_size(backend->ctx, true) : 2097152u));
+                            ? backend->memory_size(backend->ctx, true)
+                            : 2097152u));
     snprintf(prefs.ram_bytes, sizeof(prefs.ram_bytes), "%u",
              (unsigned)(backend->memory_size
-                 ? backend->memory_size(backend->ctx, false) : 2097152u));
+                            ? backend->memory_size(backend->ctx, false)
+                            : 2097152u));
 
     AuxWindow prefs_window = {0};
     AuxWindow view_window = {0};
@@ -2460,7 +3005,8 @@ int ppa_gui_run_panel(const char *initial_rom,
      * even if an older config.ini still contains slotN_visible=1. Retain
      * each module's geometry for the next explicit click on VIEW.
      */
-    if (config) {
+    if (config)
+    {
         for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot)
             config->modules[slot].visible = false;
     }
@@ -2477,21 +3023,18 @@ int ppa_gui_run_panel(const char *initial_rom,
         "20 Hz", "50 Hz", "100 Hz", "200 Hz",
         "500 Hz", "1 kHz", "2 kHz", "5 kHz",
         "10 kHz", "20 kHz", "50 kHz", "100 kHz",
-        "TURBO"
-    };
+        "TURBO"};
     const char *clock_tick_labels[] = {
         "1", NULL, NULL, "10",
         NULL, NULL, "100", NULL,
         NULL, "1k", NULL, NULL,
         "10k", NULL, NULL, "100k",
-        "TURBO"
-    };
+        "TURBO"};
     const double clock_rates[] = {
         1.0, 2.0, 5.0, 10.0,
         20.0, 50.0, 100.0, 200.0,
         500.0, 1000.0, 2000.0, 5000.0,
-        10000.0, 20000.0, 50000.0, 100000.0
-    };
+        10000.0, 20000.0, 50000.0, 100000.0};
     const int clock_rate_count =
         (int)(sizeof(clock_rates) / sizeof(clock_rates[0]));
     const int clock_turbo_index = clock_rate_count;
@@ -2504,19 +3047,18 @@ int ppa_gui_run_panel(const char *initial_rom,
     int data_source_index = 0;
 
     const char *register_labels[] = {
-        "A", "B", "C", "D", "XH", "XL", "YH", "YL"
-    };
+        "A", "B", "C", "D", "XH", "XL", "YH", "YL"};
     const int register_count =
         (int)(sizeof(register_labels) / sizeof(register_labels[0]));
     int register_index = 0;
 
     /* Menu lives in real window coordinates and always spans the whole window. */
-    SDL_FRect menu_open   = {10, 5, 72, 28};
-    SDL_FRect menu_reset  = {86, 5, 116, 28};
+    SDL_FRect menu_open = {10, 5, 72, 28};
+    SDL_FRect menu_reset = {86, 5, 116, 28};
     SDL_FRect menu_export = {206, 5, 112, 28};
-    SDL_FRect menu_pref   = {322, 5, 112, 28};
-    SDL_FRect menu_view   = {438, 5, 72, 28};
-    SDL_FRect menu_log    = {514, 5, 64, 28};
+    SDL_FRect menu_pref = {322, 5, 112, 28};
+    SDL_FRect menu_view = {438, 5, 72, 28};
+    SDL_FRect menu_log = {514, 5, 64, 28};
     SDL_FRect menu_terminal = {582, 5, 118, 28};
     SDL_FRect menu_credits = {704, 5, 86, 28};
     SDL_FRect menu_modules = {794, 5, 100, 28};
@@ -2525,16 +3067,16 @@ int ppa_gui_run_panel(const char *initial_rom,
     /* Front-panel bank/address/memory programming row. */
     SDL_FRect fp_load_bank = {650, 548, 96, 38};
     SDL_FRect fp_load_addr = {754, 548, 96, 38};
-    SDL_FRect fp_addr_dec  = {858, 548, 68, 38};
-    SDL_FRect fp_addr_inc  = {934, 548, 68, 38};
-    SDL_FRect fp_exam      = {1010, 548, 68, 38};
-    SDL_FRect fp_dep       = {1086, 548, 78, 38};
+    SDL_FRect fp_addr_dec = {858, 548, 68, 38};
+    SDL_FRect fp_addr_inc = {934, 548, 68, 38};
+    SDL_FRect fp_exam = {1010, 548, 68, 38};
+    SDL_FRect fp_dep = {1086, 548, 78, 38};
 
     /* Processor execution row. */
     SDL_FRect fp_start = {650, 596, 76, 40};
-    SDL_FRect op_cont  = {734, 596, 76, 40};
-    SDL_FRect op_stop  = {818, 596, 76, 40};
-    SDL_FRect op_step  = {902, 596, 76, 40};
+    SDL_FRect op_cont = {734, 596, 76, 40};
+    SDL_FRect op_stop = {818, 596, 76, 40};
+    SDL_FRect op_step = {902, 596, 76, 40};
     SDL_FRect op_ustep = {986, 596, 84, 40};
     SDL_FRect op_reset = {1078, 596, 86, 40};
 
@@ -2548,12 +3090,15 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     /* Optional host audio output for PPA-SOUND/1. */
     SDL_AudioStream *ppa_audio = NULL;
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO))
+    {
         SDL_AudioSpec spec = {SDL_AUDIO_S16, 1, 44100};
         ppa_audio = SDL_OpenAudioDeviceStream(
             SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
-        if (ppa_audio) SDL_ResumeAudioStreamDevice(ppa_audio);
-        else ppa_log_printf("GUI: audio unavailable: %s\n", SDL_GetError());
+        if (ppa_audio)
+            SDL_ResumeAudioStreamDevice(ppa_audio);
+        else
+            ppa_log_printf("GUI: audio unavailable: %s\n", SDL_GetError());
     }
 
     Uint64 last_ticks = SDL_GetTicks();
@@ -2572,18 +3117,21 @@ int ppa_gui_run_panel(const char *initial_rom,
 
     ppa_log_printf("GUI: fixed-layout PPA-1 front panel opened.\n");
 
-    while (panel_running) {
+    while (panel_running)
+    {
         int rw = 1280, rh = 820;
         SDL_GetCurrentRenderOutputSize(renderer, &rw, &rh);
 
         const float menu_h = 38.0f;
         float available_h = (float)rh - menu_h;
-        if (available_h < 1.0f) available_h = 1.0f;
+        if (available_h < 1.0f)
+            available_h = 1.0f;
 
         float scale_x = (float)rw / (float)PANEL_W;
         float scale_y = available_h / (float)PANEL_H;
         float panel_scale = scale_x < scale_y ? scale_x : scale_y;
-        if (panel_scale < 0.01f) panel_scale = 0.01f;
+        if (panel_scale < 0.01f)
+            panel_scale = 0.01f;
 
         float panel_screen_w = (float)PANEL_W * panel_scale;
         float panel_screen_h = (float)PANEL_H * panel_scale;
@@ -2596,11 +3144,13 @@ int ppa_gui_run_panel(const char *initial_rom,
          * fonts are supersampled when the window is enlarged.
          */
         float desired_render_scale = panel_scale > 1.0f
-            ? ceilf(panel_scale * 4.0f) / 4.0f
-            : 1.0f;
-        if (desired_render_scale > 4.0f) desired_render_scale = 4.0f;
+                                         ? ceilf(panel_scale * 4.0f) / 4.0f
+                                         : 1.0f;
+        if (desired_render_scale > 4.0f)
+            desired_render_scale = 4.0f;
 
-        if (fabsf(desired_render_scale - panel_render_scale) > 0.01f) {
+        if (fabsf(desired_render_scale - panel_render_scale) > 0.01f)
+        {
             int target_w = (int)ceilf((float)PANEL_W * desired_render_scale);
             int target_h = (int)ceilf((float)PANEL_H * desired_render_scale);
 
@@ -2614,7 +3164,8 @@ int ppa_gui_run_panel(const char *initial_rom,
             bool fonts_ok = load_fonts_scaled(
                 &new_panel_fonts, desired_render_scale);
 
-            if (new_panel_texture && fonts_ok) {
+            if (new_panel_texture && fonts_ok)
+            {
                 SDL_SetTextureScaleMode(
                     new_panel_texture, SDL_SCALEMODE_LINEAR);
 
@@ -2624,25 +3175,33 @@ int ppa_gui_run_panel(const char *initial_rom,
                 close_fonts(&panel_fonts);
                 panel_fonts = new_panel_fonts;
                 panel_render_scale = desired_render_scale;
-            } else {
-                if (new_panel_texture) SDL_DestroyTexture(new_panel_texture);
+            }
+            else
+            {
+                if (new_panel_texture)
+                    SDL_DestroyTexture(new_panel_texture);
                 close_fonts(&new_panel_fonts);
             }
         }
 
         SDL_Event event;
-        while (SDL_PollEvent(&event)) {
+        while (SDL_PollEvent(&event))
+        {
             if (config && (event.type == SDL_EVENT_WINDOW_MOVED ||
-                           event.type == SDL_EVENT_WINDOW_RESIZED)) {
+                           event.type == SDL_EVENT_WINDOW_RESIZED))
+            {
                 Uint32 wid = event.window.windowID;
-                if (wid == main_window_id) {
+                if (wid == main_window_id)
+                {
                     SDL_GetWindowPosition(window, &config->panel_x, &config->panel_y);
                     SDL_GetWindowSize(window, &config->panel_width, &config->panel_height);
                     layout_dirty = true;
                 }
-                for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
+                for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot)
+                {
                     if (module_detail_windows[slot].window &&
-                        wid == SDL_GetWindowID(module_detail_windows[slot].window)) {
+                        wid == SDL_GetWindowID(module_detail_windows[slot].window))
+                    {
                         store_module_window(&module_detail_windows[slot],
                                             &config->modules[slot]);
                         layout_dirty = true;
@@ -2650,43 +3209,54 @@ int ppa_gui_run_panel(const char *initial_rom,
                     }
                 }
             }
-            if (event.type == SDL_EVENT_QUIT) {
+            if (event.type == SDL_EVENT_QUIT)
+            {
                 panel_running = false;
                 continue;
             }
 
-            if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
-                for(int slot=0;slot<8;slot++) {
-                    if(module_detail_windows[slot].window &&
-                       event.window.windowID ==
-                       SDL_GetWindowID(module_detail_windows[slot].window) &&
-                       backend->module_ps2_release)
-                        backend->module_ps2_release(backend->ctx,slot);
+            if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST)
+            {
+                for (int slot = 0; slot < 8; slot++)
+                {
+                    if (module_detail_windows[slot].window &&
+                        event.window.windowID ==
+                            SDL_GetWindowID(module_detail_windows[slot].window) &&
+                        backend->module_ps2_release)
+                        backend->module_ps2_release(backend->ctx, slot);
                 }
             }
-            if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+            if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+            {
                 Uint32 id = event.window.windowID;
-                if (id == main_window_id) {
+                if (id == main_window_id)
+                {
                     panel_running = false;
-                } else {
+                }
+                else
+                {
                     bool module_handled = false;
-                    for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
+                    for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot)
+                    {
                         if (module_detail_windows[slot].window &&
-                            id == SDL_GetWindowID(module_detail_windows[slot].window)) {
-                            if (config) {
+                            id == SDL_GetWindowID(module_detail_windows[slot].window))
+                        {
+                            if (config)
+                            {
                                 store_module_window(&module_detail_windows[slot],
                                                     &config->modules[slot]);
                                 config->modules[slot].visible = false;
                                 layout_dirty = true;
                             }
-                            if(backend->module_ps2_release)
-                                backend->module_ps2_release(backend->ctx,slot);
+                            if (backend->module_ps2_release)
+                                backend->module_ps2_release(backend->ctx, slot);
                             destroy_aux(&module_detail_windows[slot]);
                             module_handled = true;
                             break;
                         }
                     }
-                    if (!module_handled) {
+                    if (!module_handled)
+                    {
                         if (prefs_window.window && id == SDL_GetWindowID(prefs_window.window))
                             destroy_aux(&prefs_window);
                         else if (view_window.window && id == SDL_GetWindowID(view_window.window))
@@ -2702,7 +3272,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                                  id == SDL_GetWindowID(modules_window.window))
                             destroy_aux(&modules_window);
                         else if (uart_terminal.window &&
-                                 id == SDL_GetWindowID(uart_terminal.window)) {
+                                 id == SDL_GetWindowID(uart_terminal.window))
+                        {
                             close_terminal(&uart_terminal, backend);
                             ppa_log_printf("GUI: built-in UART terminal window closed.\n");
                         }
@@ -2711,70 +3282,82 @@ int ppa_gui_run_panel(const char *initial_rom,
                 continue;
             }
 
-
-
-            if(event.type==SDL_EVENT_TEXT_INPUT && backend->module_ps2_text) {
-                bool handled=false;
-                for(int slot=0;slot<8;slot++) {
-                    if(!module_detail_windows[slot].window ||
-                       event.text.windowID != SDL_GetWindowID(module_detail_windows[slot].window))
+            if (event.type == SDL_EVENT_TEXT_INPUT && backend->module_ps2_text)
+            {
+                bool handled = false;
+                for (int slot = 0; slot < 8; slot++)
+                {
+                    if (!module_detail_windows[slot].window ||
+                        event.text.windowID != SDL_GetWindowID(module_detail_windows[slot].window))
                         continue;
-                    PPA1ModuleInfo info={0};
-                    if(backend->module_info &&
-                       backend->module_info(backend->ctx,slot,&info) &&
-                       info.installed && info.type==4) {
-                        backend->module_ps2_text(backend->ctx,slot,event.text.text);
-                        handled=true;
+                    PPA1ModuleInfo info = {0};
+                    if (backend->module_info &&
+                        backend->module_info(backend->ctx, slot, &info) &&
+                        info.installed && info.type == 4)
+                    {
+                        backend->module_ps2_text(backend->ctx, slot, event.text.text);
+                        handled = true;
                     }
                     break;
                 }
-                if(handled) continue;
+                if (handled)
+                    continue;
             }
             /* SDL physical scancodes are translated to PS/2 Set 2 only
                while the corresponding keyboard window owns focus. */
             if (event.type == SDL_EVENT_KEY_DOWN ||
-                event.type == SDL_EVENT_KEY_UP) {
-                bool routed=false;
-                for(int slot=0;slot<8;slot++) {
-                    if(!module_detail_windows[slot].window ||
-                       event.key.windowID != SDL_GetWindowID(
-                           module_detail_windows[slot].window)) continue;
-                    PPA1ModuleInfo info={0};
-                    if(backend->module_info &&
-                       backend->module_info(backend->ctx,slot,&info) &&
-                       info.installed && info.type==4) {
-                        uint8_t scan=0; bool extended=false;
-                        if(!event.key.repeat &&
-                           ps2_map_scancode(event.key.scancode,&scan,&extended) &&
-                           backend->module_ps2_key)
+                event.type == SDL_EVENT_KEY_UP)
+            {
+                bool routed = false;
+                for (int slot = 0; slot < 8; slot++)
+                {
+                    if (!module_detail_windows[slot].window ||
+                        event.key.windowID != SDL_GetWindowID(
+                                                  module_detail_windows[slot].window))
+                        continue;
+                    PPA1ModuleInfo info = {0};
+                    if (backend->module_info &&
+                        backend->module_info(backend->ctx, slot, &info) &&
+                        info.installed && info.type == 4)
+                    {
+                        uint8_t scan = 0;
+                        bool extended = false;
+                        if (!event.key.repeat &&
+                            ps2_map_scancode(event.key.scancode, &scan, &extended) &&
+                            backend->module_ps2_key)
                             backend->module_ps2_key(
-                                backend->ctx,slot,scan,extended,
-                                event.type==SDL_EVENT_KEY_DOWN);
-                        if(event.type==SDL_EVENT_KEY_DOWN &&
-                           !event.key.repeat &&
-                           event.key.scancode==SDL_SCANCODE_BACKSPACE &&
-                           backend->module_ps2_text)
-                            backend->module_ps2_text(backend->ctx,slot,"\b");
-                        routed=true;
+                                backend->ctx, slot, scan, extended,
+                                event.type == SDL_EVENT_KEY_DOWN);
+                        if (event.type == SDL_EVENT_KEY_DOWN &&
+                            !event.key.repeat &&
+                            event.key.scancode == SDL_SCANCODE_BACKSPACE &&
+                            backend->module_ps2_text)
+                            backend->module_ps2_text(backend->ctx, slot, "\b");
+                        routed = true;
                     }
                     break;
                 }
-                if(routed) continue;
+                if (routed)
+                    continue;
             }
             if (prefs_window.window &&
                 event.type == SDL_EVENT_TEXT_INPUT &&
                 event.text.windowID == SDL_GetWindowID(prefs_window.window) &&
                 prefs.editing_memory &&
-                !backend->is_powered(backend->ctx)) {
+                !backend->is_powered(backend->ctx))
+            {
                 char *input = prefs.editing_memory == 1
-                    ? prefs.rom_bytes : prefs.ram_bytes;
+                                  ? prefs.rom_bytes
+                                  : prefs.ram_bytes;
                 const char *p = event.text.text;
-                while (*p) {
+                while (*p)
+                {
                     char ch = *p++;
                     size_t n = strlen(input);
-                    if (ch >= '0' && ch <= '9' && n < 7) {
+                    if (ch >= '0' && ch <= '9' && n < 7)
+                    {
                         input[n] = ch;
-                        input[n+1] = '\0';
+                        input[n + 1] = '\0';
                     }
                 }
                 continue;
@@ -2783,29 +3366,41 @@ int ppa_gui_run_panel(const char *initial_rom,
                 event.type == SDL_EVENT_KEY_DOWN &&
                 event.key.windowID == SDL_GetWindowID(prefs_window.window) &&
                 prefs.editing_memory &&
-                !backend->is_powered(backend->ctx)) {
+                !backend->is_powered(backend->ctx))
+            {
                 char *input = prefs.editing_memory == 1
-                    ? prefs.rom_bytes : prefs.ram_bytes;
-                if (event.key.key == SDLK_BACKSPACE) {
+                                  ? prefs.rom_bytes
+                                  : prefs.ram_bytes;
+                if (event.key.key == SDLK_BACKSPACE)
+                {
                     size_t n = strlen(input);
-                    if (n) input[n-1] = '\0';
-                } else if (event.key.key == SDLK_ESCAPE) {
+                    if (n)
+                        input[n - 1] = '\0';
+                }
+                else if (event.key.key == SDLK_ESCAPE)
+                {
                     prefs.editing_memory = 0;
-                } else if (event.key.key == SDLK_RETURN ||
-                           event.key.key == SDLK_KP_ENTER) {
+                }
+                else if (event.key.key == SDLK_RETURN ||
+                         event.key.key == SDLK_KP_ENTER)
+                {
                     bool rom = prefs.editing_memory == 1;
                     char *end = NULL;
                     unsigned long size = strtoul(input, &end, 10);
                     bool valid = input[0] && end && !*end &&
-                        size >= 1 && size <= 2097152u;
+                                 size >= 1 && size <= 2097152u;
                     bool applied = valid && backend->set_memory_size &&
-                        backend->set_memory_size(backend->ctx, rom, (uint32_t)size);
+                                   backend->set_memory_size(backend->ctx, rom, (uint32_t)size);
                     prefs.memory_size_error = !applied;
-                    if (applied) {
+                    if (applied)
+                    {
                         prefs.editing_memory = 0;
-                        if (config) {
-                            if (rom) config->rom_size = (uint32_t)size;
-                            else config->ram_size = (uint32_t)size;
+                        if (config)
+                        {
+                            if (rom)
+                                config->rom_size = (uint32_t)size;
+                            else
+                                config->ram_size = (uint32_t)size;
                             if (!ppa_config_save(config))
                                 ppa_log_printf("GUI: failed saving %s\n", ppa_config_path());
                         }
@@ -2815,10 +3410,13 @@ int ppa_gui_run_panel(const char *initial_rom,
             }
             if (uart_terminal.window &&
                 event.type == SDL_EVENT_TEXT_INPUT &&
-                event.text.windowID == SDL_GetWindowID(uart_terminal.window)) {
-                if (backend->terminal_write_rx) {
+                event.text.windowID == SDL_GetWindowID(uart_terminal.window))
+            {
+                if (backend->terminal_write_rx)
+                {
                     const char *p = event.text.text;
-                    while (p && *p) {
+                    while (p && *p)
+                    {
                         backend->terminal_write_rx(
                             backend->ctx, (uint8_t)(unsigned char)*p);
                         p++;
@@ -2829,32 +3427,41 @@ int ppa_gui_run_panel(const char *initial_rom,
 
             if (hex_window.window &&
                 event.type == SDL_EVENT_TEXT_INPUT &&
-                event.text.windowID == SDL_GetWindowID(hex_window.window)) {
+                event.text.windowID == SDL_GetWindowID(hex_window.window))
+            {
                 if (!backend->is_powered(backend->ctx) &&
-                    backend->memory_edit) {
+                    backend->memory_edit)
+                {
                     const char *p = event.text.text;
-                    while (p && *p) {
+                    while (p && *p)
+                    {
                         int digit = hex_digit_value(*p++);
-                        if (digit < 0) continue;
+                        if (digit < 0)
+                            continue;
 
-                        if (hex_window.edit_high_nibble < 0) {
+                        if (hex_window.edit_high_nibble < 0)
+                        {
                             hex_window.edit_high_nibble = digit;
-                        } else {
-                            uint8_t value = (uint8_t)(
-                                (hex_window.edit_high_nibble << 4) | digit);
+                        }
+                        else
+                        {
+                            uint8_t value = (uint8_t)((hex_window.edit_high_nibble << 4) | digit);
 
                             if (backend->memory_edit(
                                     backend->ctx,
                                     hex_window.edit_bank,
                                     hex_window.edit_address,
-                                    value)) {
+                                    value))
+                            {
                                 ppa_log_printf(
                                     "GUI: HEX MEMORY %04X:%04X <- %02X\n",
                                     hex_window.edit_bank,
                                     hex_window.edit_address,
                                     value);
                                 hex_editor_move(&hex_window, 1);
-                            } else {
+                            }
+                            else
+                            {
                                 hex_window.edit_high_nibble = -1;
                                 ppa_log_printf(
                                     "GUI: HEX MEMORY write rejected at %04X:%04X\n",
@@ -2869,31 +3476,35 @@ int ppa_gui_run_panel(const char *initial_rom,
 
             if (uart_terminal.window &&
                 event.type == SDL_EVENT_KEY_DOWN &&
-                event.key.windowID == SDL_GetWindowID(uart_terminal.window)) {
-                if (backend->terminal_write_rx) {
+                event.key.windowID == SDL_GetWindowID(uart_terminal.window))
+            {
+                if (backend->terminal_write_rx)
+                {
                     uint8_t ch = 0;
                     bool send = true;
 
-                    switch (event.key.key) {
-                        case SDLK_RETURN:
-                        case SDLK_KP_ENTER:
-                            ch = '\r';
-                            break;
-                        case SDLK_BACKSPACE:
-                            ch = 0x08;
-                            break;
-                        case SDLK_TAB:
-                            ch = '\t';
-                            break;
-                        case SDLK_ESCAPE:
-                            ch = 0x1B;
-                            break;
-                        default:
-                            send = false;
-                            break;
+                    switch (event.key.key)
+                    {
+                    case SDLK_RETURN:
+                    case SDLK_KP_ENTER:
+                        ch = '\r';
+                        break;
+                    case SDLK_BACKSPACE:
+                        ch = 0x08;
+                        break;
+                    case SDLK_TAB:
+                        ch = '\t';
+                        break;
+                    case SDLK_ESCAPE:
+                        ch = 0x1B;
+                        break;
+                    default:
+                        send = false;
+                        break;
                     }
 
-                    if (send) {
+                    if (send)
+                    {
                         backend->terminal_write_rx(backend->ctx, ch);
                     }
                 }
@@ -2902,78 +3513,93 @@ int ppa_gui_run_panel(const char *initial_rom,
 
             if (hex_window.window &&
                 event.type == SDL_EVENT_KEY_DOWN &&
-                event.key.windowID == SDL_GetWindowID(hex_window.window)) {
-                switch (event.key.key) {
-                    case SDLK_LEFT:
-                        hex_editor_move(&hex_window, -1);
-                        break;
-                    case SDLK_RIGHT:
-                        hex_editor_move(&hex_window, 1);
-                        break;
-                    case SDLK_UP:
-                        hex_editor_move(&hex_window, -16);
-                        break;
-                    case SDLK_DOWN:
-                        hex_editor_move(&hex_window, 16);
-                        break;
-                    case SDLK_PAGEUP:
-                        hex_editor_move(&hex_window, -0x100);
-                        break;
-                    case SDLK_PAGEDOWN:
-                        hex_editor_move(&hex_window, 0x100);
-                        break;
-                    case SDLK_BACKSPACE:
-                    case SDLK_ESCAPE:
-                        hex_window.edit_high_nibble = -1;
-                        break;
-                    default:
-                        break;
+                event.key.windowID == SDL_GetWindowID(hex_window.window))
+            {
+                switch (event.key.key)
+                {
+                case SDLK_LEFT:
+                    hex_editor_move(&hex_window, -1);
+                    break;
+                case SDLK_RIGHT:
+                    hex_editor_move(&hex_window, 1);
+                    break;
+                case SDLK_UP:
+                    hex_editor_move(&hex_window, -16);
+                    break;
+                case SDLK_DOWN:
+                    hex_editor_move(&hex_window, 16);
+                    break;
+                case SDLK_PAGEUP:
+                    hex_editor_move(&hex_window, -0x100);
+                    break;
+                case SDLK_PAGEDOWN:
+                    hex_editor_move(&hex_window, 0x100);
+                    break;
+                case SDLK_BACKSPACE:
+                case SDLK_ESCAPE:
+                    hex_window.edit_high_nibble = -1;
+                    break;
+                default:
+                    break;
                 }
                 continue;
             }
 
             if (event.type == SDL_EVENT_MOUSE_WHEEL &&
-                event.wheel.windowID == main_window_id) {
+                event.wheel.windowID == main_window_id)
+            {
                 float mx = 0.0f, my = 0.0f;
                 SDL_GetMouseState(&mx, &my);
 
                 if (mx >= panel_origin_x && mx <= panel_origin_x + panel_screen_w &&
-                    my >= panel_origin_y && my <= panel_origin_y + panel_screen_h) {
+                    my >= panel_origin_y && my <= panel_origin_y + panel_screen_h)
+                {
                     float px = (mx - panel_origin_x) / panel_scale;
                     float py = (my - panel_origin_y) / panel_scale;
-                    int dir = event.wheel.y > 0.0f ? 1 :
-                              event.wheel.y < 0.0f ? -1 : 0;
+                    int dir = event.wheel.y > 0.0f ? 1 : event.wheel.y < 0.0f ? -1
+                                                                              : 0;
 
                     if (dir != 0 &&
                         point_in_circle(px, py, clock_cx, clock_cy,
-                                        clock_radius + 22.0f)) {
+                                        clock_radius + 22.0f))
+                    {
                         int old = clock_index;
                         clock_index += dir;
-                        if (clock_index < 0) clock_index = 0;
-                        if (clock_index >= clock_count) clock_index = clock_count - 1;
+                        if (clock_index < 0)
+                            clock_index = 0;
+                        if (clock_index >= clock_count)
+                            clock_index = clock_count - 1;
 
-                        if (clock_index != old) {
+                        if (clock_index != old)
+                        {
                             clock_phase = 0.0;
                             last_ticks = SDL_GetTicks();
                             ppa_log_printf("GUI: live CPU clock -> %s\n",
                                            clock_values[clock_index]);
                         }
-                    } else if (dir != 0 &&
-                               point_in_circle(px, py,
-                                               data_source_cx, data_source_cy,
-                                               data_source_radius + 22.0f)) {
+                    }
+                    else if (dir != 0 &&
+                             point_in_circle(px, py,
+                                             data_source_cx, data_source_cy,
+                                             data_source_radius + 22.0f))
+                    {
                         data_source_index += dir;
-                        if (data_source_index < 0) data_source_index = 0;
-                        if (data_source_index > 1) data_source_index = 1;
+                        if (data_source_index < 0)
+                            data_source_index = 0;
+                        if (data_source_index > 1)
+                            data_source_index = 1;
 
                         ppa_log_printf("GUI: DATA display source -> %s\n",
                                        data_source_labels[data_source_index]);
-                    } else if (dir != 0 &&
-                               point_in_circle(px, py,
-                                               register_cx, register_cy,
-                                               register_radius + 26.0f)) {
+                    }
+                    else if (dir != 0 &&
+                             point_in_circle(px, py,
+                                             register_cx, register_cy,
+                                             register_radius + 26.0f))
+                    {
                         register_index += dir;
-                        if (register_index < 0) register_index = 0;
+                        if (register_index < 0)
+                            register_index = 0;
                         if (register_index >= register_count)
                             register_index = register_count - 1;
 
@@ -2989,12 +3615,15 @@ int ppa_gui_run_panel(const char *initial_rom,
 
             if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
                 event.button.windowID == main_window_id &&
-                event.button.button == SDL_BUTTON_LEFT) {
-                if (exam_held) {
+                event.button.button == SDL_BUTTON_LEFT)
+            {
+                if (exam_held)
+                {
                     exam_held = false;
 
                     uint8_t data_value = 0;
-                    for (int bit = 0; bit < 8; bit++) {
+                    for (int bit = 0; bit < 8; bit++)
+                    {
                         if (switches[bit])
                             data_value |= (uint8_t)(1u << bit);
                     }
@@ -3008,27 +3637,34 @@ int ppa_gui_run_panel(const char *initial_rom,
                 continue;
             }
 
-            if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+            {
                 Uint32 id = event.button.windowID;
 
-                if (id == main_window_id) {
+                if (id == main_window_id)
+                {
                     SDL_ConvertEventToRenderCoordinates(renderer, &event);
                     float wx = event.button.x;
                     float wy = event.button.y;
 
-                    if (event.button.button == SDL_BUTTON_LEFT) {
+                    if (event.button.button == SDL_BUTTON_LEFT)
+                    {
                         /* Window-level dynamic menu. */
                         if (point_in_rect(wx, wy, &menu_open) &&
                             !backend->is_powered(backend->ctx) &&
-                            !file_state.dialog_open) {
+                            !file_state.dialog_open)
+                        {
                             file_state.dialog_open = true;
                             SDL_ShowOpenFileDialog(
                                 file_dialog_callback, &file_state, window,
                                 filters, 2, NULL, false);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_reset) &&
-                                   !backend->is_powered(backend->ctx)) {
-                            if (backend->reset_emulation) {
+                        }
+                        else if (point_in_rect(wx, wy, &menu_reset) &&
+                                 !backend->is_powered(backend->ctx))
+                        {
+                            if (backend->reset_emulation)
+                            {
                                 backend->reset_emulation(backend->ctx);
                             }
 
@@ -3041,8 +3677,10 @@ int ppa_gui_run_panel(const char *initial_rom,
                             ppa_log_printf(
                                 "GUI: full emulation reset; EEPROM blank and image detached.\n");
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_export) &&
-                                   !export_state.dialog_open) {
+                        }
+                        else if (point_in_rect(wx, wy, &menu_export) &&
+                                 !export_state.dialog_open)
+                        {
                             export_state.dialog_open = true;
                             SDL_ShowSaveFileDialog(
                                 export_dialog_callback,
@@ -3050,34 +3688,51 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 window,
                                 filters, 2, NULL);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_pref)) {
+                        }
+                        else if (point_in_rect(wx, wy, &menu_pref))
+                        {
                             open_aux(&prefs_window, AUX_PREFERENCES,
                                      "PPA-1 Preferences", 560, 510);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_modules)) {
+                        }
+                        else if (point_in_rect(wx, wy, &menu_modules))
+                        {
                             open_aux(&modules_window, AUX_MODULES,
                                      "PPA-1 Expansion Modules", 580, 650);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_view)) {
+                        }
+                        else if (point_in_rect(wx, wy, &menu_view))
+                        {
                             open_aux(&view_window, AUX_VIEW,
                                      "PPA-1 Processor View", 760, 610);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_log)) {
+                        }
+                        else if (point_in_rect(wx, wy, &menu_log))
+                        {
                             open_aux(&log_window, AUX_LOG, "PPA-1 Log", 760, 430);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_credits)) {
+                        }
+                        else if (point_in_rect(wx, wy, &menu_credits))
+                        {
                             open_aux(&credits_window, AUX_CREDITS,
                                      "PPA-1 Credits", 560, 390);
                             continue;
-                        } else if (point_in_rect(wx, wy, &menu_terminal)) {
-                            if (uart_terminal.window) {
+                        }
+                        else if (point_in_rect(wx, wy, &menu_terminal))
+                        {
+                            if (uart_terminal.window)
+                            {
                                 close_terminal(&uart_terminal, backend);
                                 ppa_log_printf(
                                     "GUI: built-in UART terminal closed by UART MONITOR toggle.\n");
-                            } else if (open_terminal(&uart_terminal, backend)) {
+                            }
+                            else if (open_terminal(&uart_terminal, backend))
+                            {
                                 ppa_log_printf(
                                     "GUI: built-in UART terminal opened.\n");
-                            } else {
+                            }
+                            else
+                            {
                                 ppa_log_printf(
                                     "GUI: failed to open built-in UART terminal.\n");
                             }
@@ -3086,87 +3741,119 @@ int ppa_gui_run_panel(const char *initial_rom,
 
                         /* Convert window coordinates into the immutable front-panel design space. */
                         if (wx >= panel_origin_x && wx <= panel_origin_x + panel_screen_w &&
-                            wy >= panel_origin_y && wy <= panel_origin_y + panel_screen_h) {
+                            wy >= panel_origin_y && wy <= panel_origin_y + panel_screen_h)
+                        {
                             float x = (wx - panel_origin_x) / panel_scale;
                             float y = (wy - panel_origin_y) / panel_scale;
 
-                            if (point_in_rect(x, y, &fp_load_bank)) {
+                            if (point_in_rect(x, y, &fp_load_bank))
+                            {
                                 pressed_button = BTN_LOAD_BANK;
                                 pressed_until = SDL_GetTicks() + 140;
 
                                 uint16_t bank_value = 0;
-                                for (int bit = 0; bit < 16; bit++) {
+                                for (int bit = 0; bit < 16; bit++)
+                                {
                                     if (switches[bit])
                                         bank_value |= (uint16_t)(1u << bit);
                                 }
-                                if (backend->load_bank) {
+                                if (backend->load_bank)
+                                {
                                     backend->load_bank(
                                         backend->ctx, bank_value);
                                 }
-                            } else if (point_in_rect(x, y, &fp_load_addr)) {
+                            }
+                            else if (point_in_rect(x, y, &fp_load_addr))
+                            {
                                 pressed_button = BTN_LOAD_ADDR;
                                 pressed_until = SDL_GetTicks() + 140;
 
                                 uint16_t address_value = 0;
-                                for (int i = 0; i < 16; i++) {
-                                    if (switches[i]) address_value |= (uint16_t)(1u << i);
+                                for (int i = 0; i < 16; i++)
+                                {
+                                    if (switches[i])
+                                        address_value |= (uint16_t)(1u << i);
                                 }
                                 manual_address = address_value;
                                 backend->load_address(backend->ctx, manual_address);
 
                                 uint8_t data_value = 0;
-                                for (int i = 0; i < 8; i++) {
-                                    if (switches[i]) data_value |= (uint8_t)(1u << i);
+                                for (int i = 0; i < 8; i++)
+                                {
+                                    if (switches[i])
+                                        data_value |= (uint8_t)(1u << i);
                                 }
                                 backend->set_data_input(backend->ctx, data_value);
-                            } else if (point_in_rect(x, y, &fp_addr_dec)) {
+                            }
+                            else if (point_in_rect(x, y, &fp_addr_dec))
+                            {
                                 pressed_button = BTN_ADDR_DEC;
                                 pressed_until = SDL_GetTicks() + 140;
                                 manual_address--;
                                 backend->load_address(backend->ctx, manual_address);
-                            } else if (point_in_rect(x, y, &fp_addr_inc)) {
+                            }
+                            else if (point_in_rect(x, y, &fp_addr_inc))
+                            {
                                 pressed_button = BTN_ADDR_INC;
                                 pressed_until = SDL_GetTicks() + 140;
                                 manual_address++;
                                 backend->load_address(backend->ctx, manual_address);
-                            } else if (point_in_rect(x, y, &fp_exam)) {
+                            }
+                            else if (point_in_rect(x, y, &fp_exam))
+                            {
                                 pressed_button = BTN_EXAM;
                                 pressed_until = SDL_GetTicks() + 140;
                                 exam_data =
                                     backend->examine(backend->ctx, manual_address);
                                 exam_held = true;
-                            } else if (point_in_rect(x, y, &fp_dep)) {
+                            }
+                            else if (point_in_rect(x, y, &fp_dep))
+                            {
                                 pressed_button = BTN_DEPOSIT;
                                 pressed_until = SDL_GetTicks() + 140;
 
                                 uint8_t data_value = 0;
-                                for (int i = 0; i < 8; i++) {
-                                    if (switches[i]) data_value |= (uint8_t)(1u << i);
+                                for (int i = 0; i < 8; i++)
+                                {
+                                    if (switches[i])
+                                        data_value |= (uint8_t)(1u << i);
                                 }
                                 backend->deposit(
                                     backend->ctx, manual_address, data_value);
                                 front_data_latch = data_value;
-                            } else if (point_in_rect(x, y, &fp_start)) {
+                            }
+                            else if (point_in_rect(x, y, &fp_start))
+                            {
                                 pressed_button = BTN_START;
                                 pressed_until = SDL_GetTicks() + 140;
                                 backend->start_at(backend->ctx, manual_address);
-                            } else if (point_in_rect(x, y, &op_cont)) {
+                            }
+                            else if (point_in_rect(x, y, &op_cont))
+                            {
                                 pressed_button = BTN_CONT;
                                 pressed_until = SDL_GetTicks() + 140;
                                 backend->set_running(backend->ctx, true);
-                            } else if (point_in_rect(x, y, &op_stop)) {
+                            }
+                            else if (point_in_rect(x, y, &op_stop))
+                            {
                                 pressed_button = BTN_STOP;
                                 pressed_until = SDL_GetTicks() + 140;
                                 backend->set_running(backend->ctx, false);
-                            } else if (point_in_rect(x, y, &op_step)) {
+                            }
+                            else if (point_in_rect(x, y, &op_step))
+                            {
                                 pressed_button = BTN_STEP;
                                 pressed_until = SDL_GetTicks() + 140;
                                 backend->step_instruction(backend->ctx);
-                            } else if (point_in_rect(x, y, &op_ustep)) {
+                            }
+                            else if (point_in_rect(x, y, &op_ustep))
+                            {
                                 pressed_button = BTN_MICRO;
                                 pressed_until = SDL_GetTicks() + 140;
                                 backend->step_micro(backend->ctx);
-                            } else if (point_in_rect(x, y, &op_reset)) {
+                            }
+                            else if (point_in_rect(x, y, &op_reset))
+                            {
                                 pressed_button = BTN_RESET;
                                 pressed_until = SDL_GetTicks() + 140;
                                 backend->reset(backend->ctx);
@@ -3174,20 +3861,26 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 front_data_latch = 0x00;
                                 exam_held = false;
                                 exam_data = 0x00;
-                            } else if (point_in_rect(x, y, &power_btn)) {
+                            }
+                            else if (point_in_rect(x, y, &power_btn))
+                            {
                                 bool new_power =
                                     !backend->is_powered(backend->ctx);
                                 backend->set_power(backend->ctx, new_power);
 
-                                if (!new_power) {
+                                if (!new_power)
+                                {
                                     manual_address = 0x0000;
                                     front_data_latch = 0x00;
                                     exam_held = false;
                                     exam_data = 0x00;
                                     clock_phase = 0.0;
-                                } else {
+                                }
+                                else
+                                {
                                     uint8_t data_value = 0;
-                                    for (int bit = 0; bit < 8; bit++) {
+                                    for (int bit = 0; bit < 8; bit++)
+                                    {
                                         if (switches[bit])
                                             data_value |= (uint8_t)(1u << bit);
                                     }
@@ -3195,29 +3888,37 @@ int ppa_gui_run_panel(const char *initial_rom,
                                         backend->ctx, data_value);
                                     front_data_latch = data_value;
                                 }
-                            } else if (point_in_circle(
-                                           x, y,
-                                           clock_cx, clock_cy,
-                                           clock_radius + 18.0f)) {
+                            }
+                            else if (point_in_circle(
+                                         x, y,
+                                         clock_cx, clock_cy,
+                                         clock_radius + 18.0f))
+                            {
                                 int old = clock_index;
-                                if (x < clock_cx) clock_index--;
-                                else clock_index++;
+                                if (x < clock_cx)
+                                    clock_index--;
+                                else
+                                    clock_index++;
 
-                                if (clock_index < 0) clock_index = 0;
+                                if (clock_index < 0)
+                                    clock_index = 0;
                                 if (clock_index >= clock_count)
                                     clock_index = clock_count - 1;
 
-                                if (clock_index != old) {
+                                if (clock_index != old)
+                                {
                                     clock_phase = 0.0;
                                     last_ticks = SDL_GetTicks();
                                     ppa_log_printf(
                                         "GUI: live CPU clock -> %s\n",
                                         clock_values[clock_index]);
                                 }
-                            } else if (point_in_circle(
-                                           x, y,
-                                           data_source_cx, data_source_cy,
-                                           data_source_radius + 18.0f)) {
+                            }
+                            else if (point_in_circle(
+                                         x, y,
+                                         data_source_cx, data_source_cy,
+                                         data_source_radius + 18.0f))
+                            {
                                 if (x < data_source_cx)
                                     data_source_index--;
                                 else
@@ -3231,10 +3932,12 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 ppa_log_printf(
                                     "GUI: DATA display source -> %s\n",
                                     data_source_labels[data_source_index]);
-                            } else if (point_in_circle(
-                                           x, y,
-                                           register_cx, register_cy,
-                                           register_radius + 22.0f)) {
+                            }
+                            else if (point_in_circle(
+                                         x, y,
+                                         register_cx, register_cy,
+                                         register_radius + 22.0f))
+                            {
                                 if (x < register_cx)
                                     register_index--;
                                 else
@@ -3251,21 +3954,25 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     data_source_index == 1
                                         ? ""
                                         : " (not routed to DATA)");
-                            } else {
-                                for (int pos = 0; pos < 16; pos++) {
+                            }
+                            else
+                            {
+                                for (int pos = 0; pos < 16; pos++)
+                                {
                                     float nibble_gap =
                                         (float)(pos / 4) * 10.0f;
                                     SDL_FRect hit = {
                                         62.0f + pos * 31.0f + nibble_gap,
-                                        507.0f, 28.0f, 72.0f
-                                    };
-                                    if (point_in_rect(x, y, &hit)) {
+                                        507.0f, 28.0f, 72.0f};
+                                    if (point_in_rect(x, y, &hit))
+                                    {
                                         int bit_index = 15 - pos;
                                         switches[bit_index] =
                                             !switches[bit_index];
 
                                         uint8_t data_value = 0;
-                                        for (int bit = 0; bit < 8; bit++) {
+                                        for (int bit = 0; bit < 8; bit++)
+                                        {
                                             if (switches[bit])
                                                 data_value |=
                                                     (uint8_t)(1u << bit);
@@ -3279,18 +3986,23 @@ int ppa_gui_run_panel(const char *initial_rom,
                             }
                         }
                     }
-                } else if (view_window.window &&
-                           id == SDL_GetWindowID(view_window.window) &&
-                           event.button.button == SDL_BUTTON_LEFT) {
+                }
+                else if (view_window.window &&
+                         id == SDL_GetWindowID(view_window.window) &&
+                         event.button.button == SDL_BUTTON_LEFT)
+                {
                     float x = event.button.x;
                     float y = event.button.y;
 
-                    if (point_in_rect(x, y, &VIEW_EDIT_HEX)) {
-                        if (!backend->is_powered(backend->ctx)) {
+                    if (point_in_rect(x, y, &VIEW_EDIT_HEX))
+                    {
+                        if (!backend->is_powered(backend->ctx))
+                        {
                             open_aux(&hex_window, AUX_HEX_MEMORY,
                                      "PPA-1 Hex Memory Editor", 840, 620);
 
-                            if (hex_window.window) {
+                            if (hex_window.window)
+                            {
                                 hex_window.edit_bank =
                                     view_window.inspect_bank;
                                 hex_editor_select(
@@ -3298,63 +4010,91 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     view_window.inspect_address);
                                 SDL_RaiseWindow(hex_window.window);
                             }
-                        } else {
+                        }
+                        else
+                        {
                             ppa_log_printf(
                                 "GUI: HEX MEMORY editor requires PWR OFF.\n");
                         }
-                    } else if (point_in_rect(x, y, &VIEW_FOLLOW_BUTTON)) {
+                    }
+                    else if (point_in_rect(x, y, &VIEW_FOLLOW_BUTTON))
+                    {
                         view_window.inspect_follow_ar =
                             !view_window.inspect_follow_ar;
-                    } else if (point_in_rect(x, y, &VIEW_BANK_DEC)) {
+                    }
+                    else if (point_in_rect(x, y, &VIEW_BANK_DEC))
+                    {
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_bank =
                             view_window.inspect_bank == 0
                                 ? 0xFFFFu
                                 : (uint16_t)(view_window.inspect_bank - 1u);
-                    } else if (point_in_rect(x, y, &VIEW_BANK_INC)) {
+                    }
+                    else if (point_in_rect(x, y, &VIEW_BANK_INC))
+                    {
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_bank =
                             view_window.inspect_bank == 0xFFFFu
                                 ? 0
                                 : (uint16_t)(view_window.inspect_bank + 1u);
-                    } else if (point_in_rect(x, y, &VIEW_ADDR_DEC)) {
+                    }
+                    else if (point_in_rect(x, y, &VIEW_ADDR_DEC))
+                    {
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_address =
                             (uint16_t)(view_window.inspect_address - 1u);
-                    } else if (point_in_rect(x, y, &VIEW_ADDR_INC)) {
+                    }
+                    else if (point_in_rect(x, y, &VIEW_ADDR_INC))
+                    {
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_address =
                             (uint16_t)(view_window.inspect_address + 1u);
-                    } else if (point_in_rect(x, y, &VIEW_PAGE_DEC)) {
+                    }
+                    else if (point_in_rect(x, y, &VIEW_PAGE_DEC))
+                    {
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_address =
                             (uint16_t)(view_window.inspect_address - 0x40u);
-                    } else if (point_in_rect(x, y, &VIEW_PAGE_INC)) {
+                    }
+                    else if (point_in_rect(x, y, &VIEW_PAGE_INC))
+                    {
                         view_window.inspect_follow_ar = false;
                         view_window.inspect_address =
                             (uint16_t)(view_window.inspect_address + 0x40u);
                     }
-                } else if (hex_window.window &&
-                           id == SDL_GetWindowID(hex_window.window) &&
-                           event.button.button == SDL_BUTTON_LEFT) {
+                }
+                else if (hex_window.window &&
+                         id == SDL_GetWindowID(hex_window.window) &&
+                         event.button.button == SDL_BUTTON_LEFT)
+                {
                     float x = event.button.x;
                     float y = event.button.y;
 
-                    if (point_in_rect(x, y, &HEX_BANK_DEC)) {
+                    if (point_in_rect(x, y, &HEX_BANK_DEC))
+                    {
                         hex_editor_change_bank(&hex_window, -1);
-                    } else if (point_in_rect(x, y, &HEX_BANK_INC)) {
+                    }
+                    else if (point_in_rect(x, y, &HEX_BANK_INC))
+                    {
                         hex_editor_change_bank(&hex_window, 1);
-                    } else if (point_in_rect(x, y, &HEX_PAGE_DEC)) {
+                    }
+                    else if (point_in_rect(x, y, &HEX_PAGE_DEC))
+                    {
                         hex_editor_move(&hex_window, -0x100);
-                    } else if (point_in_rect(x, y, &HEX_PAGE_INC)) {
+                    }
+                    else if (point_in_rect(x, y, &HEX_PAGE_INC))
+                    {
                         hex_editor_move(&hex_window, 0x100);
-                    } else {
+                    }
+                    else
+                    {
                         const float grid_x = 92.0f;
                         const float grid_y = 166.0f;
                         const float cell_w = 42.0f;
                         const float row_h = 25.0f;
 
-                        if (x >= grid_x && y >= grid_y) {
+                        if (x >= grid_x && y >= grid_y)
+                        {
                             int col = (int)((x - grid_x) / cell_w);
                             int row = (int)((y - grid_y) / row_h);
 
@@ -3365,112 +4105,139 @@ int ppa_gui_run_panel(const char *initial_rom,
 
                             int visible_rows =
                                 (int)(((float)hex_h - grid_y - 44.0f) / row_h);
-                            if (visible_rows < 1) visible_rows = 1;
-                            if (visible_rows > 16) visible_rows = 16;
+                            if (visible_rows < 1)
+                                visible_rows = 1;
+                            if (visible_rows > 16)
+                                visible_rows = 16;
 
                             if (col >= 0 && col < 16 &&
-                                row >= 0 && row < visible_rows) {
-                                uint16_t address = (uint16_t)(
-                                    hex_window.edit_base +
-                                    row * 16 + col);
+                                row >= 0 && row < visible_rows)
+                            {
+                                uint16_t address = (uint16_t)(hex_window.edit_base +
+                                                              row * 16 + col);
                                 hex_window.edit_address = address;
                                 hex_window.edit_high_nibble = -1;
                             }
                         }
                     }
-                } else if (uart_terminal.window &&
-                           id == SDL_GetWindowID(uart_terminal.window) &&
-                           event.button.button == SDL_BUTTON_LEFT) {
+                }
+                else if (uart_terminal.window &&
+                         id == SDL_GetWindowID(uart_terminal.window) &&
+                         event.button.button == SDL_BUTTON_LEFT)
+                {
                     SDL_FRect clear_button =
                         terminal_clear_button_rect(&uart_terminal);
                     if (point_in_rect(
                             event.button.x, event.button.y,
-                            &clear_button)) {
+                            &clear_button))
+                    {
                         terminal_clear(&uart_terminal);
                         ppa_log_printf(
                             "GUI: UART monitor display cleared.\n");
                     }
-                } else if (event.button.button == SDL_BUTTON_LEFT &&
-                           id != main_window_id) {
+                }
+                else if (event.button.button == SDL_BUTTON_LEFT &&
+                         id != main_window_id)
+                {
                     /* Each VGA module window is an independent physical
                        monitor with its own clickable bezel switches. */
                     bool monitor_handled = false;
-                    for (int slot = 0; slot < 8; ++slot) {
+                    for (int slot = 0; slot < 8; ++slot)
+                    {
                         if (module_detail_windows[slot].window &&
-                            id == SDL_GetWindowID(module_detail_windows[slot].window)) {
+                            id == SDL_GetWindowID(module_detail_windows[slot].window))
+                        {
                             PPA1ModuleInfo info = {0};
                             if (backend->module_info &&
                                 backend->module_info(backend->ctx, slot, &info) &&
-                                info.installed && info.type == 3) {
+                                info.installed && info.type == 3)
+                            {
                                 SDL_ConvertEventToRenderCoordinates(
                                     module_detail_windows[slot].renderer, &event);
-                                ppa_monitor_button(slot,event.button.x,event.button.y);
+                                ppa_monitor_button(slot, event.button.x, event.button.y);
                             }
                             monitor_handled = true;
                             break;
                         }
                     }
-                    if (monitor_handled) continue;
+                    if (monitor_handled)
+                        continue;
                 }
                 if (modules_window.window &&
                     id == SDL_GetWindowID(modules_window.window) &&
-                    event.button.button == SDL_BUTTON_LEFT) {
+                    event.button.button == SDL_BUTTON_LEFT)
+                {
                     float x = event.button.x, y = event.button.y;
-                    for (int slot = 0; slot < 8; ++slot) {
+                    for (int slot = 0; slot < 8; ++slot)
+                    {
                         SDL_FRect module_rects[4];
-                        for (int action = 0; action < 4; ++action) {
+                        for (int action = 0; action < 4; ++action)
+                        {
                             module_rects[action] = module_button(slot, action);
                         }
                         PPA1ModuleInfo info = {0};
                         if (backend->module_info)
                             backend->module_info(backend->ctx, slot, &info);
-                        if (point_in_rect(x, y, &module_rects[0])) {
+                        if (point_in_rect(x, y, &module_rects[0]))
+                        {
                             if (!backend->is_powered(backend->ctx) &&
-                                !module_file.dialog_open) {
+                                !module_file.dialog_open)
+                            {
                                 module_file.slot = slot;
                                 module_file.dialog_open = true;
                                 const SDL_DialogFileFilter mod_filters[] = {
                                     {"PPA-1 module", "ppamod"},
-                                    {"All files", "*"}
-                                };
+                                    {"All files", "*"}};
                                 SDL_ShowOpenFileDialog(
                                     module_dialog_callback, &module_file,
                                     modules_window.window, mod_filters, 2,
                                     NULL, false);
                             }
                             break;
-                        } else if (point_in_rect(x, y, &module_rects[1])) {
+                        }
+                        else if (point_in_rect(x, y, &module_rects[1]))
+                        {
                             if (!backend->is_powered(backend->ctx) &&
                                 backend->module_activate &&
                                 backend->module_activate(
-                                    backend->ctx, slot, !info.active)) {
+                                    backend->ctx, slot, !info.active))
+                            {
                                 ppa_log_printf("GUI: MODULE SLOT %d %s\n",
                                                slot + 1,
                                                info.active ? "OFF" : "ACTIVE");
                                 save_module_config(config, backend, slot);
                             }
                             break;
-                        } else if (point_in_rect(x, y, &module_rects[2])) {
+                        }
+                        else if (point_in_rect(x, y, &module_rects[2]))
+                        {
                             if (!backend->is_powered(backend->ctx) &&
                                 backend->module_eject &&
-                                backend->module_eject(backend->ctx, slot)) {
+                                backend->module_eject(backend->ctx, slot))
+                            {
                                 ppa_log_printf("GUI: MODULE SLOT %d EJECT\n",
                                                slot + 1);
-                                if (module_detail_windows[slot].window) {
-                                    if (config) store_module_window(
-                                        &module_detail_windows[slot],
-                                        &config->modules[slot]);
+                                if (module_detail_windows[slot].window)
+                                {
+                                    if (config)
+                                        store_module_window(
+                                            &module_detail_windows[slot],
+                                            &config->modules[slot]);
                                     destroy_aux(&module_detail_windows[slot]);
                                 }
-                                if (config) config->modules[slot].visible = false;
+                                if (config)
+                                    config->modules[slot].visible = false;
                                 save_module_config(config, backend, slot);
                             }
                             break;
-                        } else if (point_in_rect(x, y, &module_rects[3])) {
+                        }
+                        else if (point_in_rect(x, y, &module_rects[3]))
+                        {
                             if (info.installed && (info.type == 1 ||
                                                    info.type == 2 ||
                                                    info.type == 3 ||
-                                                   info.type == 4)) {
+                                                   info.type == 4))
+                            {
                                 char title[96];
                                 snprintf(title, sizeof(title),
                                          "PPA-1 SLOT %d - %s",
@@ -3480,7 +4247,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                                          info.type == 3 ? 1280 : 540,
                                          info.type == 3 ? 800 : 510);
                                 module_detail_windows[slot].slot_index = slot;
-                                if (info.type == 3 && module_detail_windows[slot].renderer) {
+                                if (info.type == 3 && module_detail_windows[slot].renderer)
+                                {
                                     SDL_SetWindowMinimumSize(
                                         module_detail_windows[slot].window, 480, 300);
                                     SDL_SetRenderLogicalPresentation(
@@ -3488,13 +4256,14 @@ int ppa_gui_run_panel(const char *initial_rom,
                                         1280, 800,
                                         SDL_LOGICAL_PRESENTATION_LETTERBOX);
                                 }
-                                if(info.type==4 && module_detail_windows[slot].window)
+                                if (info.type == 4 && module_detail_windows[slot].window)
                                     SDL_StartTextInput(module_detail_windows[slot].window);
-                                if (config && module_detail_windows[slot].window) {
+                                if (config && module_detail_windows[slot].window)
+                                {
                                     if (!config->modules[slot].visible)
                                         restore_module_window(&module_detail_windows[slot],
-                                                               &config->modules[slot],
-                                                               info.type == 3);
+                                                              &config->modules[slot],
+                                                              info.type == 3);
                                     config->modules[slot].visible = true;
                                     store_module_window(&module_detail_windows[slot],
                                                         &config->modules[slot]);
@@ -3504,53 +4273,67 @@ int ppa_gui_run_panel(const char *initial_rom,
                             break;
                         }
                     }
-                } else if (prefs_window.window &&
-                           id == SDL_GetWindowID(prefs_window.window) &&
-                           event.button.button == SDL_BUTTON_LEFT) {
+                }
+                else if (prefs_window.window &&
+                         id == SDL_GetWindowID(prefs_window.window) &&
+                         event.button.button == SDL_BUTTON_LEFT)
+                {
                     float x = event.button.x;
                     float y = event.button.y;
 
                     if (!backend->is_powered(backend->ctx) &&
                         (point_in_rect(x, y, &PREF_ROM_SIZE) ||
-                         point_in_rect(x, y, &PREF_RAM_SIZE))) {
+                         point_in_rect(x, y, &PREF_RAM_SIZE)))
+                    {
                         prefs.editing_memory =
                             point_in_rect(x, y, &PREF_ROM_SIZE) ? 1 : 2;
                         prefs.memory_size_error = false;
                         (prefs.editing_memory == 1
-                            ? prefs.rom_bytes : prefs.ram_bytes)[0] = '\0';
-                    } else if (point_in_rect(x, y, &PREF_LAMP_BUTTON)) {
+                             ? prefs.rom_bytes
+                             : prefs.ram_bytes)[0] = '\0';
+                    }
+                    else if (point_in_rect(x, y, &PREF_LAMP_BUTTON))
+                    {
                         prefs.lamp_test = !prefs.lamp_test;
-                        if (config) {
+                        if (config)
+                        {
                             config->lamp_test = prefs.lamp_test;
                             if (!ppa_config_save(config))
                                 ppa_log_printf("GUI: failed saving %s\n", ppa_config_path());
                         }
                         ppa_log_printf("GUI: Lamp test -> %s\n",
                                        prefs.lamp_test ? "ON" : "OFF");
-                    } else if (point_in_rect(
-                                   x, y, &PREF_AUTORUN_BUTTON)) {
+                    }
+                    else if (point_in_rect(
+                                 x, y, &PREF_AUTORUN_BUTTON))
+                    {
                         prefs.auto_run = !prefs.auto_run;
-                        if (config) {
+                        if (config)
+                        {
                             config->auto_run = prefs.auto_run;
                             if (!ppa_config_save(config))
                                 ppa_log_printf("GUI: failed saving %s\n", ppa_config_path());
                         }
                         ppa_log_printf("GUI: Auto RUN after LOAD -> %s\n",
                                        prefs.auto_run ? "ON" : "OFF");
-                    } else if (point_in_rect(
-                                   x, y, &PREF_PTY_BUTTON)) {
+                    }
+                    else if (point_in_rect(
+                                 x, y, &PREF_PTY_BUTTON))
+                    {
                         bool desired = !(backend->is_tty_enabled &&
                                          backend->is_tty_enabled(
                                              backend->ctx));
                         if (backend->set_tty_enabled &&
                             backend->set_tty_enabled(
-                                backend->ctx, desired)) {
+                                backend->ctx, desired))
+                        {
                             prefs.tty_requested =
                                 backend->is_tty_enabled
                                     ? backend->is_tty_enabled(
                                           backend->ctx)
                                     : desired;
-                            if (config) {
+                            if (config)
+                            {
                                 config->tty_enabled = prefs.tty_requested;
                                 if (!ppa_config_save(config))
                                     ppa_log_printf("GUI: failed saving %s\n", ppa_config_path());
@@ -3564,33 +4347,40 @@ int ppa_gui_run_panel(const char *initial_rom,
             }
         }
 
-        if (module_file.load_requested && module_file.path[0]) {
+        if (module_file.load_requested && module_file.path[0])
+        {
             module_file.load_requested = false;
             bool ok = backend->module_load &&
-                backend->module_load(backend->ctx,
-                                     module_file.slot, module_file.path);
+                      backend->module_load(backend->ctx,
+                                           module_file.slot, module_file.path);
             ppa_log_printf("GUI: PPAMOD %s SLOT %d: %s\n",
                            ok ? "LOADED" : "FAILED",
                            module_file.slot + 1, module_file.path);
-            if (ok) save_module_config(config, backend, module_file.slot);
+            if (ok)
+                save_module_config(config, backend, module_file.slot);
         }
 
-        if (file_state.load_requested && file_state.rom_path[0]) {
+        if (file_state.load_requested && file_state.rom_path[0])
+        {
             file_state.load_requested = false;
             if (!backend->is_powered(backend->ctx) &&
-                backend->load_rom(backend->ctx, file_state.rom_path)) {
+                backend->load_rom(backend->ctx, file_state.rom_path))
+            {
                 manual_address = 0x0000;
 
-                if (prefs.auto_run) {
+                if (prefs.auto_run)
+                {
                     backend->set_power(backend->ctx, true);
                     backend->set_running(backend->ctx, true);
                 }
             }
         }
 
-        if (export_state.export_requested && export_state.path[0]) {
+        if (export_state.export_requested && export_state.path[0])
+        {
             export_state.export_requested = false;
-            if (backend->export_image) {
+            if (backend->export_image)
+            {
                 backend->export_image(backend->ctx, export_state.path);
             }
         }
@@ -3601,17 +4391,20 @@ int ppa_gui_run_panel(const char *initial_rom,
 
         bool loaded = backend->is_loaded(backend->ctx);
         bool powered = backend->is_powered(backend->ctx);
-        if (powered) prefs.editing_memory = 0;
+        if (powered)
+            prefs.editing_memory = 0;
         bool running = backend->is_running(backend->ctx);
         bool halted = backend->is_halted(backend->ctx);
         bool error = backend->is_error
-            ? backend->is_error(backend->ctx)
-            : false;
+                         ? backend->is_error(backend->ctx)
+                         : false;
 
         bool clock_level = false;
 
-        if (loaded && powered && running && !halted) {
-            if (clock_index == clock_turbo_index) {
+        if (loaded && powered && running && !halted)
+        {
+            if (clock_index == clock_turbo_index)
+            {
                 clock_phase = 0.0;
 
                 Uint64 turbo_start_ns = SDL_GetTicksNS();
@@ -3622,16 +4415,21 @@ int ppa_gui_run_panel(const char *initial_rom,
                  * Chunking avoids excessive callback overhead while checking
                  * the wall-clock budget often enough to keep SDL responsive.
                  */
-                do {
-                    if (backend->tick_turbo) {
+                do
+                {
+                    if (backend->tick_turbo)
+                    {
                         backend->tick_turbo(backend->ctx, 4096);
-                    } else {
+                    }
+                    else
+                    {
                         backend->tick(backend->ctx, 4096);
                     }
                     turbo_chunks++;
 
                     if (!backend->is_running(backend->ctx) ||
-                        backend->is_halted(backend->ctx)) {
+                        backend->is_halted(backend->ctx))
+                    {
                         break;
                     }
 
@@ -3639,7 +4437,9 @@ int ppa_gui_run_panel(const char *initial_rom,
                 } while (turbo_now_ns - turbo_start_ns < turbo_slice_ns);
 
                 clock_level = (turbo_chunks & 1) != 0;
-            } else {
+            }
+            else
+            {
                 double total_cycles =
                     clock_phase + dt * clock_rates[clock_index];
                 double whole_cycles = floor(total_cycles);
@@ -3650,7 +4450,8 @@ int ppa_gui_run_panel(const char *initial_rom,
                  * dropping excess edges made the CPU (and MIDI) slow down. */
                 while (rising_edges > 0 &&
                        backend->is_running(backend->ctx) &&
-                       !backend->is_halted(backend->ctx)) {
+                       !backend->is_halted(backend->ctx))
+                {
                     int batch = rising_edges > 5000 ? 5000 : rising_edges;
                     backend->tick(backend->ctx, batch);
                     rising_edges -= batch;
@@ -3658,7 +4459,9 @@ int ppa_gui_run_panel(const char *initial_rom,
 
                 clock_level = clock_phase < 0.5;
             }
-        } else {
+        }
+        else
+        {
             clock_phase = 0.0;
             clock_level = false;
         }
@@ -3668,43 +4471,49 @@ int ppa_gui_run_panel(const char *initial_rom,
         running = backend->is_running(backend->ctx);
         halted = backend->is_halted(backend->ctx);
         error = backend->is_error
-            ? backend->is_error(backend->ctx)
-            : false;
+                    ? backend->is_error(backend->ctx)
+                    : false;
 
-        if (!powered || !running || halted) {
+        if (!powered || !running || halted)
+        {
             clock_level = false;
         }
 
         Uint16 address = backend->address_bus
-            ? backend->address_bus(backend->ctx)
-            : 0;
+                             ? backend->address_bus(backend->ctx)
+                             : 0;
         Uint16 bank = backend->bank_bus
-            ? backend->bank_bus(backend->ctx)
-            : 0;
+                          ? backend->bank_bus(backend->ctx)
+                          : 0;
 
         Uint8 bus_data = backend->data_bus
-            ? backend->data_bus(backend->ctx)
-            : (exam_held ? exam_data : front_data_latch);
+                             ? backend->data_bus(backend->ctx)
+                             : (exam_held ? exam_data : front_data_latch);
         Uint8 data = bus_data;
         Uint8 status_register = backend->status_register
-            ? backend->status_register(backend->ctx)
-            : 0;
+                                    ? backend->status_register(backend->ctx)
+                                    : 0;
         PPA1CpuSnapshot irq_state = {0};
         if (backend->cpu_snapshot && powered)
             backend->cpu_snapshot(backend->ctx, &irq_state);
 
-        if (data_source_index == 1 && backend->register_value) {
+        if (data_source_index == 1 && backend->register_value)
+        {
             data = backend->register_value(backend->ctx, register_index);
         }
 
         /* Audio and emulation are serviced on every iteration. Rendering
          * is rate-limited and completely skipped for minimized/hidden panels.
          * This prevents the window manager from throttling SOUND/1 playback. */
-        if (ppa_audio && backend->module_audio) {
-            if (!powered) {
+        if (ppa_audio && backend->module_audio)
+        {
+            if (!powered)
+            {
                 if (SDL_GetAudioStreamQueued(ppa_audio) > 0)
                     SDL_ClearAudioStream(ppa_audio);
-            } else if (SDL_GetAudioStreamQueued(ppa_audio) < 4096) {
+            }
+            else if (SDL_GetAudioStreamQueued(ppa_audio) < 4096)
+            {
                 int16_t pcm[1024];
                 backend->module_audio(backend->ctx, pcm, 1024, 44100);
                 SDL_PutAudioStreamData(ppa_audio, pcm, (int)sizeof(pcm));
@@ -3712,377 +4521,383 @@ int ppa_gui_run_panel(const char *initial_rom,
         }
 
         bool redraw = now - last_visual_frame >= 33;
-        if (redraw) last_visual_frame = now;
+        if (redraw)
+            last_visual_frame = now;
         bool panel_visible = (SDL_GetWindowFlags(window) &
-                             (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) == 0;
-        if (redraw && panel_visible) {
-        /* Render the complete hardware panel at its immutable design size. */
-        SDL_SetRenderTarget(renderer, panel_texture);
-        SDL_SetRenderViewport(renderer, NULL);
-        SDL_SetRenderScale(
-            renderer, panel_render_scale, panel_render_scale);
-        g_text_pixel_scale = panel_render_scale;
-        SDL_SetRenderDrawColor(
-            renderer, COL_BLACK.r, COL_BLACK.g, COL_BLACK.b, 255);
-        SDL_RenderClear(renderer);
+                              (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED)) == 0;
+        if (redraw && panel_visible)
+        {
+            /* Render the complete hardware panel at its immutable design size. */
+            SDL_SetRenderTarget(renderer, panel_texture);
+            SDL_SetRenderViewport(renderer, NULL);
+            SDL_SetRenderScale(
+                renderer, panel_render_scale, panel_render_scale);
+            g_text_pixel_scale = panel_render_scale;
+            SDL_SetRenderDrawColor(
+                renderer, COL_BLACK.r, COL_BLACK.g, COL_BLACK.b, 255);
+            SDL_RenderClear(renderer);
 
-        SDL_FRect face = {10, 8, 1260, 742};
-        draw_bevel_panel(renderer, face,
-            COL_DARK_GRAY,
-            COL_LIGHT_GRAY,
-            COL_BLACK);
+            SDL_FRect face = {10, 8, 1260, 742};
+            draw_bevel_panel(renderer, face,
+                             COL_DARK_GRAY,
+                             COL_LIGHT_GRAY,
+                             COL_BLACK);
 
-        draw_screw(renderer, 24, 22);
-        draw_screw(renderer, 1256, 22);
-        draw_screw(renderer, 24, 736);
-        draw_screw(renderer, 1256, 736);
+            draw_screw(renderer, 24, 22);
+            draw_screw(renderer, 1256, 22);
+            draw_screw(renderer, 24, 736);
+            draw_screw(renderer, 1256, 736);
 
-        /* One continuous metal panel: only engraved separator lines, no modular cards. */
-        SDL_FRect title_rect = {36, 18, 990, 68};
-        draw_text_stretched(renderer, panel_fonts.title, title_rect,
-                            COL_WHITE,
-                            "PROGRAMBLE PROCESSOR");
+            /* One continuous metal panel: only engraved separator lines, no modular cards. */
+            SDL_FRect title_rect = {36, 18, 990, 68};
+            draw_text_stretched(renderer, panel_fonts.title, title_rect,
+                                COL_WHITE,
+                                "PROGRAMBLE PROCESSOR");
 
-        /*
-         * A-1 uses the same 46 px bold type scale as the processor title.
-         * Its box is an independent white-outline nameplate; the manufacturer
-         * label sits immediately below it, outside the rectangle.
-         */
-        SDL_FRect a1_box = {1038, 18, 190, 68};
-        SDL_SetRenderDrawColor(renderer,
-                               COL_DARK_GRAY.r,
-                               COL_DARK_GRAY.g,
-                               COL_DARK_GRAY.b, 255);
-        SDL_RenderFillRect(renderer, &a1_box);
-
-        SDL_SetRenderDrawColor(renderer,
-                               COL_WHITE.r,
-                               COL_WHITE.g,
-                               COL_WHITE.b, 255);
-        SDL_RenderRect(renderer, &a1_box);
-
-        /* Second inset line keeps the outline readable after downsampling. */
-        SDL_FRect a1_inner = {
-            a1_box.x + 1.0f, a1_box.y + 1.0f,
-            a1_box.w - 2.0f, a1_box.h - 2.0f
-        };
-        SDL_RenderRect(renderer, &a1_inner);
-
-        draw_text_stretched(renderer, panel_fonts.badge,
-            (SDL_FRect){1046, 18, 174, 68},
-            COL_WHITE, "A-1");
-
-        if (adava_logo) {
             /*
-             * Source logo is 760x120 (6.333:1). Keep its aspect ratio and
-             * center it below the A-1 badge without touching the separator.
+             * A-1 uses the same 46 px bold type scale as the processor title.
+             * Its box is an independent white-outline nameplate; the manufacturer
+             * label sits immediately below it, outside the rectangle.
              */
-            SDL_FRect logo_dst = {1054.0f, 87.0f, 158.0f, 25.0f};
-            SDL_RenderTexture(
-                renderer, adava_logo, NULL, &logo_dst);
-        } else {
-            draw_text_stretched(renderer, panel_fonts.label,
-                (SDL_FRect){1038, 87, 190, 20},
-                COL_WHITE, "Adava Electronics");
-        }
+            SDL_FRect a1_box = {1038, 18, 190, 68};
+            SDL_SetRenderDrawColor(renderer,
+                                   COL_DARK_GRAY.r,
+                                   COL_DARK_GRAY.g,
+                                   COL_DARK_GRAY.b, 255);
+            SDL_RenderFillRect(renderer, &a1_box);
 
-        SDL_SetRenderDrawColor(
-            renderer, COL_LIGHT_GRAY.r, COL_LIGHT_GRAY.g,
-            COL_LIGHT_GRAY.b, 255);
-        SDL_RenderLine(renderer, 46, 112, 1228, 112);
-        SDL_RenderLine(renderer, 620, 132, 620, 565);
-        SDL_RenderLine(renderer, 46, 350, 592, 350);
-        SDL_RenderLine(renderer, 646, 300, 1228, 300);
-        SDL_RenderLine(renderer, 646, 500, 1228, 500);
+            SDL_SetRenderDrawColor(renderer,
+                                   COL_WHITE.r,
+                                   COL_WHITE.g,
+                                   COL_WHITE.b, 255);
+            SDL_RenderRect(renderer, &a1_box);
 
-        /* Left upper: address, bank and data indicators. */
-        draw_text(renderer, panel_fonts.section, 52, 122,
-                  COL_WHITE, "BUS INDICATORS");
+            /* Second inset line keeps the outline readable after downsampling. */
+            SDL_FRect a1_inner = {
+                a1_box.x + 1.0f, a1_box.y + 1.0f,
+                a1_box.w - 2.0f, a1_box.h - 2.0f};
+            SDL_RenderRect(renderer, &a1_inner);
 
-        draw_text(renderer, panel_fonts.label, 54, 148,
-                  COL_LIGHT_GRAY,
-                  "ADDRESS BUS");
-        for (int pos = 0; pos < 16; pos++) {
-            int bit_index = 15 - pos;
-            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
-            bool bit = prefs.lamp_test ||
-                (powered && ((address >> bit_index) & 1u));
-            float nibble_gap = (float)(pos / 4) * 10.0f;
-            draw_led(renderer, &panel_fonts,
-                     58.0f + pos * 31.0f + nibble_gap,
-                     166.0f, label, bit,
-                     COL_ORANGE);
-        }
+            draw_text_stretched(renderer, panel_fonts.badge,
+                                (SDL_FRect){1046, 18, 174, 68},
+                                COL_WHITE, "A-1");
 
-        draw_text(renderer, panel_fonts.label, 54, 216,
-                  COL_LIGHT_GRAY,
-                  "BANK BUS");
-        for (int pos = 0; pos < 16; pos++) {
-            int bit_index = 15 - pos;
-            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
-            bool bit = prefs.lamp_test ||
-                (powered && ((bank >> bit_index) & 1u));
-            float nibble_gap = (float)(pos / 4) * 10.0f;
-            draw_led(renderer, &panel_fonts,
-                     58.0f + pos * 31.0f + nibble_gap,
-                     234.0f, label, bit,
-                     COL_BLUE);
-        }
+            if (adava_logo)
+            {
+                /*
+                 * Source logo is 760x120 (6.333:1). Keep its aspect ratio and
+                 * center it below the A-1 badge without touching the separator.
+                 */
+                SDL_FRect logo_dst = {1054.0f, 87.0f, 158.0f, 25.0f};
+                SDL_RenderTexture(
+                    renderer, adava_logo, NULL, &logo_dst);
+            }
+            else
+            {
+                draw_text_stretched(renderer, panel_fonts.label,
+                                    (SDL_FRect){1038, 87, 190, 20},
+                                    COL_WHITE, "Adava Electronics");
+            }
 
-        draw_text(renderer, panel_fonts.label, 54, 284,
-                  COL_LIGHT_GRAY, "DATA BUS");
-        for (int pos = 0; pos < 8; pos++) {
-            int bit_index = 7 - pos;
-            char label[2] = {(char)('0' + bit_index), 0};
-            bool bit = prefs.lamp_test ||
-                (powered && ((data >> bit_index) & 1u));
+            SDL_SetRenderDrawColor(
+                renderer, COL_LIGHT_GRAY.r, COL_LIGHT_GRAY.g,
+                COL_LIGHT_GRAY.b, 255);
+            SDL_RenderLine(renderer, 46, 112, 1228, 112);
+            SDL_RenderLine(renderer, 620, 132, 620, 565);
+            SDL_RenderLine(renderer, 46, 350, 592, 350);
+            SDL_RenderLine(renderer, 646, 300, 1228, 300);
+            SDL_RenderLine(renderer, 646, 500, 1228, 500);
 
-            /* Same 31 px pitch as ADDRESS/BANK, with one nibble gap. */
-            float nibble_gap = pos >= 4 ? 10.0f : 0.0f;
-            draw_led(renderer, &panel_fonts,
-                     58.0f + pos * 31.0f + nibble_gap,
-                     302.0f, label, bit,
+            /* Left upper: address, bank and data indicators. */
+            draw_text(renderer, panel_fonts.section, 52, 122,
+                      COL_WHITE, "BUS INDICATORS");
+
+            draw_text(renderer, panel_fonts.label, 54, 148,
+                      COL_LIGHT_GRAY,
+                      "ADDRESS BUS");
+            for (int pos = 0; pos < 16; pos++)
+            {
+                int bit_index = 15 - pos;
+                char label[2] = {"0123456789ABCDEF"[bit_index], 0};
+                bool bit = prefs.lamp_test ||
+                           (powered && ((address >> bit_index) & 1u));
+                float nibble_gap = (float)(pos / 4) * 10.0f;
+                draw_led(renderer, &panel_fonts,
+                         58.0f + pos * 31.0f + nibble_gap,
+                         166.0f, label, bit,
+                         COL_ORANGE);
+            }
+
+            draw_text(renderer, panel_fonts.label, 54, 216,
+                      COL_LIGHT_GRAY,
+                      "BANK BUS");
+            for (int pos = 0; pos < 16; pos++)
+            {
+                int bit_index = 15 - pos;
+                char label[2] = {"0123456789ABCDEF"[bit_index], 0};
+                bool bit = prefs.lamp_test ||
+                           (powered && ((bank >> bit_index) & 1u));
+                float nibble_gap = (float)(pos / 4) * 10.0f;
+                draw_led(renderer, &panel_fonts,
+                         58.0f + pos * 31.0f + nibble_gap,
+                         234.0f, label, bit,
+                         COL_BLUE);
+            }
+
+            draw_text(renderer, panel_fonts.label, 54, 284,
+                      COL_LIGHT_GRAY, "DATA BUS");
+            for (int pos = 0; pos < 8; pos++)
+            {
+                int bit_index = 7 - pos;
+                char label[2] = {(char)('0' + bit_index), 0};
+                bool bit = prefs.lamp_test ||
+                           (powered && ((data >> bit_index) & 1u));
+
+                /* Same 31 px pitch as ADDRESS/BANK, with one nibble gap. */
+                float nibble_gap = pos >= 4 ? 10.0f : 0.0f;
+                draw_led(renderer, &panel_fonts,
+                         58.0f + pos * 31.0f + nibble_gap,
+                         302.0f, label, bit,
+                         COL_GREEN);
+            }
+
+            /* System status and interrupt control signals.
+             * Dedicated indicators correspond to discrete hardware flip-flops.
+             */
+            draw_text(renderer, panel_fonts.section, 646, 126,
+                      COL_WHITE, "SYSTEM STATUS");
+
+            const char *sys_labels[] = {
+                "POWER", "RUN", "HALT", "ERROR", "CLOCK", "IRQ", "ISR"};
+            SDL_Color sys_colors[] = {
+                COL_GREEN, COL_GREEN, COL_RED, COL_RED, COL_ORANGE,
+                COL_ORANGE, COL_RED};
+            bool irq_eligible = powered &&
+                                (irq_state.irq_pending & irq_state.irq_mask) != 0;
+            bool sys_on[] = {
+                powered,
+                powered && running,
+                loaded && powered && halted && !error,
+                loaded && powered && error,
+                clock_level,
+                irq_eligible,
+                powered && irq_state.irq_servicing};
+            const float sys_x[] = {
+                650.0f, 725.0f, 800.0f, 875.0f, 968.0f,
+                1060.0f, 1142.0f};
+            for (int i = 0; i < 7; i++)
+            {
+                draw_led(renderer, &panel_fonts, sys_x[i], 175.0f,
+                         sys_labels[i], prefs.lamp_test || sys_on[i],
+                         sys_colors[i]);
+            }
+
+            /* SR: Z, C and IRQ global enable (bit 2). */
+            draw_text(renderer, panel_fonts.label, 646, 226,
+                      COL_LIGHT_GRAY, "STATUS REGISTER");
+            draw_led(renderer, &panel_fonts, 650, 245, "ZERO",
+                     prefs.lamp_test ||
+                         (powered && ((status_register & 0x01u) != 0)),
                      COL_GREEN);
-        }
+            draw_led(renderer, &panel_fonts, 728, 245, "CARRY",
+                     prefs.lamp_test ||
+                         (powered && ((status_register & 0x02u) != 0)),
+                     COL_ORANGE);
+            draw_led(renderer, &panel_fonts, 806, 245, "INT",
+                     prefs.lamp_test ||
+                         (powered && ((status_register & 0x04u) != 0)),
+                     COL_GREEN);
 
-        /* System status and interrupt control signals.
-         * Dedicated indicators correspond to discrete hardware flip-flops.
-         */
-        draw_text(renderer, panel_fonts.section, 646, 126,
-                  COL_WHITE, "SYSTEM STATUS");
+            /* IRQ and PPAMOD rack share an aligned eight-column status block.
+             * Top: latched IRQ0..7 with green IMR mask stripe.
+             * Bottom: PPAMOD slots S1..S8 (green active / amber inserted).
+             * Both rows fit above the DISPLAY & CLOCK section divider. */
+            /* Headings sit beside each row to avoid crowding the lamps. */
+            draw_text(renderer, panel_fonts.small, 860, 240,
+                      COL_LIGHT_GRAY, "IRQ LINES");
+            draw_text(renderer, panel_fonts.small, 860, 278,
+                      COL_LIGHT_GRAY, "MODULES");
+            for (int line = 0; line < 8; ++line)
+            {
+                const Uint8 bit = (Uint8)(1u << line);
+                float x = 922.0f + (float)line * 38.0f;
+                char irq_label[8];
+                snprintf(irq_label, sizeof(irq_label), "IRQ%d", line);
+                bool servicing = powered && irq_state.irq_servicing &&
+                                 irq_state.irq_active == (Uint8)line;
+                draw_rack_status_lamp(
+                    renderer, &panel_fonts, x, 226.0f, irq_label,
+                    servicing ? COL_RED : COL_ORANGE,
+                    powered && ((irq_state.irq_pending & bit) != 0 || servicing),
+                    prefs.lamp_test, true,
+                    powered && (irq_state.irq_mask & bit) != 0);
 
-        const char *sys_labels[] = {
-            "POWER", "RUN", "HALT", "ERROR", "CLOCK", "IRQ", "ISR"
-        };
-        SDL_Color sys_colors[] = {
-            COL_GREEN, COL_GREEN, COL_RED, COL_RED, COL_ORANGE,
-            COL_ORANGE, COL_RED
-        };
-        bool irq_eligible = powered &&
-            (irq_state.irq_pending & irq_state.irq_mask) != 0;
-        bool sys_on[] = {
-            powered,
-            powered && running,
-            loaded && powered && halted && !error,
-            loaded && powered && error,
-            clock_level,
-            irq_eligible,
-            powered && irq_state.irq_servicing
-        };
-        const float sys_x[] = {
-            650.0f, 725.0f, 800.0f, 875.0f, 968.0f,
-            1060.0f, 1142.0f
-        };
-        for (int i = 0; i < 7; i++) {
-            draw_led(renderer, &panel_fonts, sys_x[i], 175.0f,
-                     sys_labels[i], prefs.lamp_test || sys_on[i],
-                     sys_colors[i]);
-        }
+                PPA1ModuleInfo module = {0};
+                if (backend->module_info)
+                    backend->module_info(backend->ctx, line, &module);
+                /* The loop is restricted to slots 1..8: no snprintf truncation. */
+                char slot_label[3] = {'S', (char)('1' + line), '\0'};
+                draw_rack_status_lamp(
+                    renderer, &panel_fonts, x, 265.0f, slot_label,
+                    module.installed && module.active ? COL_GREEN : COL_ORANGE,
+                    powered && module.installed,
+                    prefs.lamp_test, false, false);
+            }
 
-        /* SR: Z, C and IRQ global enable (bit 2). */
-        draw_text(renderer, panel_fonts.label, 646, 226,
-                  COL_LIGHT_GRAY, "STATUS REGISTER");
-        draw_led(renderer, &panel_fonts, 650, 245, "ZERO",
-                 prefs.lamp_test ||
-                     (powered && ((status_register & 0x01u) != 0)),
-                 COL_GREEN);
-        draw_led(renderer, &panel_fonts, 728, 245, "CARRY",
-                 prefs.lamp_test ||
-                     (powered && ((status_register & 0x02u) != 0)),
-                 COL_ORANGE);
-        draw_led(renderer, &panel_fonts, 806, 245, "INT",
-                 prefs.lamp_test ||
-                     (powered && ((status_register & 0x04u) != 0)),
-                 COL_GREEN);
+            /* Lower left: manual switch register. */
+            draw_text(renderer, panel_fonts.section, 52, 371,
+                      COL_WHITE, "FRONT PANEL INPUT");
+            draw_text(renderer, panel_fonts.label, 54, 407,
+                      COL_LIGHT_GRAY,
+                      "DATA / ADDRESS");
+            for (int pos = 0; pos < 16; pos++)
+            {
+                int bit_index = 15 - pos;
+                char label[2] = {"0123456789ABCDEF"[bit_index], 0};
+                /*
+                 * Front-panel switches are grouped in 4-bit nibbles.
+                 * For DATA, the rightmost two groups are D7-D4 | D3-D0;
+                 * for ADDRESS, all four groups form A15-A0.
+                 */
+                float nibble_gap = (float)(pos / 4) * 10.0f;
+                draw_toggle(renderer, &panel_fonts, &toggle_textures,
+                            62.0f + pos * 31.0f + nibble_gap,
+                            475.0f, label, switches[bit_index]);
+            }
+            /* Physical clock and DATA display selectors. */
+            draw_text(renderer, panel_fonts.section, 646, 321,
+                      COL_WHITE, "DISPLAY & CLOCK");
 
-        /* IRQ and PPAMOD rack share an aligned eight-column status block.
-         * Top: latched IRQ0..7 with green IMR mask stripe.
-         * Bottom: PPAMOD slots S1..S8 (green active / amber inserted).
-         * Both rows fit above the DISPLAY & CLOCK section divider. */
-        /* Headings sit beside each row to avoid crowding the lamps. */
-        draw_text(renderer, panel_fonts.small, 860, 240,
-                  COL_LIGHT_GRAY, "IRQ LINES");
-        draw_text(renderer, panel_fonts.small, 860, 278,
-                  COL_LIGHT_GRAY, "PPAMOD");
-        for (int line = 0; line < 8; ++line) {
-            const Uint8 bit = (Uint8)(1u << line);
-            float x = 922.0f + (float)line * 38.0f;
-            char irq_label[8];
-            snprintf(irq_label, sizeof(irq_label), "IRQ%d", line);
-            bool servicing = powered && irq_state.irq_servicing &&
-                             irq_state.irq_active == (Uint8)line;
-            draw_rack_status_lamp(
-                renderer, &panel_fonts, x, 226.0f, irq_label,
-                servicing ? COL_RED : COL_ORANGE,
-                powered && ((irq_state.irq_pending & bit) != 0 || servicing),
-                prefs.lamp_test, true,
-                powered && (irq_state.irq_mask & bit) != 0);
+            draw_text_center(renderer, panel_fonts.label,
+                             (SDL_FRect){660, 346, 120, 18},
+                             COL_WHITE, "CLOCK");
+            draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
+                              clock_cx, clock_cy, clock_radius,
+                              clock_index, clock_count,
+                              clock_tick_labels, true);
 
-            PPA1ModuleInfo module = {0};
-            if (backend->module_info)
-                backend->module_info(backend->ctx, line, &module);
-            /* The loop is restricted to slots 1..8: no snprintf truncation. */
-            char slot_label[3] = {'S', (char)('1' + line), '\0'};
-            draw_rack_status_lamp(
-                renderer, &panel_fonts, x, 265.0f, slot_label,
-                module.installed && module.active ? COL_GREEN : COL_ORANGE,
-                powered && module.installed,
-                prefs.lamp_test, false, false);
-        }
+            draw_text_center(renderer, panel_fonts.label,
+                             (SDL_FRect){838, 346, 134, 18},
+                             COL_WHITE, "DATA OUTPUT");
+            draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
+                              data_source_cx, data_source_cy,
+                              data_source_radius,
+                              data_source_index, 2,
+                              data_source_tick_labels, true);
 
-        /* Lower left: manual switch register. */
-        draw_text(renderer, panel_fonts.section, 52, 371,
-                  COL_WHITE, "FRONT PANEL INPUT");
-        draw_text(renderer, panel_fonts.label, 54, 407,
-                  COL_LIGHT_GRAY,
-                  "DATA / ADDRESS");
-        for (int pos = 0; pos < 16; pos++) {
-            int bit_index = 15 - pos;
-            char label[2] = {"0123456789ABCDEF"[bit_index], 0};
-            /*
-             * Front-panel switches are grouped in 4-bit nibbles.
-             * For DATA, the rightmost two groups are D7-D4 | D3-D0;
-             * for ADDRESS, all four groups form A15-A0.
-             */
-            float nibble_gap = (float)(pos / 4) * 10.0f;
-            draw_toggle(renderer, &panel_fonts, &toggle_textures,
-                        62.0f + pos * 31.0f + nibble_gap,
-                        475.0f, label, switches[bit_index]);
-        }
-        /* Physical clock and DATA display selectors. */
-        draw_text(renderer, panel_fonts.section, 646, 321,
-                  COL_WHITE, "DISPLAY & CLOCK");
+            draw_text_center(renderer, panel_fonts.label,
+                             (SDL_FRect){1015, 346, 160, 18},
+                             COL_WHITE,
+                             "REGISTER SELECT");
+            draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
+                              register_cx, register_cy,
+                              register_radius,
+                              register_index, register_count,
+                              register_labels,
+                              true);
 
-        draw_text_center(renderer, panel_fonts.label,
-                         (SDL_FRect){660, 346, 120, 18},
-                         COL_WHITE, "CLOCK");
-        draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
-                          clock_cx, clock_cy, clock_radius,
-                          clock_index, clock_count,
-                          clock_tick_labels, true);
+            /* Hardware programming and execution controls. */
+            draw_text(renderer, panel_fonts.section, 646, 520,
+                      COL_WHITE, "PROGRAMMING & CONTROL");
 
-        draw_text_center(renderer, panel_fonts.label,
-                         (SDL_FRect){838, 346, 134, 18},
-                         COL_WHITE, "DATA OUTPUT");
-        draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
-                          data_source_cx, data_source_cy,
-                          data_source_radius,
-                          data_source_index, 2,
-                          data_source_tick_labels, true);
+            draw_push_button(renderer, &panel_fonts, fp_load_bank, "LOAD BANK",
+                             COL_BLUE, false,
+                             button_pressed(pressed_button, BTN_LOAD_BANK, pressed_until));
+            draw_push_button(renderer, &panel_fonts, fp_load_addr, "LOAD ADDR",
+                             COL_ORANGE, false,
+                             button_pressed(pressed_button, BTN_LOAD_ADDR, pressed_until));
+            draw_push_button(renderer, &panel_fonts, fp_addr_dec, "ADDR -",
+                             COL_GRAY, false,
+                             button_pressed(pressed_button, BTN_ADDR_DEC, pressed_until));
+            draw_push_button(renderer, &panel_fonts, fp_addr_inc, "ADDR +",
+                             COL_GRAY, false,
+                             button_pressed(pressed_button, BTN_ADDR_INC, pressed_until));
+            draw_push_button(renderer, &panel_fonts, fp_exam, "EXAM",
+                             COL_GRAY, false,
+                             exam_held ||
+                                 button_pressed(pressed_button, BTN_EXAM, pressed_until));
+            draw_push_button(renderer, &panel_fonts, fp_dep, "DEPOSIT",
+                             COL_GRAY, false,
+                             button_pressed(pressed_button, BTN_DEPOSIT, pressed_until));
+            draw_push_button(renderer, &panel_fonts, fp_start, "START",
+                             COL_GREEN, powered && running,
+                             button_pressed(pressed_button, BTN_START, pressed_until));
 
-        draw_text_center(renderer, panel_fonts.label,
-                         (SDL_FRect){1015, 346, 160, 18},
-                         COL_WHITE,
-                         "REGISTER SELECT");
-        draw_labeled_knob(renderer, &panel_fonts, &knob_textures,
-                          register_cx, register_cy,
-                          register_radius,
-                          register_index, register_count,
-                          register_labels,
-                          true);
+            draw_push_button(renderer, &panel_fonts, op_cont, "CONT",
+                             COL_GREEN, powered && running,
+                             button_pressed(pressed_button, BTN_CONT, pressed_until));
+            draw_push_button(renderer, &panel_fonts, op_stop, "STOP",
+                             COL_RED, powered && !running,
+                             button_pressed(pressed_button, BTN_STOP, pressed_until));
+            draw_push_button(renderer, &panel_fonts, op_step, "STEP",
+                             COL_GRAY, false,
+                             button_pressed(pressed_button, BTN_STEP, pressed_until));
+            draw_push_button(renderer, &panel_fonts, op_ustep, "MICRO",
+                             COL_GRAY, false,
+                             button_pressed(pressed_button, BTN_MICRO, pressed_until));
+            draw_push_button(renderer, &panel_fonts, op_reset, "RESET",
+                             COL_GRAY, false,
+                             button_pressed(pressed_button, BTN_RESET, pressed_until));
 
-        /* Hardware programming and execution controls. */
-        draw_text(renderer, panel_fonts.section, 646, 520,
-                  COL_WHITE, "PROGRAMMING & CONTROL");
+            /* PWR remains part of the same physical plate. */
+            draw_text(renderer, panel_fonts.label, 1188, 520,
+                      COL_WHITE, "PWR");
+            SDL_SetRenderDrawColor(renderer, 18, 18, 17, 255);
+            SDL_RenderFillRect(renderer, &power_btn);
+            SDL_SetRenderDrawColor(renderer, 136, 91, 53, 255);
+            SDL_RenderRect(renderer, &power_btn);
 
-        draw_push_button(renderer, &panel_fonts, fp_load_bank, "LOAD BANK",
-                         COL_BLUE, false,
-                         button_pressed(pressed_button, BTN_LOAD_BANK, pressed_until));
-        draw_push_button(renderer, &panel_fonts, fp_load_addr, "LOAD ADDR",
-                         COL_ORANGE, false,
-                         button_pressed(pressed_button, BTN_LOAD_ADDR, pressed_until));
-        draw_push_button(renderer, &panel_fonts, fp_addr_dec, "ADDR -",
-                         COL_GRAY, false,
-                         button_pressed(pressed_button, BTN_ADDR_DEC, pressed_until));
-        draw_push_button(renderer, &panel_fonts, fp_addr_inc, "ADDR +",
-                         COL_GRAY, false,
-                         button_pressed(pressed_button, BTN_ADDR_INC, pressed_until));
-        draw_push_button(renderer, &panel_fonts, fp_exam, "EXAM",
-                         COL_GRAY, false,
-                         exam_held ||
-                         button_pressed(pressed_button, BTN_EXAM, pressed_until));
-        draw_push_button(renderer, &panel_fonts, fp_dep, "DEPOSIT",
-                         COL_GRAY, false,
-                         button_pressed(pressed_button, BTN_DEPOSIT, pressed_until));
-        draw_push_button(renderer, &panel_fonts, fp_start, "START",
-                         COL_GREEN, powered && running,
-                         button_pressed(pressed_button, BTN_START, pressed_until));
+            SDL_FRect rocker = {
+                1195,
+                powered ? 558.0f : 600.0f,
+                28, 42};
+            SDL_SetRenderDrawColor(renderer,
+                                   powered ? 116 : 73,
+                                   powered ? 43 : 30,
+                                   powered ? 31 : 27, 255);
+            SDL_RenderFillRect(renderer, &rocker);
+            draw_text_center(renderer, panel_fonts.label, rocker,
+                             COL_WHITE,
+                             powered ? "I" : "O");
 
-        draw_push_button(renderer, &panel_fonts, op_cont, "CONT",
-                         COL_GREEN, powered && running,
-                         button_pressed(pressed_button, BTN_CONT, pressed_until));
-        draw_push_button(renderer, &panel_fonts, op_stop, "STOP",
-                         COL_RED, powered && !running,
-                         button_pressed(pressed_button, BTN_STOP, pressed_until));
-        draw_push_button(renderer, &panel_fonts, op_step, "STEP",
-                         COL_GRAY, false,
-                         button_pressed(pressed_button, BTN_STEP, pressed_until));
-        draw_push_button(renderer, &panel_fonts, op_ustep, "MICRO",
-                         COL_GRAY, false,
-                         button_pressed(pressed_button, BTN_MICRO, pressed_until));
-        draw_push_button(renderer, &panel_fonts, op_reset, "RESET",
-                         COL_GRAY, false,
-                         button_pressed(pressed_button, BTN_RESET, pressed_until));
+            SDL_SetRenderTarget(renderer, NULL);
+            SDL_SetRenderViewport(renderer, NULL);
+            SDL_SetRenderScale(renderer, 1.0f, 1.0f);
+            g_text_pixel_scale = 1.0f;
 
-        /* PWR remains part of the same physical plate. */
-        draw_text(renderer, panel_fonts.label, 1188, 520,
-                  COL_WHITE, "PWR");
-        SDL_SetRenderDrawColor(renderer, 18, 18, 17, 255);
-        SDL_RenderFillRect(renderer, &power_btn);
-        SDL_SetRenderDrawColor(renderer, 136, 91, 53, 255);
-        SDL_RenderRect(renderer, &power_btn);
+            SDL_SetRenderDrawColor(renderer, 17, 19, 19, 255);
+            SDL_RenderClear(renderer);
 
-        SDL_FRect rocker = {
-            1195,
-            powered ? 558.0f : 600.0f,
-            28, 42
-        };
-        SDL_SetRenderDrawColor(renderer,
-            powered ? 116 : 73,
-            powered ? 43 : 30,
-            powered ? 31 : 27, 255);
-        SDL_RenderFillRect(renderer, &rocker);
-        draw_text_center(renderer, panel_fonts.label, rocker,
-                         COL_WHITE,
-                         powered ? "I" : "O");
+            SDL_FRect menu_bar = {0, 0, (float)rw, menu_h};
+            SDL_SetRenderDrawColor(renderer, 34, 36, 36, 255);
+            SDL_RenderFillRect(renderer, &menu_bar);
+            draw_menu_button_enabled(renderer, &fonts, menu_open, "OPEN", !powered);
+            draw_menu_button_enabled(renderer, &fonts, menu_reset, "RESET EMU", !powered);
+            draw_menu_button(renderer, &fonts, menu_export, "EXPORT IMAGE");
+            draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
+            draw_menu_button(renderer, &fonts, menu_view, "VIEW");
+            draw_menu_button(renderer, &fonts, menu_log, "LOG");
+            draw_menu_button(renderer, &fonts, menu_terminal, "UART MONITOR");
+            draw_menu_button(renderer, &fonts, menu_credits, "CREDITS");
+            draw_menu_button(renderer, &fonts, menu_modules, "MODULES");
 
-        SDL_SetRenderTarget(renderer, NULL);
-        SDL_SetRenderViewport(renderer, NULL);
-        SDL_SetRenderScale(renderer, 1.0f, 1.0f);
-        g_text_pixel_scale = 1.0f;
-
-        SDL_SetRenderDrawColor(renderer, 17, 19, 19, 255);
-        SDL_RenderClear(renderer);
-
-        SDL_FRect menu_bar = {0, 0, (float)rw, menu_h};
-        SDL_SetRenderDrawColor(renderer, 34, 36, 36, 255);
-        SDL_RenderFillRect(renderer, &menu_bar);
-        draw_menu_button_enabled(renderer, &fonts, menu_open, "OPEN", !powered);
-        draw_menu_button_enabled(renderer, &fonts, menu_reset, "RESET EMU", !powered);
-        draw_menu_button(renderer, &fonts, menu_export, "EXPORT IMAGE");
-        draw_menu_button(renderer, &fonts, menu_pref, "PREFERENCES");
-        draw_menu_button(renderer, &fonts, menu_view, "VIEW");
-        draw_menu_button(renderer, &fonts, menu_log, "LOG");
-        draw_menu_button(renderer, &fonts, menu_terminal, "UART MONITOR");
-        draw_menu_button(renderer, &fonts, menu_credits, "CREDITS");
-        draw_menu_button(renderer, &fonts, menu_modules, "MODULES");
-
-        SDL_FRect panel_dst = {
-            panel_origin_x, panel_origin_y,
-            panel_screen_w, panel_screen_h
-        };
-        SDL_RenderTexture(renderer, panel_texture, NULL, &panel_dst);
-        SDL_RenderPresent(renderer);
+            SDL_FRect panel_dst = {
+                panel_origin_x, panel_origin_y,
+                panel_screen_w, panel_screen_h};
+            SDL_RenderTexture(renderer, panel_texture, NULL, &panel_dst);
+            SDL_RenderPresent(renderer);
         } /* end visible, 30 FPS panel redraw */
 
         if (config && layout_dirty &&
-            SDL_GetTicks() - last_layout_save >= 750) {
+            SDL_GetTicks() - last_layout_save >= 750)
+        {
             if (!ppa_config_save(config))
                 ppa_log_printf("GUI: failed saving window layout\n");
             last_layout_save = SDL_GetTicks();
             layout_dirty = false;
         }
-        if (redraw) {
+        if (redraw)
+        {
             draw_aux_window(&prefs_window, &fonts, &prefs, backend);
             draw_aux_window(&view_window, &fonts, &prefs, backend);
             draw_aux_window(&hex_window, &fonts, &prefs, backend);
@@ -4098,10 +4913,12 @@ int ppa_gui_run_panel(const char *initial_rom,
     }
 
     backend->set_running(backend->ctx, false);
-    if (config) {
+    if (config)
+    {
         SDL_GetWindowPosition(window, &config->panel_x, &config->panel_y);
         SDL_GetWindowSize(window, &config->panel_width, &config->panel_height);
-        for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot) {
+        for (int slot = 0; slot < PPA_CONFIG_MODULE_SLOTS; ++slot)
+        {
             if (module_detail_windows[slot].window)
                 store_module_window(&module_detail_windows[slot],
                                     &config->modules[slot]);
@@ -4122,14 +4939,16 @@ int ppa_gui_run_panel(const char *initial_rom,
     for (int slot = 0; slot < 8; ++slot)
         destroy_aux(&module_detail_windows[slot]);
     SDL_DestroyTexture(panel_texture);
-    if (adava_logo) SDL_DestroyTexture(adava_logo);
+    if (adava_logo)
+        SDL_DestroyTexture(adava_logo);
     destroy_knob_textures(&knob_textures);
     destroy_toggle_textures(&toggle_textures);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     close_fonts(&panel_fonts);
     close_fonts(&fonts);
-    if (ppa_audio) SDL_DestroyAudioStream(ppa_audio);
+    if (ppa_audio)
+        SDL_DestroyAudioStream(ppa_audio);
     TTF_Quit();
     SDL_Quit();
 
