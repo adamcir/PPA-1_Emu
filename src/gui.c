@@ -3165,6 +3165,8 @@ int ppa_gui_run_panel(const char *initial_rom,
     }
 
     Uint64 last_ticks = SDL_GetTicks();
+    Uint64 last_audio_wall_ms = last_ticks;
+    uint64_t fallback_audio_milliframes = 0;
     Uint64 last_visual_frame = 0;
     double clock_phase = 0.0;
 
@@ -4644,18 +4646,62 @@ int ppa_gui_run_panel(const char *initial_rom,
         /* Audio and emulation are serviced on every iteration. Rendering
          * is rate-limited and completely skipped for minimized/hidden panels.
          * This prevents the window manager from throttling SOUND/1 playback. */
-        if (ppa_audio && backend->module_audio)
+        bool recording_any = false;
+        for (int slot = 0; slot < PPAM_SLOTS; ++slot)
+            if (sound_recorders[slot].active) recording_any = true;
+
+        Uint64 audio_elapsed_ms = now >= last_audio_wall_ms ?
+                                  now - last_audio_wall_ms : 0;
+        last_audio_wall_ms = now;
+        if (!powered)
         {
-            if (!powered)
+            if (ppa_audio && SDL_GetAudioStreamQueued(ppa_audio) > 0)
+                SDL_ClearAudioStream(ppa_audio);
+            fallback_audio_milliframes = 0;
+        }
+        else if (backend->module_audio)
+        {
+            uint32_t frames_to_mix = 0;
+            if (ppa_audio)
             {
-                if (SDL_GetAudioStreamQueued(ppa_audio) > 0)
-                    SDL_ClearAudioStream(ppa_audio);
+                if (SDL_GetAudioStreamQueued(ppa_audio) < 4096)
+                    frames_to_mix = 1024;
             }
-            else if (SDL_GetAudioStreamQueued(ppa_audio) < 4096)
+            else if (recording_any)
+            {
+                /* Rendering also works without a host audio device. Keep
+                 * fractional frames to avoid cumulative timing drift. */
+                if (audio_elapsed_ms > 1000) audio_elapsed_ms = 1000;
+                fallback_audio_milliframes += audio_elapsed_ms * 44100u;
+                uint64_t due = fallback_audio_milliframes / 1000u;
+                frames_to_mix = (uint32_t)(due > 1024u ? 1024u : due);
+                fallback_audio_milliframes -= (uint64_t)frames_to_mix * 1000u;
+            }
+            if (frames_to_mix)
             {
                 int16_t pcm[1024];
-                backend->module_audio(backend->ctx, pcm, 1024, 44100);
-                SDL_PutAudioStreamData(ppa_audio, pcm, (int)sizeof(pcm));
+                int32_t stems[1024 * PPAM_SLOTS];
+                backend->module_audio(backend->ctx, pcm,
+                                      recording_any ? stems : NULL,
+                                      frames_to_mix, 44100);
+                if (ppa_audio)
+                    SDL_PutAudioStreamData(ppa_audio, pcm,
+                                           (int)(frames_to_mix * sizeof(pcm[0])));
+                if (recording_any)
+                {
+                    for (int slot = 0; slot < PPAM_SLOTS; ++slot)
+                    {
+                        if (!sound_recorders[slot].active) continue;
+                        if (!ppa_sound_export_write(&sound_recorders[slot], stems,
+                                                    frames_to_mix, PPAM_SLOTS,
+                                                    (uint32_t)slot))
+                        {
+                            ppa_sound_export_stop(&sound_recorders[slot]);
+                            ppa_log_printf("SOUND SLOT %d: export write failed\n",
+                                           slot + 1);
+                        }
+                    }
+                }
             }
         }
 
@@ -5058,6 +5104,15 @@ int ppa_gui_run_panel(const char *initial_rom,
         SDL_Delay(1);
     }
 
+    for (int slot = 0; slot < PPAM_SLOTS; ++slot)
+    {
+        if (sound_recorders[slot].active)
+        {
+            bool ok = ppa_sound_export_stop(&sound_recorders[slot]);
+            ppa_log_printf("SOUND SLOT %d: automatic finalization %s\n",
+                           slot + 1, ok ? "OK" : "FAILED");
+        }
+    }
     backend->set_running(backend->ctx, false);
     if (config)
     {
