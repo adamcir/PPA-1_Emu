@@ -4460,6 +4460,32 @@ int ppa_gui_run_panel(const char *initial_rom,
             }
         }
 
+        if (sound_render_dialog.start_requested)
+        {
+            sound_render_dialog.start_requested = false;
+            int slot = sound_render_dialog.slot;
+            PPA1ModuleInfo info = {0};
+            char destination[1024];
+            if (slot >= 0 && slot < PPAM_SLOTS && backend->module_info &&
+                backend->module_info(backend->ctx, slot, &info) &&
+                info.installed && info.type == PPAM_TYPE_SOUND &&
+                !sound_recorders[slot].active &&
+                sound_render_output_path(destination, sizeof(destination),
+                                         sound_render_dialog.path,
+                                         sound_render_dialog.format))
+            {
+                if (ppa_sound_export_start(&sound_recorders[slot], destination,
+                                           sound_render_dialog.format, 44100))
+                    ppa_log_printf("SOUND SLOT %d: rendering to %s\n",
+                                   slot + 1, destination);
+                else
+                    ppa_log_printf("SOUND SLOT %d: export cannot start: %s\n",
+                                   slot + 1, destination);
+            }
+            else
+                ppa_log_printf("SOUND: export cancelled (invalid module/path).\n");
+        }
+
         if (module_file.load_requested && module_file.path[0])
         {
             module_file.load_requested = false;
