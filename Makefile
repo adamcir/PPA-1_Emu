@@ -12,7 +12,7 @@ SDL3_IMAGE_LIBS := $(shell $(PKG_CONFIG) --libs $(SDL3_IMAGE_PKG) 2>/dev/null)
 
 EMU = out/PPA-1_Emu
 SRC = src/main.c src/logger.c src/gui.c src/config.c \
-      modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.c modules/ppa_vga.c modules/ppa_ps2.c \
+      modules/ppa_module.c modules/ppa_sound.c modules/ppa_sound_export.c modules/ppa_light.c modules/ppa_vga.c modules/ppa_ps2.c \
       modules/ppa_module_ui.c modules/ppa_module_draw.c \
       modules/ppa_sound_gui.c modules/ppa_light_gui.c modules/ppa_vga_gui.c \
       modules/ppa_monitor.c modules/ppa_ps2_gui.c src/irq.c
