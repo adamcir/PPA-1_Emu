@@ -1,5 +1,6 @@
 #include "../modules/ppa_monitor.h"
 #include "../modules/ppa_sound_export.h"
+#include "../modules/ppa_module.h"
 #include "gui.h"
 #include "logger.h"
 
