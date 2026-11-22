@@ -81,8 +81,8 @@ typedef struct {
     void (*cpu_snapshot)(void *ctx, PPA1CpuSnapshot *out);
     uint32_t (*memory_size)(void *ctx, bool rom);
     bool (*set_memory_size)(void *ctx, bool rom, uint32_t size);
-    void (*module_audio)(void *ctx, int16_t *out, uint32_t frames,
-                         uint32_t sample_rate);
+    void (*module_audio)(void *ctx, int16_t *out, int32_t *stems,
+                         uint32_t frames, uint32_t sample_rate);
     bool (*module_load)(void *ctx, int slot, const char *path);
     bool (*module_eject)(void *ctx, int slot);
     bool (*module_activate)(void *ctx, int slot, bool active);
