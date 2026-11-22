@@ -167,14 +167,16 @@ void ppa_sound_write(PpaModule *m, uint32_t offset, uint8_t value) {
         }
     }
 }
-/* 16-bit mono PCM synthesizer; GATE/ADSR and voice phase run in the audio
- * mixer independently of the visibility of any SDL window. */
-void ppam_mix_audio(PpaModuleBus *bus, int16_t *output, uint32_t frames,
-                    uint32_t sample_rate) {
+/* One synthesis pass drives both the 16-bit speaker and optional
+ * genuine 24-bit per-slot exports. All phase/envelope state advances only
+ * once, avoiding drift or duplicated CPU work during recording. */
+void ppam_mix_audio_stems(PpaModuleBus *bus, int16_t *output,
+                          int32_t *stems, uint32_t frames, uint32_t sample_rate) {
     if (!bus || !output || sample_rate == 0) return;
     for (uint32_t i = 0; i < frames; i++) {
         float mixed = 0.0f;
         for (int s = 0; s < PPAM_SLOTS; s++) {
+            if (stems) stems[(size_t)i * PPAM_SLOTS + (size_t)s] = 0;
             PpaModule *m = &bus->slots[s];
             if (!m->installed || !m->active ||
                 m->type != PPAM_TYPE_SOUND || !m->sound_master) {
@@ -214,6 +216,12 @@ void ppam_mix_audio(PpaModuleBus *bus, int16_t *output, uint32_t frames,
                 v->phase = t;
             }
             voice *= (float)m->sound_volume / 255.0f;
+            if (stems) {
+                float sample = fmaxf(-1.0f, fminf(1.0f, voice));
+                /* Match the speaker mix headroom: 24575/32767 ~= 0.75. */
+                stems[(size_t)i * PPAM_SLOTS + (size_t)s] =
+                    (int32_t)(sample * 6291455.0f);
+            }
             m->scope[i % PPAM_SCOPE_SAMPLES] =
                 (int8_t)fmaxf(-127.0f, fminf(127.0f, voice * 127.0f));
             mixed += voice;
@@ -221,4 +229,9 @@ void ppam_mix_audio(PpaModuleBus *bus, int16_t *output, uint32_t frames,
         mixed = fmaxf(-1.0f, fminf(1.0f, mixed));
         output[i] = (int16_t)(mixed * 24575.0f);
     }
+}
+
+void ppam_mix_audio(PpaModuleBus *bus, int16_t *output, uint32_t frames,
+                    uint32_t sample_rate) {
+    ppam_mix_audio_stems(bus, output, NULL, frames, sample_rate);
 }
