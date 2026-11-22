@@ -4213,11 +4213,54 @@ int ppa_gui_run_panel(const char *initial_rom,
                             PPA1ModuleInfo info = {0};
                             if (backend->module_info &&
                                 backend->module_info(backend->ctx, slot, &info) &&
-                                info.installed && info.type == 3)
+                                info.installed)
                             {
                                 SDL_ConvertEventToRenderCoordinates(
                                     module_detail_windows[slot].renderer, &event);
-                                ppa_monitor_button(slot, event.button.x, event.button.y);
+                                if (info.type == 3)
+                                {
+                                    ppa_monitor_button(slot, event.button.x, event.button.y);
+                                }
+                                else if (info.type == 2)
+                                {
+                                    float x = event.button.x, y = event.button.y;
+                                    if (x >= 28 && x < 278 && y >= 544 && y < 578 &&
+                                        !sound_recorders[slot].active &&
+                                        !sound_render_dialog.dialog_open)
+                                    {
+                                        sound_formats[slot] =
+                                            (PpaSoundExportFormat)((sound_formats[slot] + 1) %
+                                                                   PPA_SOUND_FMT_COUNT);
+                                    }
+                                    else if (x >= 288 && x < 510 && y >= 544 && y < 578)
+                                    {
+                                        if (sound_recorders[slot].active)
+                                        {
+                                            bool ok = ppa_sound_export_stop(&sound_recorders[slot]);
+                                            ppa_log_printf(
+                                                "SOUND SLOT %d: export %s: %s\\n",
+                                                slot + 1, ok ? "saved" : "failed",
+                                                sound_recorders[slot].path);
+                                        }
+                                        else if (!sound_render_dialog.dialog_open)
+                                        {
+                                            sound_render_dialog.slot = slot;
+                                            sound_render_dialog.format = sound_formats[slot];
+                                            sound_render_dialog.dialog_open = true;
+                                            const SDL_DialogFileFilter sound_filter[] = {
+                                                {ppa_sound_export_format_name(
+                                                    sound_render_dialog.format),
+                                                 ppa_sound_export_extension(
+                                                    sound_render_dialog.format)}
+                                            };
+                                            SDL_ShowSaveFileDialog(
+                                                sound_render_dialog_callback,
+                                                &sound_render_dialog,
+                                                module_detail_windows[slot].window,
+                                                sound_filter, 1, NULL);
+                                        }
+                                    }
+                                }
                             }
                             monitor_handled = true;
                             break;
