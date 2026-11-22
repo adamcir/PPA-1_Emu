@@ -1,3 +1,36 @@
+## PPA-SOUND/1: render audio to a file
+
+Open **MODULES -> SOUND slot -> VIEW**. The AUDIO RENDER section at the
+bottom lets you cycle the format and use **START RENDER** / **STOP + SAVE**.
+Choose the output path in the native save dialog, run the PPA-1 program,
+and press STOP after the piece finishes. Recordings are also finalized
+automatically when the emulator closes.
+
+| Format | Output quality | Additional software |
+|---|---|---|
+| WAV | 24-bit integer PCM, lossless | None |
+| FLAC | 24-bit, lossless and compressed | FFmpeg |
+| OGG | Vorbis, high-quality lossy | FFmpeg with libvorbis |
+| MP3 | 320 kbps lossy | FFmpeg with libmp3lame |
+
+The direct PPA-SOUND synth produces **44,100 samples/s, mono, per module**.
+24-bit samples are captured before the normal 16-bit speaker conversion,
+preserving precision at export. With multiple SOUND cards, each slot can
+be recorded separately (independent mono stems, not mixed playback).
+
+This is a **live render/recording of the emulated program**: start rendering,
+then play the ROM at its selected CPU clock. The CPU is not restarted or
+accelerated behind the scenes. If there is no audio output device, rendering
+still follows real elapsed time. On FLAC/OGG/MP3 export, encoding begins
+only after STOP; it does not slow CPU emulation during playback.
+
+WAV always works with no FFmpeg. The compressed formats use an external
+`ffmpeg` executable from PATH, without a shell. If encoding fails, the
+temporary uncompressed WAV is retained beside the chosen output path,
+so the captured sound is not lost. Install FFmpeg on Ubuntu with
+`sudo apt install ffmpeg` (or `pacman -S mingw-w64-ucrt-x86_64-ffmpeg`
+in MSYS2 UCRT64). Verify WAV exporting with `make test-sound-export`.
+
 ## PPA-SOUND/1: per-channel ADSR envelopes
 
 Each of the four SOUND/1 oscillators now contains an independent
