@@ -4,10 +4,32 @@ Build from the repository root:
 
 ```sh
 make modules examples
-# Stage 1: assembler generates out/examples/*.prg (64 KiB program)
-# Stage 2: ROMPACK generates out/examples/*.bin (2 MiB EEPROM)
+# Stage 1: assembler generates out/examples/<category>/*.prg
+# Stage 2: ROMPACK generates out/examples/<category>/*.bin (2 MiB EEPROM)
 # Cards: out/modules/*.ppamod
 ```
+
+## Directory layout and custom programs
+
+Built-in ASM examples are grouped in `irq/`, `other/`, `ppamod/`,
+`ps2/`, `sound/` and `vga/`. The shared ASM libraries live in
+`includes/`. Output paths preserve the source category, for example:
+
+```text
+examples/sound/sound_tone.asm -> out/examples/sound/sound_tone.bin
+```
+
+Put your own ASM programs in `examples/custom/`:
+
+```sh
+make custom-examples                             # all personal programs
+make out/examples/custom/my_program.bin          # a single program
+make all-examples                               # built-in + custom
+```
+
+Regular `make` and `make examples` intentionally skip `custom/`, so
+unfinished personal programs cannot break the default build.
+See [custom/README.md](custom/README.md) for details.
 
 ## MetroDriver moved to its own repository
 
@@ -47,7 +69,7 @@ make rompack
 make rom-graphics-demo BMP=/path/to/your-art.bmp
 ```
 
-Load `out/examples/rom_gfx_demo_packed.bin` in the emulator, with VGA and PS/2 installed and active in **any slots**; open the VGA VIEW.
+Load `out/examples/other/rom_gfx_demo_packed.bin` in the emulator, with VGA and PS/2 installed and active in **any slots**; open the VGA VIEW.
 Press **W** to reload the bitmap. Without an image, `rom_gfx_demo.bin`
 displays a diagnostic solid background. The imported image lives in
 **ROM bank 0001**, the CPU code in ROM bank 0000, and visible graphics
@@ -56,7 +78,7 @@ in the VGA card's discovered VRAM bank (base bank + 1).
 For arbitrary binaries or several independent images:
 
 ```sh
-out/tools/ppa_rompack out/examples/rom_gfx_demo.prg out/custom.bin \
+out/tools/ppa_rompack out/examples/other/rom_gfx_demo.prg out/custom.bin \
   --bmp 0001:/path/to/background.bmp \
   --put 0002:0100:/path/to/data.bin --info
 ```
@@ -75,7 +97,8 @@ without producing separate `.bankXXXX.bin` files.
 make midi-gui                            # compile only
 ./out/tools/PPA-1_MIDI-to-ASM /path/to/song.mid
 # Select tracks and waveforms, then choose SAVE ASM AS.
-make out/examples/song.bin
+# Copy the generated ASM into examples/custom/song.asm first.
+make out/examples/custom/song.bin
 ```
 
 The **single ASM** contains the executable player in ROM bank `0000`
