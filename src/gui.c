@@ -3035,6 +3035,9 @@ int ppa_gui_run_panel(const char *initial_rom,
     AuxWindow modules_window = {0};
     AuxWindow module_detail_windows[8] = {{0}};
     ModuleDialogState module_file = {0};
+    SoundRenderDialogState sound_render_dialog = {0};
+    PpaSoundExport sound_recorders[PPAM_SLOTS] = {{0}};
+    PpaSoundExportFormat sound_formats[PPAM_SLOTS] = {0};
     TerminalWindow uart_terminal = {0};
     bool layout_dirty = false;
     Uint64 last_layout_save = 0;
@@ -4283,7 +4286,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                 open_aux(&module_detail_windows[slot],
                                          AUX_MODULE_DETAIL, title,
                                          info.type == 3 ? 1280 : 540,
-                                         info.type == 3 ? 800 : 510);
+                                         info.type == 3 ? 800 : (info.type == 2 ? 620 : 510));
                                 module_detail_windows[slot].slot_index = slot;
                                 if (info.type == 3 && module_detail_windows[slot].renderer)
                                 {
@@ -4294,6 +4297,13 @@ int ppa_gui_run_panel(const char *initial_rom,
                                         1280, 800,
                                         SDL_LOGICAL_PRESENTATION_LETTERBOX);
                                 }
+                                if (info.type == 2 && module_detail_windows[slot].renderer)
+                                {
+                                    SDL_SetRenderLogicalPresentation(
+                                        module_detail_windows[slot].renderer,
+                                        540, 620,
+                                        SDL_LOGICAL_PRESENTATION_LETTERBOX);
+                                }
                                 if (info.type == 4 && module_detail_windows[slot].window)
                                     SDL_StartTextInput(module_detail_windows[slot].window);
                                 if (config && module_detail_windows[slot].window)
@@ -4301,7 +4311,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                     if (!config->modules[slot].visible)
                                         restore_module_window(&module_detail_windows[slot],
                                                               &config->modules[slot],
-                                                              info.type == 3);
+                                                              info.type == 3, info.type == 2);
                                     config->modules[slot].visible = true;
                                     store_module_window(&module_detail_windows[slot],
                                                         &config->modules[slot]);
@@ -4936,15 +4946,22 @@ int ppa_gui_run_panel(const char *initial_rom,
         }
         if (redraw)
         {
-            draw_aux_window(&prefs_window, &fonts, &prefs, backend);
-            draw_aux_window(&view_window, &fonts, &prefs, backend);
-            draw_aux_window(&hex_window, &fonts, &prefs, backend);
-            draw_aux_window(&log_window, &fonts, &prefs, backend);
-            draw_aux_window(&credits_window, &fonts, &prefs, backend);
-            draw_aux_window(&modules_window, &fonts, &prefs, backend);
+            draw_aux_window(&prefs_window, &fonts, &prefs, backend,
+                            sound_recorders, sound_formats);
+            draw_aux_window(&view_window, &fonts, &prefs, backend,
+                            sound_recorders, sound_formats);
+            draw_aux_window(&hex_window, &fonts, &prefs, backend,
+                            sound_recorders, sound_formats);
+            draw_aux_window(&log_window, &fonts, &prefs, backend,
+                            sound_recorders, sound_formats);
+            draw_aux_window(&credits_window, &fonts, &prefs, backend,
+                            sound_recorders, sound_formats);
+            draw_aux_window(&modules_window, &fonts, &prefs, backend,
+                            sound_recorders, sound_formats);
             for (int slot = 0; slot < 8; ++slot)
                 draw_aux_window(&module_detail_windows[slot],
-                                &fonts, &prefs, backend);
+                                &fonts, &prefs, backend,
+                                sound_recorders, sound_formats);
             draw_terminal(&uart_terminal, &fonts, backend);
         }
         SDL_Delay(1);
