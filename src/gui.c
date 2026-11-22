@@ -1,4 +1,5 @@
 #include "../modules/ppa_monitor.h"
+#include "../modules/ppa_sound_export.h"
 #include "gui.h"
 #include "logger.h"
 
@@ -382,6 +383,15 @@ typedef struct
 
 typedef struct
 {
+    bool dialog_open;
+    bool start_requested;
+    int slot;
+    PpaSoundExportFormat format;
+    char path[1024];
+} SoundRenderDialogState;
+
+typedef struct
+{
     TTF_Font *title;
     TTF_Font *badge;
     TTF_Font *section;
@@ -622,6 +632,19 @@ static void export_dialog_callback(void *userdata,
     snprintf(state->path, sizeof(state->path), "%s", filelist[0]);
     state->export_requested = true;
     ppa_log_printf("GUI: selected EEPROM export path: %s\n", state->path);
+}
+
+static void sound_render_dialog_callback(void *userdata,
+                                         const char *const *filelist,
+                                         int filter)
+{
+    (void)filter;
+    SoundRenderDialogState *state = userdata;
+    if (!state) return;
+    state->dialog_open = false;
+    if (!filelist || !filelist[0]) return;
+    snprintf(state->path, sizeof(state->path), "%s", filelist[0]);
+    state->start_requested = true;
 }
 
 static const char *find_regular_font(void)
@@ -2168,11 +2191,12 @@ static void store_module_window(const AuxWindow *aux, PpaModuleLayout *layout)
 }
 /* Reopening any module restores its native logical dimensions. */
 static void restore_module_window(AuxWindow *aux, const PpaModuleLayout *layout,
-                                  bool vga)
+                                  bool vga, bool sound)
 {
     if (!aux || !aux->window)
         return;
-    SDL_SetWindowSize(aux->window, vga ? 1280 : 540, vga ? 800 : 510);
+    SDL_SetWindowSize(aux->window, vga ? 1280 : 540,
+                      vga ? 800 : (sound ? 620 : 510));
     if (layout && layout->x != -1 && layout->y != -1)
         SDL_SetWindowPosition(aux->window, layout->x, layout->y);
 }
@@ -2261,7 +2285,9 @@ static void open_aux(AuxWindow *aux, AuxKind kind, const char *title, int w, int
 
 static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
                             Preferences *prefs,
-                            const PPA1GuiBackend *backend)
+                            const PPA1GuiBackend *backend,
+                            const PpaSoundExport *recorders,
+                            const PpaSoundExportFormat *formats)
 {
     if (!aux || !aux->renderer || !aux->window)
         return;
@@ -2702,7 +2728,19 @@ static void draw_aux_window(AuxWindow *aux, PanelFonts *fonts,
         if (backend->module_info)
             backend->module_info(backend->ctx, aux->slot_index, &info);
         if (info.installed)
+        {
+            if (info.type == 2 && aux->slot_index >= 0 &&
+                aux->slot_index < PPAM_SLOTS)
+            {
+                int slot = aux->slot_index;
+                info.render_format = (uint8_t)formats[slot];
+                info.rendering = recorders[slot].active;
+                info.rendered_frames = recorders[slot].frames;
+                snprintf(info.render_status, sizeof(info.render_status),
+                         "%s", recorders[slot].status);
+            }
             ppa_module_ui_draw(r, fonts->small, &info, aux->slot_index);
+        }
         else
             draw_aux_header(r, fonts, "PPAMOD", "MODULE NOT INSTALLED");
     }
