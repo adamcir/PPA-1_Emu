@@ -113,5 +113,9 @@ uint8_t ppam_read(PpaModuleBus *bus, uint16_t bank, uint16_t addr);
 void ppam_write(PpaModuleBus *bus, uint16_t bank, uint16_t addr, uint8_t value);
 void ppam_mix_audio(PpaModuleBus *bus, int16_t *output, uint32_t frames,
                     uint32_t sample_rate);
+/* Optional interleaved 24-bit signed stems: stems[frame * PPAM_SLOTS + slot].
+ * The synth advances once; NULL skips the extra output. */
+void ppam_mix_audio_stems(PpaModuleBus *bus, int16_t *output,
+                          int32_t *stems, uint32_t frames, uint32_t sample_rate);
 const PpaModule *ppam_get(const PpaModuleBus *bus, int slot);
 #endif
