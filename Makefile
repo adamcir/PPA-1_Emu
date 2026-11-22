@@ -19,7 +19,7 @@ SRC = src/main.c src/logger.c src/gui.c src/config.c \
 EMU_HEADERS = src/gui.h src/logger.h src/config.h src/irq.h \
               modules/ppa_module.h modules/ppa_sound.h modules/ppa_light.h modules/ppa_vga.h modules/ppa_ps2.h \
               modules/ppa_module_ui.h modules/ppa_module_draw.h \
-              modules/ppa_sound_gui.h modules/ppa_light_gui.h modules/ppa_vga_gui.h \
+              modules/ppa_sound_gui.h modules/ppa_sound_export.h modules/ppa_light_gui.h modules/ppa_vga_gui.h \
               modules/ppa_monitor.h modules/ppa_ps2_gui.h
 ASM_SRC = tools/asm/ppa-1_asm.c
 ASM = out/asm/ppa-1_asm
@@ -72,6 +72,16 @@ out/ppa_module_test: modules/ppa_module.c modules/ppa_sound.c modules/ppa_light.
 test-modules: modules out/ppa_module_test
 	./out/ppa_module_test
 
+# PPA-SOUND/1 PCM WAV export test (no SDL or FFmpeg dependency).
+.PHONY: test-sound-export
+out/ppa_sound_export_test: modules/ppa_sound_export_test.c modules/ppa_sound_export.c modules/ppa_sound_export.h
+	mkdir -p out
+	$(CC) -std=c11 -O2 -Wall -Wextra -Imodules \
+	  modules/ppa_sound_export_test.c modules/ppa_sound_export.c -o $@
+
+test-sound-export: out/ppa_sound_export_test
+	./out/ppa_sound_export_test
+
 # PPA-SOUND/1 envelope tests (module code only, no SDL dependency).
 .PHONY: test-sound-adsr
 out/ppa_sound_adsr_test: modules/ppa_sound_adsr_test.c modules/ppa_sound.c modules/ppa_sound.h modules/ppa_module.h
@@ -123,7 +133,7 @@ rom-graphics-demo: out/examples/other/rom_gfx_demo.prg $(ROMPACK)
 # Keep runtime preferences and logs across clean rebuilds.
 clean:
 	rm -rf out/asm out/examples out/modules out/assets out/tools
-	rm -f out/PPA-1_Emu out/ppa_module_test out/irq_test
+	rm -f out/PPA-1_Emu out/ppa_module_test out/irq_test out/ppa_sound_adsr_test out/ppa_sound_export_test
 
 .PHONY: test-rompack
 test-rompack: $(ROMPACK)
@@ -158,7 +168,7 @@ out/tools/test_midi_browser: tools/ppa-1_midi-to-asm/test_browser.c tools/ppa-1_
 test-midi-browser: out/tools/test_midi_browser
 	./out/tools/test_midi_browser
 
-test-midi: test-midi-native test-midi-browser test-sound-adsr
+test-midi: test-midi-native test-midi-browser test-sound-adsr test-sound-export
 
 midi-gui midi-tui: $(MIDI_TUI)
 
