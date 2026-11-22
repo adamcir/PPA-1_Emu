@@ -4240,7 +4240,7 @@ int ppa_gui_run_panel(const char *initial_rom,
                                         {
                                             bool ok = ppa_sound_export_stop(&sound_recorders[slot]);
                                             ppa_log_printf(
-                                                "SOUND SLOT %d: export %s: %s\\n",
+                                                "SOUND SLOT %d: export %s: %s\n",
                                                 slot + 1, ok ? "saved" : "failed",
                                                 sound_recorders[slot].path);
                                         }
