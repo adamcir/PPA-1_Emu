@@ -21,6 +21,12 @@ typedef struct {
     bool voice_enabled[4];
     int8_t scope[128];
 
+    /* Host recording controls - not exposed as emulated I/O registers. */
+    uint8_t render_format;
+    bool rendering;
+    uint64_t rendered_frames;
+    char render_status[128];
+
     bool vga_enabled;
     uint8_t vga_mode;
     uint8_t vga_border;
