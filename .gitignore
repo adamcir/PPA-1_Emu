@@ -58,3 +58,4 @@ dkms.conf
 demos/
 out/
 examples/custom/*
+!examples/custom/README.md
