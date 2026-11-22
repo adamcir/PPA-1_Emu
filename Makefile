@@ -26,19 +26,25 @@ ASM = out/asm/ppa-1_asm
 ROMPACK_SRC = tools/rompack/ppa_rompack.c
 ROMPACK = out/tools/ppa_rompack
 
-EXAMPLE_SRCS := $(wildcard examples/*.asm)
+# Built-in examples are grouped by category. Custom programs are opt-in
+# so unfinished user ASM files cannot break the standard 'make all'.
+EXAMPLE_SRCS := $(filter-out examples/custom/%,$(wildcard examples/*/*.asm))
+CUSTOM_EXAMPLE_SRCS := $(wildcard examples/custom/*.asm)
 EXAMPLE_PROGRAMS := $(patsubst examples/%.asm,out/examples/%.prg,$(EXAMPLE_SRCS))
 EXAMPLE_BINS := $(patsubst examples/%.asm,out/examples/%.bin,$(EXAMPLE_SRCS))
+CUSTOM_EXAMPLE_PROGRAMS := $(patsubst examples/%.asm,out/examples/%.prg,$(CUSTOM_EXAMPLE_SRCS))
+CUSTOM_EXAMPLE_BINS := $(patsubst examples/%.asm,out/examples/%.bin,$(CUSTOM_EXAMPLE_SRCS))
 MODULE_DEMOS := $(wildcard modules/*_demo.asm)
 MODULE_DEMO_PROGRAMS := $(patsubst modules/%.asm,out/examples/%.prg,$(MODULE_DEMOS))
 MODULE_DEMO_BINS := $(patsubst modules/%.asm,out/examples/%.bin,$(MODULE_DEMOS))
 
-# Keep the assembler output as a real, inspectable intermediate file.
+# Keep assembler outputs as real, inspectable intermediate files.
 .PRECIOUS: out/examples/%.prg
+.SECONDARY: $(EXAMPLE_PROGRAMS) $(CUSTOM_EXAMPLE_PROGRAMS) $(MODULE_DEMO_PROGRAMS)
 MODULE_DEFS := $(wildcard modules/*.json)
 MODULE_BINS := $(patsubst modules/%.json,out/modules/%.ppamod,$(MODULE_DEFS))
 
-.PHONY: all clean run asm emu examples sound-examples modules test-modules test-irq
+.PHONY: all clean run asm emu examples custom-examples all-examples sound-examples modules test-modules test-irq
 all: asm emu modules examples midi-gui
 
 out/asm out/examples out/modules out/tools:
@@ -83,17 +89,23 @@ out/irq_test: src/irq.c src/irq.h src/irq_test.c
 test-irq: out/irq_test
 	./out/irq_test
 
-# Every game/demo now uses ASM -> program bank -> ROMPACK -> final EEPROM.
-out/examples/%.prg: examples/%.asm $(ASM) $(wildcard examples/includes/*.inc) | out/examples
+# Category paths are preserved (e.g. examples/sound/tone.asm ->
+# out/examples/sound/tone.prg -> out/examples/sound/tone.bin).
+out/examples/%.prg: examples/%.asm $(ASM) $(wildcard examples/includes/*.inc)
+	@mkdir -p $(dir $@)
 	$(ASM) $< $@ --program
-out/examples/%_demo.prg: modules/%_demo.asm $(ASM) $(wildcard examples/includes/*.inc) | out/examples
+out/examples/%_demo.prg: modules/%_demo.asm $(ASM) $(wildcard examples/includes/*.inc)
+	@mkdir -p $(dir $@)
 	$(ASM) $< $@ --program
 
 out/examples/%.bin: out/examples/%.prg $(ROMPACK)
+	@mkdir -p $(dir $@)
 	$(ROMPACK) $< $@
 
 examples: $(EXAMPLE_BINS) $(MODULE_DEMO_BINS)
-sound-examples: examples
+custom-examples: $(CUSTOM_EXAMPLE_BINS)
+all-examples: examples custom-examples
+sound-examples: $(filter out/examples/sound/%,$(EXAMPLE_BINS))
 
 $(ROMPACK): $(ROMPACK_SRC) | out/tools
 	$(CC) -O2 -std=gnu11 -Wall -Wextra $< -o $@
@@ -102,11 +114,11 @@ rompack: $(ROMPACK)
 # Build demo from game/graphics ASM libraries, then insert any 320x200 BMP.
 # e.g. make rom-graphics-demo BMP=~/Pictures/my_gimp_export.bmp
 .PHONY: rom-graphics-demo rompack
-rom-graphics-demo: out/examples/rom_gfx_demo.prg $(ROMPACK)
+rom-graphics-demo: out/examples/other/rom_gfx_demo.prg $(ROMPACK)
 	@if [ -z "$(BMP)" ]; then \
 	  echo "Usage: make rom-graphics-demo BMP=/path/to/gimp-export.bmp"; exit 1; \
 	fi
-	$(ROMPACK) out/examples/rom_gfx_demo.prg out/examples/rom_gfx_demo_packed.bin --bmp 0001:$(BMP)
+	$(ROMPACK) out/examples/other/rom_gfx_demo.prg out/examples/other/rom_gfx_demo_packed.bin --bmp 0001:$(BMP)
 
 # Keep runtime preferences and logs across clean rebuilds.
 clean:
