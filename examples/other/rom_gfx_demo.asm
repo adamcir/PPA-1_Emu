@@ -4,7 +4,7 @@
 ; Requires PPA-VGA/1 and PPA-PS/2/1 in any active PPAMOD slots.
 ; To install a 320x200 BMP into ROM 0001 use:
 ;   make rom-graphics-demo BMP=path/to/exported-from-gimp.bmp
-; Then load out/examples/rom_gfx_demo_packed.bin in the PPA-1 emulator.
+; Then load out/examples/other/rom_gfx_demo_packed.bin in the PPA-1 emulator.
 ; W: redraw the packed BMP from ROM to VGA. Without one, fallback stripes.
 .org $0000
     JMP start
