@@ -647,6 +647,27 @@ static void sound_render_dialog_callback(void *userdata,
     state->start_requested = true;
 }
 
+/* The format selector owns the extension; never pass a mismatched
+ * extension to FFmpeg (the save dialog may return the typed name verbatim). */
+static bool sound_render_output_path(char *dst, size_t size,
+                                     const char *selected,
+                                     PpaSoundExportFormat format)
+{
+    const char *ext = ppa_sound_export_extension(format);
+    if (!dst || !selected || !*selected || !ext) return false;
+    size_t length = strlen(selected);
+    const char *slash = strrchr(selected, '/');
+    const char *backslash = strrchr(selected, '\\');
+    if (!slash || (backslash && backslash > slash)) slash = backslash;
+    const char *dot = strrchr(selected, '.');
+    if (dot && (!slash || dot > slash)) length = (size_t)(dot - selected);
+    if (length + 1 + strlen(ext) + 1 > size) return false;
+    memcpy(dst, selected, length);
+    dst[length] = '.';
+    strcpy(dst + length + 1, ext);
+    return true;
+}
+
 static const char *find_regular_font(void)
 {
     static const char *paths[] = {
