@@ -12,6 +12,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build native ROM packer and ASM graphics demo
         run: make rompack out/examples/other/rom_gfx_demo.bin
+      - name: Assemble all categorized examples
+        run: make examples
+      - name: Smoke-test personal ASM in examples/custom
+        run: |
+          printf '.org $0000\n    HLT\n' > examples/custom/ci_custom.asm
+          make custom-examples
+          test -s out/examples/custom/ci_custom.prg
+          test -s out/examples/custom/ci_custom.bin
       - name: Verify example's intermediate and EEPROM image
         run: |
           python3 - <<'PY'
