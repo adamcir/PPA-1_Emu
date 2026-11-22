@@ -1843,14 +1843,15 @@ static void gui_dump_cpu_state(const GuiBackendContext *g,
                     g->cpu);
 }
 
-static void gui_backend_module_audio(void *ctx, int16_t *out,
+static void gui_backend_module_audio(void *ctx, int16_t *out, int32_t *stems,
                                      uint32_t frames, uint32_t sample_rate) {
     GuiBackendContext *g = ctx;
     if (!g || !g->powered) {
         memset(out, 0, frames * sizeof(*out));
+        if (stems) memset(stems, 0, (size_t)frames * PPAM_SLOTS * sizeof(*stems));
         return;
     }
-    ppam_mix_audio(&g_ppa_modules, out, frames, sample_rate);
+    ppam_mix_audio_stems(&g_ppa_modules, out, stems, frames, sample_rate);
 }
 
 static bool gui_backend_module_load(void *ctx, int slot, const char *path) {
