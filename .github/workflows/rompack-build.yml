@@ -11,13 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build native ROM packer and ASM graphics demo
-        run: make rompack out/examples/rom_gfx_demo.bin
+        run: make rompack out/examples/other/rom_gfx_demo.bin
       - name: Verify example's intermediate and EEPROM image
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          program=Path("out/examples/rom_gfx_demo.prg").read_bytes()
-          rom=Path("out/examples/rom_gfx_demo.bin").read_bytes()
+          program=Path("out/examples/other/rom_gfx_demo.prg").read_bytes()
+          rom=Path("out/examples/other/rom_gfx_demo.bin").read_bytes()
           assert len(program)==65536
           assert len(rom)==2*1024*1024
           assert rom[:65536]==program
@@ -38,9 +38,9 @@ jobs:
           make rom-graphics-demo BMP=/tmp/demo.bmp
           python3 - <<'PY'
           from pathlib import Path
-          d=Path("out/examples/rom_gfx_demo_packed.bin").read_bytes()
+          d=Path("out/examples/other/rom_gfx_demo_packed.bin").read_bytes()
           assert len(d)==2*1024*1024
-          assert d[:65536]==Path("out/examples/rom_gfx_demo.prg").read_bytes()
+          assert d[:65536]==Path("out/examples/other/rom_gfx_demo.prg").read_bytes()
           assert d[65536:65540]==b"PIMG"
           print("Graphics example packed and ready")
           PY
